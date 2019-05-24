@@ -1,0 +1,18 @@
+[package]
+name = "accountmerge"
+version = "0.1.0"
+authors = ["John Beisley <johnbeisleyuk@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+chrono = "0.4"
+csv = "1"
+encoding_rs = "0.8"
+encoding_rs_io = "0.1"
+failure = "0.1"
+failure_derive = "0.1"
+lazy_static = "1"
+regex = "1"
+serde = "1"
+serde_derive = "1"
+structopt = "0.2"
