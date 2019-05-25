@@ -7,7 +7,7 @@ use failure::Error;
 use regex::Regex;
 use serde::{de, de::DeserializeOwned, Deserialize, Deserializer};
 
-use crate::bank::{InputTransaction,Paid};
+use crate::bank::{InputTransaction, Paid};
 use crate::money::GbpValue;
 
 #[derive(Debug, Fail)]
@@ -21,18 +21,6 @@ enum ReadError {
 impl ReadError {
     fn bad_file_format(reason: &'static str) -> ReadError {
         ReadError::BadFileFormat { reason }
-    }
-
-    fn check_header(want: &'static str, got: &str) -> Result<(), ReadError> {
-        if want != got {
-            Err(ReadError::BadHeaderRecord {
-                want,
-                got: got.to_string(),
-            }
-            .into())
-        } else {
-            Ok(())
-        }
     }
 }
 
@@ -61,13 +49,13 @@ pub fn transactions_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<InputTransa
 
     let acct_name: AccountName = deserialize_required_record(&mut csv_records)?
         .ok_or(ReadError::bad_file_format("missing account name"))?;
-    ReadError::check_header("Account Name:", &acct_name.header)?;
+    check_header("Account Name:", &acct_name.header)?;
     let balance: AccountQuantity = deserialize_required_record(&mut csv_records)?
         .ok_or(ReadError::bad_file_format("missing account balance"))?;
-    ReadError::check_header("Account Balance:", &balance.header)?;
+    check_header("Account Balance:", &balance.header)?;
     let available: AccountQuantity = deserialize_required_record(&mut csv_records)?
         .ok_or(ReadError::bad_file_format("missing available balance"))?;
-    ReadError::check_header("Available Balance:", &available.header)?;
+    check_header("Available Balance:", &available.header)?;
 
     read_transactions(&acct_name.account_name, &mut csv_records)
 }
@@ -81,27 +69,31 @@ fn read_transactions<R: std::io::Read>(
     if headers.len() != 6 {
         return Err(ReadError::bad_file_format("expected 6 headers for transactions").into());
     }
-    ReadError::check_header("Date", &headers[0])?;
-    ReadError::check_header("Transaction type", &headers[1])?;
-    ReadError::check_header("Description", &headers[2])?;
-    ReadError::check_header("Paid out", &headers[3])?;
-    ReadError::check_header("Paid in", &headers[4])?;
-    ReadError::check_header("Balance", &headers[5])?;
+    check_header("Date", &headers[0])?;
+    check_header("Transaction type", &headers[1])?;
+    check_header("Description", &headers[2])?;
+    check_header("Paid out", &headers[3])?;
+    check_header("Paid in", &headers[4])?;
+    check_header("Balance", &headers[5])?;
 
     let mut transactions = Vec::new();
     for result in csv_records {
         let str_record = result?;
         let record: DeTransaction = str_record.deserialize(None)?;
-        transactions.push(InputTransaction{
+        transactions.push(InputTransaction {
             src_bank: "nationwide".to_string(),
             src_acct: account_name.to_string(),
             date: record.date.0,
             type_: record.type_,
             description: record.description,
             paid: match (record.paid_in, record.paid_out) {
-                    (Some(DeGbpValue(v)), None) => Paid::In(v),
-                    (None, Some(DeGbpValue(v))) => Paid::Out(v),
-                    _ => return Err(ReadError::bad_file_format("expected either paid in or paid out").into()),
+                (Some(DeGbpValue(v)), None) => Paid::In(v),
+                (None, Some(DeGbpValue(v))) => Paid::Out(v),
+                _ => {
+                    return Err(
+                        ReadError::bad_file_format("expected either paid in or paid out").into(),
+                    )
+                }
             },
             balance: record.balance.0,
         });
@@ -112,11 +104,11 @@ fn read_transactions<R: std::io::Read>(
 #[derive(Debug, Deserialize)]
 struct DeTransaction {
     date: InputDate,
-     type_: String,
-     description: String,
-     paid_out: Option<DeGbpValue>,
-     paid_in: Option<DeGbpValue>,
-     balance: DeGbpValue,
+    type_: String,
+    description: String,
+    paid_out: Option<DeGbpValue>,
+    paid_in: Option<DeGbpValue>,
+    balance: DeGbpValue,
 }
 
 #[derive(Debug)]
@@ -172,6 +164,18 @@ impl<'de> de::Visitor<'de> for DeGbpValueVisitor {
         Ok(DeGbpValue(GbpValue {
             pence: pounds * 100 + pence,
         }))
+    }
+}
+
+fn check_header(want: &'static str, got: &str) -> Result<(), ReadError> {
+    if want != got {
+        Err(ReadError::BadHeaderRecord {
+            want,
+            got: got.to_string(),
+        }
+        .into())
+    } else {
+        Ok(())
     }
 }
 
