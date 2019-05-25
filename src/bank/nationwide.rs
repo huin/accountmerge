@@ -7,6 +7,9 @@ use failure::Error;
 use regex::Regex;
 use serde::{de, de::DeserializeOwned, Deserialize, Deserializer};
 
+use crate::bank::{InputTransaction,Paid};
+use crate::money::GbpValue;
+
 #[derive(Debug, Fail)]
 enum ReadError {
     #[fail(display = "bad file format: {}", reason)]
@@ -42,85 +45,82 @@ struct AccountName {
 #[derive(Debug, Deserialize)]
 struct AccountQuantity {
     header: String,
-    amount: GbpValue,
+    amount: DeGbpValue,
 }
 
-pub struct Statement {
-    pub account_name: String,
-    pub closing_balance: GbpValue,
-    pub available_balance: GbpValue,
-    pub transactions: Vec<Transaction>,
+pub fn transactions_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<InputTransaction>, Error> {
+    let reader = encoding_rs_io::DecodeReaderBytesBuilder::new()
+        .encoding(Some(encoding_rs::WINDOWS_1252))
+        .build(File::open(path)?);
+    let mut csv_rdr = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .trim(csv::Trim::All)
+        .from_reader(reader);
+    let mut csv_records = csv_rdr.records();
+
+    let acct_name: AccountName = deserialize_required_record(&mut csv_records)?
+        .ok_or(ReadError::bad_file_format("missing account name"))?;
+    ReadError::check_header("Account Name:", &acct_name.header)?;
+    let balance: AccountQuantity = deserialize_required_record(&mut csv_records)?
+        .ok_or(ReadError::bad_file_format("missing account balance"))?;
+    ReadError::check_header("Account Balance:", &balance.header)?;
+    let available: AccountQuantity = deserialize_required_record(&mut csv_records)?
+        .ok_or(ReadError::bad_file_format("missing available balance"))?;
+    ReadError::check_header("Available Balance:", &available.header)?;
+
+    read_transactions(&acct_name.account_name, &mut csv_records)
 }
 
-impl Statement {
-    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Statement, Error> {
-        let reader = encoding_rs_io::DecodeReaderBytesBuilder::new()
-            .encoding(Some(encoding_rs::WINDOWS_1252))
-            .build(File::open(path)?);
-        let mut csv_rdr = csv::ReaderBuilder::new()
-            .has_headers(false)
-            .flexible(true)
-            .trim(csv::Trim::All)
-            .from_reader(reader);
-        let mut csv_records = csv_rdr.records();
-
-        let acct_name: AccountName = deserialize_required_record(&mut csv_records)?
-            .ok_or(ReadError::bad_file_format("missing account name"))?;
-        ReadError::check_header("Account Name:", &acct_name.header)?;
-        let balance: AccountQuantity = deserialize_required_record(&mut csv_records)?
-            .ok_or(ReadError::bad_file_format("missing account balance"))?;
-        ReadError::check_header("Account Balance:", &balance.header)?;
-        let available: AccountQuantity = deserialize_required_record(&mut csv_records)?
-            .ok_or(ReadError::bad_file_format("missing available balance"))?;
-        ReadError::check_header("Available Balance:", &available.header)?;
-
-        let transactions = Self::read_transactions(&mut csv_records)?;
-
-        Ok(Statement {
-            account_name: acct_name.account_name,
-            closing_balance: balance.amount,
-            available_balance: available.amount,
-            transactions,
-        })
+fn read_transactions<R: std::io::Read>(
+    account_name: &str,
+    csv_records: &mut csv::StringRecordsIter<R>,
+) -> Result<Vec<InputTransaction>, Error> {
+    let headers: Vec<String> = deserialize_required_record(csv_records)?
+        .ok_or(ReadError::bad_file_format("missing transaction headers"))?;
+    if headers.len() != 6 {
+        return Err(ReadError::bad_file_format("expected 6 headers for transactions").into());
     }
+    ReadError::check_header("Date", &headers[0])?;
+    ReadError::check_header("Transaction type", &headers[1])?;
+    ReadError::check_header("Description", &headers[2])?;
+    ReadError::check_header("Paid out", &headers[3])?;
+    ReadError::check_header("Paid in", &headers[4])?;
+    ReadError::check_header("Balance", &headers[5])?;
 
-    fn read_transactions<R: std::io::Read>(
-        csv_records: &mut csv::StringRecordsIter<R>,
-    ) -> Result<Vec<Transaction>, Error> {
-        let headers: Vec<String> = deserialize_required_record(csv_records)?
-            .ok_or(ReadError::bad_file_format("missing transaction headers"))?;
-        if headers.len() != 6 {
-            return Err(ReadError::bad_file_format("expected 6 headers for transactions").into());
-        }
-        ReadError::check_header("Date", &headers[0])?;
-        ReadError::check_header("Transaction type", &headers[1])?;
-        ReadError::check_header("Description", &headers[2])?;
-        ReadError::check_header("Paid out", &headers[3])?;
-        ReadError::check_header("Paid in", &headers[4])?;
-        ReadError::check_header("Balance", &headers[5])?;
-
-        let mut transactions = Vec::new();
-        for result in csv_records {
-            let str_record = result?;
-            let record: Transaction = str_record.deserialize(None)?;
-            transactions.push(record);
-        }
-        Ok(transactions)
+    let mut transactions = Vec::new();
+    for result in csv_records {
+        let str_record = result?;
+        let record: DeTransaction = str_record.deserialize(None)?;
+        transactions.push(InputTransaction{
+            src_bank: "nationwide".to_string(),
+            src_acct: account_name.to_string(),
+            date: record.date.0,
+            type_: record.type_,
+            description: record.description,
+            paid: match (record.paid_in, record.paid_out) {
+                    (Some(DeGbpValue(v)), None) => Paid::In(v),
+                    (None, Some(DeGbpValue(v))) => Paid::Out(v),
+                    _ => return Err(ReadError::bad_file_format("expected either paid in or paid out").into()),
+            },
+            balance: record.balance.0,
+        });
     }
+    Ok(transactions)
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Transaction {
-    pub date: InputDate,
-    pub type_: String,
-    pub description: String,
-    pub paid_out: Option<GbpValue>,
-    pub paid_in: Option<GbpValue>,
-    pub balance: GbpValue,
+struct DeTransaction {
+    date: InputDate,
+     type_: String,
+     description: String,
+     paid_out: Option<DeGbpValue>,
+     paid_in: Option<DeGbpValue>,
+     balance: DeGbpValue,
 }
 
 #[derive(Debug)]
-pub struct InputDate(pub NaiveDate);
+struct InputDate(NaiveDate);
 
 impl<'de> Deserialize<'de> for InputDate {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -143,39 +143,18 @@ impl<'de> de::Visitor<'de> for InputDateVisitor {
     }
 }
 
-pub struct GbpValue {
-    pub pence: i32,
-}
+#[derive(Debug)]
+struct DeGbpValue(GbpValue);
 
-impl GbpValue {
-    pub fn parts(&self) -> (i32, i32) {
-        (self.pence / 100, self.pence % 100)
-    }
-}
-
-impl fmt::Debug for GbpValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        let parts = self.parts();
-        write!(f, "GbpValue({}.{})", parts.0, parts.1)
-    }
-}
-
-impl fmt::Display for GbpValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        let parts = self.parts();
-        write!(f, "GBP {}.{}", parts.0, parts.1)
-    }
-}
-
-impl<'de> Deserialize<'de> for GbpValue {
+impl<'de> Deserialize<'de> for DeGbpValue {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        d.deserialize_str(GbpValueVisitor)
+        d.deserialize_str(DeGbpValueVisitor)
     }
 }
 
-struct GbpValueVisitor;
-impl<'de> de::Visitor<'de> for GbpValueVisitor {
-    type Value = GbpValue;
+struct DeGbpValueVisitor;
+impl<'de> de::Visitor<'de> for DeGbpValueVisitor {
+    type Value = DeGbpValue;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("a monetary value string £NNN.NN format")
@@ -190,9 +169,9 @@ impl<'de> de::Visitor<'de> for GbpValueVisitor {
             .ok_or_else(|| de::Error::custom("incorrect monetary format"))?;
         let pounds: i32 = deserialize_captured_number(&captures, 1)?;
         let pence: i32 = deserialize_captured_number(&captures, 2)?;
-        Ok(GbpValue {
+        Ok(DeGbpValue(GbpValue {
             pence: pounds * 100 + pence,
-        })
+        }))
     }
 }
 

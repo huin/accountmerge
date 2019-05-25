@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use structopt::StructOpt;
 
 mod bank;
+mod money;
 
 #[derive(Debug, StructOpt)]
 struct Opt {
@@ -27,11 +28,8 @@ struct Opt {
 
 fn main() -> Result<(), Box<std::error::Error>> {
     let opt = Opt::from_args();
-    let statement = bank::nationwide::Statement::from_path(&opt.input)?;
-    println!("Account name: {}", statement.account_name);
-    println!("Closing Balance: {}", statement.closing_balance);
-    println!("Available Balance: {}", statement.available_balance);
-    for record in &statement.transactions {
+    let transactions = bank::nationwide::transactions_from_path(&opt.input)?;
+    for record in &transactions {
         println!("{:?}", record);
     }
     Ok(())
