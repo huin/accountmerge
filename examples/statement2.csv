@@ -1,0 +1,7 @@
+"Account Name:","Savings"
+"Account Balance:","£805.00"
+"Available Balance: ","£805.00"
+
+"Date","Transaction type","Description","Paid out","Paid in","Balance"
+"05 Jan 2019","Transfer","Transfer from Current","","£100.00","£800.00"
+"09 Jan 2019","Interest","Interest earned","","£5.00","£805.00"
