@@ -2,7 +2,7 @@ use chrono::NaiveDate;
 
 use crate::money::GbpValue;
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum Paid {
     In(GbpValue),
     Out(GbpValue),

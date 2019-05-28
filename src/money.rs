@@ -1,5 +1,6 @@
 use std::fmt;
 
+#[derive(Clone,Copy)]
 pub struct GbpValue {
     pub pence: i32,
 }
@@ -21,6 +22,14 @@ impl fmt::Display for GbpValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         let parts = self.parts();
         write!(f, "GBP {}.{:02}", parts.0, parts.1.abs())
+    }
+}
+
+impl std::ops::Neg for GbpValue {
+    type Output = Self;
+
+    fn neg(self) -> Self {
+        GbpValue{pence:-self.pence}
     }
 }
 
