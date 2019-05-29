@@ -1,6 +1,8 @@
+use std::convert::TryInto;
 use std::fmt;
 use std::fs::File;
 use std::path::Path;
+use std::str::FromStr;
 
 use chrono::NaiveDate;
 use failure::Error;
@@ -87,8 +89,8 @@ fn read_transactions<R: std::io::Read>(
             type_: record.type_,
             description: record.description,
             paid: match (record.paid_in, record.paid_out) {
-                (Some(DeGbpValue(v)), None) => Paid::In(v),
-                (None, Some(DeGbpValue(v))) => Paid::Out(v),
+                (Some(DeGbpValue(v)), None) => Paid::In(v.try_into()?),
+                (None, Some(DeGbpValue(v))) => Paid::Out(v.try_into()?),
                 _ => {
                     return Err(
                         ReadError::bad_file_format("expected either paid in or paid out").into(),
@@ -193,7 +195,12 @@ where
     }
 }
 
-fn deserialize_captured_number<E: de::Error>(c: &regex::Captures, i: usize) -> Result<i32, E> {
+fn deserialize_captured_number<T, E>(c: &regex::Captures, i: usize) -> Result<T, E>
+where
+    T: FromStr,
+    E: de::Error,
+    <T as FromStr>::Err: fmt::Display,
+{
     c.get(i)
         .unwrap()
         .as_str()

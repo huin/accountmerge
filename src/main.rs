@@ -15,6 +15,7 @@ extern crate structopt;
 
 use std::path::PathBuf;
 
+use failure::Error;
 use structopt::StructOpt;
 
 mod bank;
@@ -33,7 +34,8 @@ fn main() -> Result<(), Box<std::error::Error>> {
     for record in &input_transactions {
         println!("{:?}", record);
     }
-    let output_transactions: Vec<_> = input_transactions.into_iter().map(to_output).collect();
+    let output_transactions_result: Result<Vec<_>, Error> = input_transactions.into_iter().map(to_output).collect();
+    let output_transactions = output_transactions_result?;
     for trn in &output_transactions {
         println!("{}", trn);
     }
@@ -42,19 +44,16 @@ fn main() -> Result<(), Box<std::error::Error>> {
 
 // temporary function to test output format. It's not (entirely) useful until we're labelling
 // accounts properly.
-fn to_output(in_trn: bank::InputTransaction) -> output::Transaction {
+fn to_output(in_trn: bank::InputTransaction) -> Result<output::Transaction, Error> {
     use bank::Paid;
     use output::*;
-    Transaction {
+    Ok(Transaction {
         date: in_trn.date,
         description: format!("{} - {}", in_trn.type_, in_trn.description),
         postings: vec![
             Posting {
                 account: format!("assets::account::{}", in_trn.src_acct),
-                amount: match in_trn.paid {
-                    Paid::In(v) => v,
-                    Paid::Out(v) => -v,
-                },
+                amount: in_trn.paid.src_acct_amt()?,
             },
             Posting {
                 account: if let Paid::In(_) = in_trn.paid {
@@ -62,11 +61,8 @@ fn to_output(in_trn: bank::InputTransaction) -> output::Transaction {
                 } else {
                     "expenses::unknown".to_string()
                 },
-                amount: match in_trn.paid {
-                    Paid::In(v) => -v,
-                    Paid::Out(v) => v,
-                },
+                amount: in_trn.paid.dest_acct_amt()?,
             },
         ],
-    }
+    })
 }
