@@ -21,6 +21,7 @@ use structopt::StructOpt;
 mod bank;
 mod money;
 mod output;
+mod rule;
 
 #[derive(Debug, StructOpt)]
 struct Opt {
@@ -34,7 +35,8 @@ fn main() -> Result<(), Box<std::error::Error>> {
     for record in &input_transactions {
         println!("{:?}", record);
     }
-    let output_transactions_result: Result<Vec<_>, Error> = input_transactions.into_iter().map(to_output).collect();
+    let output_transactions_result: Result<Vec<_>, Error> =
+        input_transactions.into_iter().map(to_output).collect();
     let output_transactions = output_transactions_result?;
     for trn in &output_transactions {
         println!("{}", trn);
@@ -63,7 +65,7 @@ fn to_output(in_trn: bank::InputTransaction) -> Result<output::Transaction, Erro
                     "expenses::unknown".to_string()
                 },
                 amount: in_trn.paid.dest_acct_amt()?,
-                balance:None,
+                balance: None,
             },
         ],
     })
