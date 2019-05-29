@@ -30,10 +30,15 @@ impl fmt::Display for Transaction {
 pub struct Posting {
     pub account: String,
     pub amount: GbpValue,
+    pub balance: Option<GbpValue>,
 }
 
 impl fmt::Display for Posting {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}  {}", self.account, self.amount)
+        write!(f, "{}  {}", self.account, self.amount)?;
+        if let Some(balance) = &self.balance {
+            write!(f, "  ={}", balance)?;
+        }
+        Ok(())
     }
 }

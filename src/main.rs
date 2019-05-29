@@ -54,6 +54,7 @@ fn to_output(in_trn: bank::InputTransaction) -> Result<output::Transaction, Erro
             Posting {
                 account: format!("assets::account::{}", in_trn.src_acct),
                 amount: in_trn.paid.src_acct_amt()?,
+                balance: Some(in_trn.balance),
             },
             Posting {
                 account: if let Paid::In(_) = in_trn.paid {
@@ -62,6 +63,7 @@ fn to_output(in_trn: bank::InputTransaction) -> Result<output::Transaction, Erro
                     "expenses::unknown".to_string()
                 },
                 amount: in_trn.paid.dest_acct_amt()?,
+                balance:None,
             },
         ],
     })
