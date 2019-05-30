@@ -1,0 +1,16 @@
+Table(
+  chains: {
+    "start": RuleChain(
+      rules: [
+        Rule(
+          predicate: True,
+          action: SetSrcAccount("assets::account::unknown"),
+        ),
+        Rule(
+          predicate: True,
+          action: SetSrcAccount("assets::account::unknown"),
+        ),
+      ],
+    ),
+  },
+)

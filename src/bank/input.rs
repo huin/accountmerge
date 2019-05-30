@@ -2,7 +2,7 @@ use std::convert::TryInto;
 
 use chrono::NaiveDate;
 
-use crate::money::{GbpValue, UnsignedGbpValue, MoneyError};
+use crate::money::{GbpValue, MoneyError, UnsignedGbpValue};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Paid {
@@ -29,7 +29,7 @@ impl Paid {
 #[derive(Debug)]
 pub struct InputTransaction {
     pub src_bank: String,
-    pub src_acct: String,
+    pub account_name: String,
     pub date: NaiveDate,
     pub type_: String,
     pub description: String,

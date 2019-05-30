@@ -84,7 +84,7 @@ fn read_transactions<R: std::io::Read>(
         let record: DeTransaction = str_record.deserialize(None)?;
         transactions.push(InputTransaction {
             src_bank: "nationwide".to_string(),
-            src_acct: account_name.to_string(),
+            account_name: account_name.to_string(),
             date: record.date.0,
             type_: record.type_,
             description: record.description,

@@ -8,6 +8,7 @@ extern crate failure_derive;
 #[macro_use]
 extern crate lazy_static;
 extern crate regex;
+extern crate ron;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -27,13 +28,19 @@ mod rule;
 struct Opt {
     #[structopt(parse(from_os_str))]
     input: PathBuf,
+    #[structopt(short = "r", long = "rules")]
+    rules: PathBuf,
 }
 
-fn main() -> Result<(), Box<std::error::Error>> {
+fn main() -> Result<(), Error> {
     let opt = Opt::from_args();
+    let rules = rule::Table::from_path(&opt.rules)?;
+    println!("{:?}", rules);
     let input_transactions = bank::nationwide::transactions_from_path(&opt.input)?;
     for record in &input_transactions {
         println!("{:?}", record);
+        let cmp = rules.derive_components(record)?;
+        println!("{:?}", cmp);
     }
     let output_transactions_result: Result<Vec<_>, Error> =
         input_transactions.into_iter().map(to_output).collect();
@@ -54,7 +61,10 @@ fn to_output(in_trn: bank::InputTransaction) -> Result<output::Transaction, Erro
         description: format!("{} - {}", in_trn.type_, in_trn.description),
         postings: vec![
             Posting {
-                account: format!("assets::account::{}", in_trn.src_acct),
+                account: format!(
+                    "assets::account::{}",
+                    in_trn.account_name
+                ),
                 amount: in_trn.paid.src_acct_amt()?,
                 balance: Some(in_trn.balance),
             },
