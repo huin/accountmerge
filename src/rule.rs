@@ -22,7 +22,7 @@ pub struct DerivedComponents {
 
 #[derive(Debug, Deserialize)]
 pub struct Table {
-    chains: HashMap<String, RuleChain>,
+    chains: HashMap<String, Chain>,
 }
 
 impl Table {
@@ -43,7 +43,7 @@ impl Table {
         Ok(cmp)
     }
 
-    fn get_chain(&self, name: &str) -> Result<&RuleChain, RuleError> {
+    fn get_chain(&self, name: &str) -> Result<&Chain, RuleError> {
         self.chains
             .get(name)
             .ok_or_else(|| RuleError::ChainNotFound {
@@ -53,11 +53,11 @@ impl Table {
 }
 
 #[derive(Debug, Deserialize)]
-struct RuleChain {
+struct Chain {
     rules: Vec<Rule>,
 }
 
-impl RuleChain {
+impl Chain {
     fn apply(&self, trn: &InputTransaction, cmp: &mut DerivedComponents) {
         for rule in &self.rules {
             match rule.apply(trn, cmp) {

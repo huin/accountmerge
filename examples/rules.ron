@@ -1,6 +1,6 @@
 Table(
   chains: {
-    "start": RuleChain(
+    "start": Chain(
       rules: [
         Rule(
           predicate: True,
