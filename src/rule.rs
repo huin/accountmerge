@@ -37,15 +37,18 @@ impl Table {
         &self,
         trn: &InputTransaction,
     ) -> Result<DerivedComponents, RuleError> {
-        let start = self
-            .chains
-            .get(START_CHAIN)
-            .ok_or_else(|| RuleError::ChainNotFound {
-                chain: START_CHAIN.to_string(),
-            })?;
+        let start = self.get_chain(START_CHAIN)?;
         let mut cmp = DerivedComponents::default();
         start.apply(trn, &mut cmp);
         Ok(cmp)
+    }
+
+    fn get_chain(&self, name: &str) -> Result<&RuleChain, RuleError> {
+        self.chains
+            .get(name)
+            .ok_or_else(|| RuleError::ChainNotFound {
+                chain: name.to_string(),
+            })
     }
 }
 
