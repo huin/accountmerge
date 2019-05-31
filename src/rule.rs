@@ -20,7 +20,7 @@ pub struct DerivedComponents {
     pub dest_account: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct Table {
     chains: HashMap<String, Chain>,
 }
@@ -60,7 +60,7 @@ impl Table {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct Chain {
     rules: Vec<Rule>,
 }
@@ -174,6 +174,46 @@ mod tests {
     use crate::bank::Paid;
     use crate::money::{GbpValue, UnsignedGbpValue};
 
+    struct TableBuilder {
+        table: Table,
+    }
+    impl TableBuilder {
+        fn new() -> Self {
+            TableBuilder {
+                table: Table::default(),
+            }
+        }
+
+        fn chain(mut self, name: &str, chain: Chain) -> Self {
+            self.table.chains.insert(name.to_string(), chain);
+            self
+        }
+
+        fn build(self) -> Table {
+            self.table
+        }
+    }
+
+    struct ChainBuilder {
+        chain: Chain,
+    }
+    impl ChainBuilder {
+        fn new() -> Self {
+            ChainBuilder {
+                chain: Chain::default(),
+            }
+        }
+
+        fn rule(mut self, action: Action, predicate: Predicate) -> Self {
+            self.chain.rules.push(Rule { action, predicate });
+            self
+        }
+
+        fn build(self) -> Chain {
+            self.chain
+        }
+    }
+
     #[test]
     fn apply() {
         struct Test {
@@ -184,9 +224,7 @@ mod tests {
         };
         let tests = vec![Test {
             name: "empty chain",
-            table: Table {
-                chains: hashmap!["start".to_string() => Chain { rules: vec![] }],
-            },
+            table: TableBuilder::new().chain("start", Chain::default()).build(),
             trn: InputTransaction {
                 src_bank: "foo bank".to_string(),
                 account_name: "foo account".to_string(),
@@ -214,27 +252,19 @@ mod tests {
         let tests = vec![
             Test(
                 "empty start chain",
-                Table {
-                    chains: hashmap![
-                        "start".to_string() => Chain{rules: vec![]},
-                    ],
-                },
+                TableBuilder::new().chain("start", Chain::default()).build(),
             ),
             Test(
                 "jump to other chain",
-                Table {
-                    chains: hashmap![
-                        "start".to_string() => Chain{
-                            rules: vec![
-                                Rule{
-                                    action: Action::JumpChain("other".to_string()),
-                                    predicate: Predicate::True,
-                                },
-                            ],
-                        },
-                        "other".to_string() => Chain{rules:vec![]},
-                    ],
-                },
+                TableBuilder::new()
+                    .chain(
+                        "start",
+                        ChainBuilder::new()
+                            .rule(Action::JumpChain("other".to_string()), Predicate::True)
+                            .build(),
+                    )
+                    .chain("other", Chain::default())
+                    .build(),
             ),
         ];
 
@@ -249,35 +279,24 @@ mod tests {
         let tests = vec![
             Test(
                 "no start chain",
-                Table {
-                    chains: hashmap![
-                        "foo".to_string() => Chain{rules:vec![]},
-                    ],
-                },
+                TableBuilder::new().chain("foo", Chain::default()).build(),
             ),
             Test(
                 "jump to non existing chain",
-                Table {
-                    chains: hashmap![
-                        "start".to_string() => Chain{
-                            rules: vec![
-                                Rule{
-                                    action: Action::JumpChain("foo".to_string()),
-                                    predicate: Predicate::True,
-                                },
-                            ],
-                        },
-                        "foo".to_string() => Chain{
-                            rules: vec![
-                                Rule{
-                                    action: Action::JumpChain("not exist".to_string()),
-                                    predicate: Predicate::True,
-                                },
-                            ],
-                        },
-
-                    ],
-                },
+                TableBuilder::new()
+                    .chain(
+                        "start",
+                        ChainBuilder::new()
+                            .rule(Action::JumpChain("foo".to_string()), Predicate::True)
+                            .build(),
+                    )
+                    .chain(
+                        "other",
+                        ChainBuilder::new()
+                            .rule(Action::JumpChain("not exist".to_string()), Predicate::True)
+                            .build(),
+                    )
+                    .build(),
             ),
         ];
 
