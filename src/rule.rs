@@ -39,7 +39,7 @@ impl Table {
     ) -> Result<DerivedComponents, RuleError> {
         let start = self.get_chain(START_CHAIN)?;
         let mut cmp = DerivedComponents::default();
-        start.apply(trn, &mut cmp);
+        start.apply(self, trn, &mut cmp)?;
         Ok(cmp)
     }
 
@@ -66,13 +66,19 @@ struct Chain {
 }
 
 impl Chain {
-    fn apply(&self, trn: &InputTransaction, cmp: &mut DerivedComponents) {
+    fn apply(
+        &self,
+        table: &Table,
+        trn: &InputTransaction,
+        cmp: &mut DerivedComponents,
+    ) -> Result<(), RuleError> {
         for rule in &self.rules {
-            match rule.apply(trn, cmp) {
+            match rule.apply(table, trn, cmp)? {
                 RuleResult::Continue => {}
-                RuleResult::Return => return,
+                RuleResult::Return => break,
             }
         }
+        Ok(())
     }
 
     fn validate(&self, table: &Table) -> Result<(), RuleError> {
@@ -90,11 +96,16 @@ struct Rule {
 }
 
 impl Rule {
-    fn apply(&self, trn: &InputTransaction, cmp: &mut DerivedComponents) -> RuleResult {
+    fn apply(
+        &self,
+        table: &Table,
+        trn: &InputTransaction,
+        cmp: &mut DerivedComponents,
+    ) -> Result<RuleResult, RuleError> {
         if self.predicate.is_match(trn) {
-            self.action.apply(trn, cmp)
+            self.action.apply(table, trn, cmp)
         } else {
-            RuleResult::Continue
+            Ok(RuleResult::Continue)
         }
     }
 
@@ -117,19 +128,26 @@ enum Action {
 }
 
 impl Action {
-    fn apply(&self, _trn: &InputTransaction, cmp: &mut DerivedComponents) -> RuleResult {
+    fn apply(
+        &self,
+        table: &Table,
+        trn: &InputTransaction,
+        cmp: &mut DerivedComponents,
+    ) -> Result<RuleResult, RuleError> {
         use Action::*;
 
         match self {
-            JumpChain(_) => unimplemented!(),
-            Return => return RuleResult::Return,
+            JumpChain(name) => {
+                table.get_chain(name)?.apply(table, trn, cmp)?;
+            }
+            Return => return Ok(RuleResult::Return),
             SetSrcAccount(v) => {
                 cmp.source_account = Some(v.clone());
             }
             SetDestAccount(_) => unimplemented!(),
         }
 
-        RuleResult::Continue
+        Ok(RuleResult::Continue)
     }
 
     fn validate(&self, table: &Table) -> Result<(), RuleError> {
@@ -238,6 +256,26 @@ mod tests {
         }
     }
 
+    struct DerivedComponentsBuilder {
+        cmp: DerivedComponents,
+    }
+    impl DerivedComponentsBuilder {
+        fn new() -> Self {
+            DerivedComponentsBuilder {
+                cmp: DerivedComponents::default(),
+            }
+        }
+
+        fn source_account(mut self, account: &str) -> Self {
+            self.cmp.source_account = Some(account.to_string());
+            self
+        }
+
+        fn build(self) -> DerivedComponents {
+            self.cmp
+        }
+    }
+
     fn jump_chain(chain: &str) -> Action {
         Action::JumpChain(chain.to_string())
     }
@@ -247,22 +285,68 @@ mod tests {
         struct Test {
             name: &'static str,
             table: Table,
+            cases: Vec<Case>,
+        };
+        struct Case {
             trn: InputTransaction,
             want: DerivedComponents,
-        };
-        let tests = vec![Test {
-            name: "empty chain",
-            table: TableBuilder::new().chain("start", Chain::default()).build(),
-            trn: InputTransactionBuilder::new().build(),
-            want: DerivedComponents {
-                source_account: None,
-                dest_account: None,
+        }
+        let tests = vec![
+            Test {
+                name: "empty chain",
+                table: TableBuilder::new().chain("start", Chain::default()).build(),
+                cases: vec![Case {
+                    trn: InputTransactionBuilder::new().build(),
+                    want: DerivedComponents::default(),
+                }],
             },
-        }];
+            Test {
+                name: "set account",
+                table: TableBuilder::new()
+                    .chain(
+                        "start",
+                        ChainBuilder::new()
+                            .rule(Action::SetSrcAccount("foo".to_string()), Predicate::True)
+                            .build(),
+                    )
+                    .build(),
+                cases: vec![Case {
+                    trn: InputTransactionBuilder::new().build(),
+                    want: DerivedComponentsBuilder::new()
+                        .source_account("foo")
+                        .build(),
+                }],
+            },
+            Test {
+                name: "set account in jumped chain",
+                table: TableBuilder::new()
+                    .chain(
+                        "start",
+                        ChainBuilder::new()
+                            .rule(jump_chain("some-chain"), Predicate::True)
+                            .build(),
+                    )
+                    .chain(
+                        "some-chain",
+                        ChainBuilder::new()
+                            .rule(Action::SetSrcAccount("foo".to_string()), Predicate::True)
+                            .build(),
+                    )
+                    .build(),
+                cases: vec![Case {
+                    trn: InputTransactionBuilder::new().build(),
+                    want: DerivedComponentsBuilder::new()
+                        .source_account("foo")
+                        .build(),
+                }],
+            },
+        ];
 
-        for t in &tests {
-            let cmp = t.table.derive_components(&t.trn).unwrap();
-            assert_eq!(t.want, cmp, "for test {}", t.name);
+        for test in &tests {
+            for (i, case) in test.cases.iter().enumerate() {
+                let cmp = test.table.derive_components(&case.trn).unwrap();
+                assert_eq!(case.want, cmp, "for test {}#{}", test.name, i);
+            }
         }
     }
 
