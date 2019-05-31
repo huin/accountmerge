@@ -16,8 +16,8 @@ pub enum RuleError {
 
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct DerivedComponents {
-    pub source_account: Option<String>,
     pub dest_account: Option<String>,
+    pub source_account: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -123,8 +123,8 @@ enum RuleResult {
 enum Action {
     JumpChain(String),
     Return,
-    SetSrcAccount(String),
     SetDestAccount(String),
+    SetSrcAccount(String),
 }
 
 impl Action {
@@ -141,10 +141,12 @@ impl Action {
                 table.get_chain(name)?.apply(table, trn, cmp)?;
             }
             Return => return Ok(RuleResult::Return),
+            SetDestAccount(v) => {
+                cmp.dest_account = Some(v.clone());
+            }
             SetSrcAccount(v) => {
                 cmp.source_account = Some(v.clone());
             }
-            SetDestAccount(_) => unimplemented!(),
         }
 
         Ok(RuleResult::Continue)
@@ -266,6 +268,11 @@ mod tests {
             }
         }
 
+        fn dest_account(mut self, account: &str) -> Self {
+            self.cmp.dest_account = Some(account.to_string());
+            self
+        }
+
         fn source_account(mut self, account: &str) -> Self {
             self.cmp.source_account = Some(account.to_string());
             self
@@ -301,7 +308,7 @@ mod tests {
                 }],
             },
             Test {
-                name: "set account",
+                name: "set source account",
                 table: TableBuilder::new()
                     .chain(
                         "start",
@@ -315,6 +322,21 @@ mod tests {
                     want: DerivedComponentsBuilder::new()
                         .source_account("foo")
                         .build(),
+                }],
+            },
+            Test {
+                name: "set dest account",
+                table: TableBuilder::new()
+                    .chain(
+                        "start",
+                        ChainBuilder::new()
+                            .rule(Action::SetDestAccount("bar".to_string()), Predicate::True)
+                            .build(),
+                    )
+                    .build(),
+                cases: vec![Case {
+                    trn: InputTransactionBuilder::new().build(),
+                    want: DerivedComponentsBuilder::new().dest_account("bar").build(),
                 }],
             },
             Test {
