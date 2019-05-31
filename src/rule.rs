@@ -340,6 +340,22 @@ mod tests {
                         .build(),
                 }],
             },
+            Test {
+                name: "return before set account",
+                table: TableBuilder::new()
+                    .chain(
+                        "start",
+                        ChainBuilder::new()
+                            .rule(Action::Return, Predicate::True)
+                            .rule(Action::SetSrcAccount("foo".to_string()), Predicate::True)
+                            .build(),
+                    )
+                    .build(),
+                cases: vec![Case {
+                    trn: InputTransactionBuilder::new().build(),
+                    want: DerivedComponentsBuilder::new().build(),
+                }],
+            },
         ];
 
         for test in &tests {
