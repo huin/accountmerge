@@ -163,9 +163,7 @@ impl<'de> de::Visitor<'de> for DeGbpValueVisitor {
             .ok_or_else(|| de::Error::custom("incorrect monetary format"))?;
         let pounds: i32 = deserialize_captured_number(&captures, 1)?;
         let pence: i32 = deserialize_captured_number(&captures, 2)?;
-        Ok(DeGbpValue(GbpValue {
-            pence: pounds * 100 + pence,
-        }))
+        Ok(DeGbpValue(GbpValue::from_parts(pounds, pence)))
     }
 }
 

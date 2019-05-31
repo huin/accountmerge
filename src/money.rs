@@ -38,7 +38,7 @@ impl TryFrom<GbpValue> for UnsignedGbpValue {
         value
             .pence
             .try_into()
-            .map(|pence| UnsignedGbpValue { pence })
+            .map(UnsignedGbpValue::from_pence)
             .map_err(|_| MoneyError::Negative { value: value.pence })
     }
 }
@@ -49,6 +49,10 @@ pub struct GbpValue {
 }
 
 impl GbpValue {
+    pub fn from_parts(pounds: i32, pence: i32) -> Self {
+        GbpValue::from_pence(pounds * 100 + pence)
+    }
+
     pub fn from_pence(pence: i32) -> Self {
         GbpValue { pence }
     }
@@ -80,7 +84,7 @@ impl TryFrom<UnsignedGbpValue> for GbpValue {
         value
             .pence
             .try_into()
-            .map(|pence| GbpValue { pence })
+            .map(GbpValue::from_pence)
             .map_err(|_| MoneyError::Overflow { value: value.pence })
     }
 }
