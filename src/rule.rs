@@ -214,6 +214,10 @@ mod tests {
         }
     }
 
+    fn jump_chain(chain: &str) -> Action {
+        Action::JumpChain(chain.to_string())
+    }
+
     #[test]
     fn apply() {
         struct Test {
@@ -260,10 +264,10 @@ mod tests {
                     .chain(
                         "start",
                         ChainBuilder::new()
-                            .rule(Action::JumpChain("other".to_string()), Predicate::True)
+                            .rule(jump_chain("foo"), Predicate::True)
                             .build(),
                     )
-                    .chain("other", Chain::default())
+                    .chain("foo", Chain::default())
                     .build(),
             ),
         ];
@@ -287,13 +291,13 @@ mod tests {
                     .chain(
                         "start",
                         ChainBuilder::new()
-                            .rule(Action::JumpChain("foo".to_string()), Predicate::True)
+                            .rule(jump_chain("foo"), Predicate::True)
                             .build(),
                     )
                     .chain(
-                        "other",
+                        "foo",
                         ChainBuilder::new()
-                            .rule(Action::JumpChain("not exist".to_string()), Predicate::True)
+                            .rule(jump_chain("not-exist"), Predicate::True)
                             .build(),
                     )
                     .build(),
