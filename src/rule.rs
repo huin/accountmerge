@@ -14,7 +14,7 @@ pub enum RuleError {
     ChainNotFound { chain: String },
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Eq, PartialEq)]
 pub struct DerivedComponents {
     pub source_account: Option<String>,
     pub dest_account: Option<String>,
@@ -168,6 +168,45 @@ enum StringMatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use chrono::NaiveDate;
+
+    use crate::bank::Paid;
+    use crate::money::{GbpValue, UnsignedGbpValue};
+
+    #[test]
+    fn apply() {
+        struct Test {
+            name: &'static str,
+            table: Table,
+            trn: InputTransaction,
+            want: DerivedComponents,
+        };
+        let tests = vec![Test {
+            name: "empty chain",
+            table: Table {
+                chains: hashmap!["start".to_string() => Chain { rules: vec![] }],
+            },
+            trn: InputTransaction {
+                src_bank: "foo bank".to_string(),
+                account_name: "foo account".to_string(),
+                date: NaiveDate::from_ymd(2000, 1, 5),
+                type_: "Withdrawal".to_string(),
+                description: "".to_string(),
+                paid: Paid::In(UnsignedGbpValue::from_pence(100)),
+                balance: GbpValue::from_pence(200),
+            },
+            want: DerivedComponents {
+                source_account: None,
+                dest_account: None,
+            },
+        }];
+
+        for t in &tests {
+            let cmp = t.table.derive_components(&t.trn).unwrap();
+            assert_eq!(t.want, cmp, "for test {}", t.name);
+        }
+    }
 
     #[test]
     fn validate_valid_tables() {

@@ -1,12 +1,12 @@
-use std::convert::{TryFrom,TryInto};
+use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
 #[derive(Debug, Fail)]
 pub enum MoneyError {
     #[fail(display = "overflow in converting value {}", value)]
-    Overflow{value :u32},
-    #[fail(display="negative value {} in positive context", value)]
-    Negative{value:i32},
+    Overflow { value: u32 },
+    #[fail(display = "negative value {} in positive context", value)]
+    Negative { value: i32 },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -15,6 +15,10 @@ pub struct UnsignedGbpValue {
 }
 
 impl UnsignedGbpValue {
+    pub fn from_pence(pence: u32) -> Self {
+        UnsignedGbpValue { pence }
+    }
+
     pub fn parts(&self) -> (u32, u32) {
         (self.pence / 100, self.pence % 100)
     }
@@ -30,10 +34,12 @@ impl fmt::Display for UnsignedGbpValue {
 impl TryFrom<GbpValue> for UnsignedGbpValue {
     type Error = MoneyError;
 
-    fn try_from(value: GbpValue)->Result<Self, Self::Error> {
-        value.pence.try_into()
-            .map(|pence| UnsignedGbpValue{pence})
-            .map_err(|_| MoneyError::Negative{value:value.pence})
+    fn try_from(value: GbpValue) -> Result<Self, Self::Error> {
+        value
+            .pence
+            .try_into()
+            .map(|pence| UnsignedGbpValue { pence })
+            .map_err(|_| MoneyError::Negative { value: value.pence })
     }
 }
 
@@ -43,6 +49,10 @@ pub struct GbpValue {
 }
 
 impl GbpValue {
+    pub fn from_pence(pence: i32) -> Self {
+        GbpValue { pence }
+    }
+
     pub fn parts(&self) -> (i32, i32) {
         (self.pence / 100, self.pence % 100)
     }
@@ -66,10 +76,12 @@ impl std::ops::Neg for GbpValue {
 impl TryFrom<UnsignedGbpValue> for GbpValue {
     type Error = MoneyError;
 
-    fn try_from(value: UnsignedGbpValue)->Result<Self, Self::Error> {
-        value.pence.try_into()
-            .map(|pence| GbpValue{pence})
-            .map_err(|_| MoneyError::Overflow{value:value.pence})
+    fn try_from(value: UnsignedGbpValue) -> Result<Self, Self::Error> {
+        value
+            .pence
+            .try_into()
+            .map(|pence| GbpValue { pence })
+            .map_err(|_| MoneyError::Overflow { value: value.pence })
     }
 }
 
