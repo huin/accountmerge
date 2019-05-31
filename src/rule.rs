@@ -28,9 +28,9 @@ pub struct Table {
 impl Table {
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
         let reader = File::open(path)?;
-        // TODO: Error if no chain is named "start", and other consistency
-        // checks.
-        ron::de::from_reader(reader).map_err(std::convert::Into::into)
+        let table: Table = ron::de::from_reader(reader)?;
+        table.validate()?;
+        Ok(table)
     }
 
     pub fn derive_components(
@@ -50,6 +50,14 @@ impl Table {
                 chain: name.to_string(),
             })
     }
+
+    fn validate(&self) -> Result<(), RuleError> {
+        self.get_chain(START_CHAIN)?;
+        for (_, chain) in &self.chains {
+            chain.validate(self)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,6 +74,13 @@ impl Chain {
             }
         }
     }
+
+    fn validate(&self, table: &Table) -> Result<(), RuleError> {
+        for r in &self.rules {
+            r.validate(table)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,6 +96,10 @@ impl Rule {
         } else {
             RuleResult::Continue
         }
+    }
+
+    fn validate(&self, table: &Table) -> Result<(), RuleError> {
+        self.action.validate(table)
     }
 }
 
@@ -112,6 +131,15 @@ impl Action {
 
         RuleResult::Continue
     }
+
+    fn validate(&self, table: &Table) -> Result<(), RuleError> {
+        use Action::*;
+
+        match self {
+            JumpChain(name) => table.get_chain(name).map(|_| ()),
+            _ => Ok(()),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -135,4 +163,88 @@ impl Predicate {
 #[derive(Debug, Deserialize)]
 enum StringMatch {
     Eq(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_valid_tables() {
+        struct Test(&'static str, Table);
+        let tests = vec![
+            Test(
+                "empty start chain",
+                Table {
+                    chains: hashmap![
+                        "start".to_string() => Chain{rules: vec![]},
+                    ],
+                },
+            ),
+            Test(
+                "jump to other chain",
+                Table {
+                    chains: hashmap![
+                        "start".to_string() => Chain{
+                            rules: vec![
+                                Rule{
+                                    action: Action::JumpChain("other".to_string()),
+                                    predicate: Predicate::True,
+                                },
+                            ],
+                        },
+                        "other".to_string() => Chain{rules:vec![]},
+                    ],
+                },
+            ),
+        ];
+
+        for t in &tests {
+            t.1.validate().expect(&format!("{} => should succeed", t.0));
+        }
+    }
+
+    #[test]
+    fn validate_invalid_tables() {
+        struct Test(&'static str, Table);
+        let tests = vec![
+            Test(
+                "no start chain",
+                Table {
+                    chains: hashmap![
+                        "foo".to_string() => Chain{rules:vec![]},
+                    ],
+                },
+            ),
+            Test(
+                "jump to non existing chain",
+                Table {
+                    chains: hashmap![
+                        "start".to_string() => Chain{
+                            rules: vec![
+                                Rule{
+                                    action: Action::JumpChain("foo".to_string()),
+                                    predicate: Predicate::True,
+                                },
+                            ],
+                        },
+                        "foo".to_string() => Chain{
+                            rules: vec![
+                                Rule{
+                                    action: Action::JumpChain("not exist".to_string()),
+                                    predicate: Predicate::True,
+                                },
+                            ],
+                        },
+
+                    ],
+                },
+            ),
+        ];
+
+        for t in &tests {
+            t.1.validate()
+                .expect_err(&format!("{} => should fail", t.0));
+        }
+    }
 }

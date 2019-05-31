@@ -13,6 +13,9 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate structopt;
+#[cfg(test)]
+#[macro_use]
+extern crate maplit;
 
 use std::path::PathBuf;
 
