@@ -214,6 +214,30 @@ mod tests {
         }
     }
 
+    /// Build an `InputTransaction` for testing.
+    struct InputTransactionBuilder {
+        trn: InputTransaction,
+    }
+    impl InputTransactionBuilder {
+        fn new() -> Self {
+            InputTransactionBuilder {
+                trn: InputTransaction {
+                    src_bank: "foo bank".to_string(),
+                    account_name: "foo account".to_string(),
+                    date: NaiveDate::from_ymd(2000, 1, 5),
+                    type_: "Withdrawal".to_string(),
+                    description: "".to_string(),
+                    paid: Paid::In(UnsignedGbpValue::from_pence(100)),
+                    balance: GbpValue::from_pence(200),
+                },
+            }
+        }
+
+        fn build(self) -> InputTransaction {
+            self.trn
+        }
+    }
+
     fn jump_chain(chain: &str) -> Action {
         Action::JumpChain(chain.to_string())
     }
@@ -229,15 +253,7 @@ mod tests {
         let tests = vec![Test {
             name: "empty chain",
             table: TableBuilder::new().chain("start", Chain::default()).build(),
-            trn: InputTransaction {
-                src_bank: "foo bank".to_string(),
-                account_name: "foo account".to_string(),
-                date: NaiveDate::from_ymd(2000, 1, 5),
-                type_: "Withdrawal".to_string(),
-                description: "".to_string(),
-                paid: Paid::In(UnsignedGbpValue::from_pence(100)),
-                balance: GbpValue::from_pence(200),
-            },
+            trn: InputTransactionBuilder::new().build(),
             want: DerivedComponents {
                 source_account: None,
                 dest_account: None,
