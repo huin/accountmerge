@@ -165,6 +165,8 @@ impl Action {
 #[derive(Debug, Deserialize)]
 enum Predicate {
     True,
+    All(Vec<Predicate>),
+    Any(Vec<Predicate>),
     InputAccountName(StringMatch),
     InputBank(StringMatch),
 }
@@ -174,8 +176,10 @@ impl Predicate {
         use Predicate::*;
         match self {
             True => true,
+            All(preds) => preds.iter().all(|p| p.is_match(trn)),
+            Any(preds) => preds.iter().any(|p| p.is_match(trn)),
             InputAccountName(matcher) => matcher.matches_string(&trn.account_name),
-            InputBank(_) => unimplemented!(),
+            InputBank(matcher) => matcher.matches_string(&trn.bank),
         }
     }
 }
@@ -252,7 +256,7 @@ mod tests {
         fn new() -> Self {
             InputTransactionBuilder {
                 trn: InputTransaction {
-                    src_bank: "foo bank".to_string(),
+                    bank: "foo bank".to_string(),
                     account_name: "foo account".to_string(),
                     date: NaiveDate::from_ymd(2000, 1, 5),
                     type_: "Withdrawal".to_string(),
@@ -265,6 +269,11 @@ mod tests {
 
         fn account_name(mut self, account_name: &str) -> Self {
             self.trn.account_name = account_name.to_string();
+            self
+        }
+
+        fn bank(mut self, bank: &str) -> Self {
+            self.trn.bank = bank.to_string();
             self
         }
 
@@ -426,6 +435,147 @@ mod tests {
                     Case {
                         trn: InputTransactionBuilder::new().account_name("quux").build(),
                         want: DerivedComponentsBuilder::new().build(),
+                    },
+                ],
+            },
+            Test {
+                name: "set account based on input bank",
+                table: TableBuilder::new()
+                    .chain(
+                        "start",
+                        ChainBuilder::new()
+                            .rule(
+                                Action::SetSrcAccount("assets::foo".to_string()),
+                                Predicate::InputBank(StringMatch::Eq("foo".to_string())),
+                            )
+                            .build(),
+                    )
+                    .build(),
+                cases: vec![
+                    Case {
+                        trn: InputTransactionBuilder::new().bank("foo").build(),
+                        want: DerivedComponentsBuilder::new()
+                            .source_account("assets::foo")
+                            .build(),
+                    },
+                    Case {
+                        trn: InputTransactionBuilder::new().bank("bar").build(),
+                        want: DerivedComponentsBuilder::new().build(),
+                    },
+                ],
+            },
+            Test {
+                name: "set account based on various boolean conditions",
+                table: TableBuilder::new()
+                    .chain(
+                        "start",
+                        ChainBuilder::new()
+                            .rule(
+                                Action::SetSrcAccount("assets::acct1-bank1".to_string()),
+                                Predicate::All(vec![
+                                    Predicate::InputAccountName(StringMatch::Eq(
+                                        "acct1".to_string(),
+                                    )),
+                                    Predicate::InputBank(StringMatch::Eq("bank1".to_string())),
+                                ]),
+                            )
+                            .rule(
+                                Action::SetSrcAccount("assets::acct1-bank2".to_string()),
+                                Predicate::All(vec![
+                                    Predicate::InputAccountName(StringMatch::Eq(
+                                        "acct1".to_string(),
+                                    )),
+                                    Predicate::InputBank(StringMatch::Eq("bank2".to_string())),
+                                ]),
+                            )
+                            .rule(
+                                Action::SetSrcAccount("assets::acct2-bank1".to_string()),
+                                Predicate::All(vec![
+                                    Predicate::InputAccountName(StringMatch::Eq(
+                                        "acct2".to_string(),
+                                    )),
+                                    Predicate::InputBank(StringMatch::Eq("bank1".to_string())),
+                                ]),
+                            )
+                            .rule(
+                                Action::SetSrcAccount("assets::acct2-bank2".to_string()),
+                                Predicate::All(vec![
+                                    Predicate::InputAccountName(StringMatch::Eq(
+                                        "acct2".to_string(),
+                                    )),
+                                    Predicate::InputBank(StringMatch::Eq("bank2".to_string())),
+                                ]),
+                            )
+                            .rule(
+                                Action::SetSrcAccount("assets::acct3-or-4".to_string()),
+                                Predicate::Any(vec![
+                                    Predicate::InputAccountName(StringMatch::Eq(
+                                        "acct3".to_string(),
+                                    )),
+                                    Predicate::InputAccountName(StringMatch::Eq(
+                                        "acct4".to_string(),
+                                    )),
+                                ]),
+                            )
+                            .build(),
+                    )
+                    .build(),
+                cases: vec![
+                    Case {
+                        trn: InputTransactionBuilder::new()
+                            .account_name("acct1")
+                            .bank("unmatched")
+                            .build(),
+                        // Fallthrough without matching any rules.
+                        want: DerivedComponentsBuilder::new().build(),
+                    },
+                    Case {
+                        trn: InputTransactionBuilder::new()
+                            .account_name("acct1")
+                            .bank("bank1")
+                            .build(),
+                        want: DerivedComponentsBuilder::new()
+                            .source_account("assets::acct1-bank1")
+                            .build(),
+                    },
+                    Case {
+                        trn: InputTransactionBuilder::new()
+                            .account_name("acct1")
+                            .bank("bank2")
+                            .build(),
+                        want: DerivedComponentsBuilder::new()
+                            .source_account("assets::acct1-bank2")
+                            .build(),
+                    },
+                    Case {
+                        trn: InputTransactionBuilder::new()
+                            .account_name("acct2")
+                            .bank("bank1")
+                            .build(),
+                        want: DerivedComponentsBuilder::new()
+                            .source_account("assets::acct2-bank1")
+                            .build(),
+                    },
+                    Case {
+                        trn: InputTransactionBuilder::new()
+                            .account_name("acct2")
+                            .bank("bank2")
+                            .build(),
+                        want: DerivedComponentsBuilder::new()
+                            .source_account("assets::acct2-bank2")
+                            .build(),
+                    },
+                    Case {
+                        trn: InputTransactionBuilder::new().account_name("acct3").build(),
+                        want: DerivedComponentsBuilder::new()
+                            .source_account("assets::acct3-or-4")
+                            .build(),
+                    },
+                    Case {
+                        trn: InputTransactionBuilder::new().account_name("acct4").build(),
+                        want: DerivedComponentsBuilder::new()
+                            .source_account("assets::acct3-or-4")
+                            .build(),
                     },
                 ],
             },

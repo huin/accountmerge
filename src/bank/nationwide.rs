@@ -12,6 +12,8 @@ use serde::{de, de::DeserializeOwned, Deserialize, Deserializer};
 use crate::bank::{InputTransaction, Paid};
 use crate::money::GbpValue;
 
+const BANK_NAME: &'static str = "Nationwide";
+
 #[derive(Debug, Fail)]
 enum ReadError {
     #[fail(display = "bad file format: {}", reason)]
@@ -83,7 +85,7 @@ fn read_transactions<R: std::io::Read>(
         let str_record = result?;
         let record: DeTransaction = str_record.deserialize(None)?;
         transactions.push(InputTransaction {
-            src_bank: "nationwide".to_string(),
+            bank: BANK_NAME.to_string(),
             account_name: account_name.to_string(),
             date: record.date.0,
             type_: record.type_,

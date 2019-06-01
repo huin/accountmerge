@@ -28,7 +28,7 @@ impl Paid {
 
 #[derive(Debug)]
 pub struct InputTransaction {
-    pub src_bank: String,
+    pub bank: String,
     pub account_name: String,
     pub date: NaiveDate,
     pub type_: String,
