@@ -165,17 +165,17 @@ impl Action {
 #[derive(Debug, Deserialize)]
 enum Predicate {
     True,
-    SrcBank(StringMatch),
-    SrcAcct(StringMatch),
+    InputAccountName(StringMatch),
+    InputBank(StringMatch),
 }
 
 impl Predicate {
-    fn is_match(&self, _trn: &InputTransaction) -> bool {
+    fn is_match(&self, trn: &InputTransaction) -> bool {
         use Predicate::*;
         match self {
             True => true,
-            SrcBank(_) => unimplemented!(),
-            SrcAcct(_) => unimplemented!(),
+            InputAccountName(matcher) => matcher.matches_string(&trn.account_name),
+            InputBank(_) => unimplemented!(),
         }
     }
 }
@@ -183,6 +183,16 @@ impl Predicate {
 #[derive(Debug, Deserialize)]
 enum StringMatch {
     Eq(String),
+}
+
+impl StringMatch {
+    fn matches_string(&self, s: &str) -> bool {
+        use StringMatch::*;
+
+        match self {
+            Eq(want) => want == s,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -251,6 +261,11 @@ mod tests {
                     balance: GbpValue::from_pence(200),
                 },
             }
+        }
+
+        fn account_name(mut self, account_name: &str) -> Self {
+            self.trn.account_name = account_name.to_string();
+            self
         }
 
         fn build(self) -> InputTransaction {
@@ -377,6 +392,42 @@ mod tests {
                     trn: InputTransactionBuilder::new().build(),
                     want: DerivedComponentsBuilder::new().build(),
                 }],
+            },
+            Test {
+                name: "set account based on input account",
+                table: TableBuilder::new()
+                    .chain(
+                        "start",
+                        ChainBuilder::new()
+                            .rule(
+                                Action::SetSrcAccount("assets::foo".to_string()),
+                                Predicate::InputAccountName(StringMatch::Eq("foo".to_string())),
+                            )
+                            .rule(
+                                Action::SetSrcAccount("assets::bar".to_string()),
+                                Predicate::InputAccountName(StringMatch::Eq("bar".to_string())),
+                            )
+                            .build(),
+                    )
+                    .build(),
+                cases: vec![
+                    Case {
+                        trn: InputTransactionBuilder::new().account_name("foo").build(),
+                        want: DerivedComponentsBuilder::new()
+                            .source_account("assets::foo")
+                            .build(),
+                    },
+                    Case {
+                        trn: InputTransactionBuilder::new().account_name("bar").build(),
+                        want: DerivedComponentsBuilder::new()
+                            .source_account("assets::bar")
+                            .build(),
+                    },
+                    Case {
+                        trn: InputTransactionBuilder::new().account_name("quux").build(),
+                        want: DerivedComponentsBuilder::new().build(),
+                    },
+                ],
             },
         ];
 
