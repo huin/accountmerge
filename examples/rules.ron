@@ -4,11 +4,13 @@ Table(
       rules: [
         Rule(
           predicate: True,
-          action: SetSrcAccount("assets::account::unknown"),
+          action: SetSrcAccount("assets:unknown"),
+          result: Continue,
         ),
         Rule(
           predicate: True,
-          action: SetSrcAccount("assets::account::unknown"),
+          action: SetDestAccount("expenses:unknown"),
+          result: Continue,
         ),
       ],
     ),

@@ -93,6 +93,7 @@ impl Chain {
 struct Rule {
     predicate: Predicate,
     action: Action,
+    result: RuleResult,
 }
 
 impl Rule {
@@ -103,7 +104,8 @@ impl Rule {
         cmp: &mut DerivedComponents,
     ) -> Result<RuleResult, RuleError> {
         if self.predicate.is_match(trn) {
-            self.action.apply(table, trn, cmp)
+            self.action.apply(table, trn, cmp)?;
+            Ok(self.result)
         } else {
             Ok(RuleResult::Continue)
         }
@@ -114,6 +116,7 @@ impl Rule {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize)]
 enum RuleResult {
     Continue,
     Return,
@@ -121,8 +124,8 @@ enum RuleResult {
 
 #[derive(Debug, Deserialize)]
 enum Action {
+    Noop,
     JumpChain(String),
-    Return,
     SetDestAccount(String),
     SetSrcAccount(String),
 }
@@ -133,14 +136,14 @@ impl Action {
         table: &Table,
         trn: &InputTransaction,
         cmp: &mut DerivedComponents,
-    ) -> Result<RuleResult, RuleError> {
+    ) -> Result<(), RuleError> {
         use Action::*;
 
         match self {
+            Noop => {}
             JumpChain(name) => {
                 table.get_chain(name)?.apply(table, trn, cmp)?;
             }
-            Return => return Ok(RuleResult::Return),
             SetDestAccount(v) => {
                 cmp.dest_account = Some(v.clone());
             }
@@ -149,7 +152,7 @@ impl Action {
             }
         }
 
-        Ok(RuleResult::Continue)
+        Ok(())
     }
 
     fn validate(&self, table: &Table) -> Result<(), RuleError> {
@@ -238,8 +241,12 @@ mod tests {
             }
         }
 
-        fn rule(mut self, action: Action, predicate: Predicate) -> Self {
-            self.chain.rules.push(Rule { action, predicate });
+        fn rule(mut self, action: Action, predicate: Predicate, result: RuleResult) -> Self {
+            self.chain.rules.push(Rule {
+                action,
+                predicate,
+                result,
+            });
             self
         }
 
@@ -313,6 +320,7 @@ mod tests {
 
     #[test]
     fn apply() {
+        use RuleResult::*;
         struct Test {
             name: &'static str,
             table: Table,
@@ -337,7 +345,11 @@ mod tests {
                     .chain(
                         "start",
                         ChainBuilder::new()
-                            .rule(Action::SetSrcAccount("foo".to_string()), Predicate::True)
+                            .rule(
+                                Action::SetSrcAccount("foo".to_string()),
+                                Predicate::True,
+                                Continue,
+                            )
                             .build(),
                     )
                     .build(),
@@ -354,7 +366,11 @@ mod tests {
                     .chain(
                         "start",
                         ChainBuilder::new()
-                            .rule(Action::SetDestAccount("bar".to_string()), Predicate::True)
+                            .rule(
+                                Action::SetDestAccount("bar".to_string()),
+                                Predicate::True,
+                                Continue,
+                            )
                             .build(),
                     )
                     .build(),
@@ -369,13 +385,17 @@ mod tests {
                     .chain(
                         "start",
                         ChainBuilder::new()
-                            .rule(jump_chain("some-chain"), Predicate::True)
+                            .rule(jump_chain("some-chain"), Predicate::True, Continue)
                             .build(),
                     )
                     .chain(
                         "some-chain",
                         ChainBuilder::new()
-                            .rule(Action::SetSrcAccount("foo".to_string()), Predicate::True)
+                            .rule(
+                                Action::SetSrcAccount("foo".to_string()),
+                                Predicate::True,
+                                Continue,
+                            )
                             .build(),
                     )
                     .build(),
@@ -392,8 +412,12 @@ mod tests {
                     .chain(
                         "start",
                         ChainBuilder::new()
-                            .rule(Action::Return, Predicate::True)
-                            .rule(Action::SetSrcAccount("foo".to_string()), Predicate::True)
+                            .rule(Action::Noop, Predicate::True, Return)
+                            .rule(
+                                Action::SetSrcAccount("foo".to_string()),
+                                Predicate::True,
+                                Continue,
+                            )
                             .build(),
                     )
                     .build(),
@@ -411,10 +435,12 @@ mod tests {
                             .rule(
                                 Action::SetSrcAccount("assets::foo".to_string()),
                                 Predicate::InputAccountName(StringMatch::Eq("foo".to_string())),
+                                Continue,
                             )
                             .rule(
                                 Action::SetSrcAccount("assets::bar".to_string()),
                                 Predicate::InputAccountName(StringMatch::Eq("bar".to_string())),
+                                Continue,
                             )
                             .build(),
                     )
@@ -447,6 +473,7 @@ mod tests {
                             .rule(
                                 Action::SetSrcAccount("assets::foo".to_string()),
                                 Predicate::InputBank(StringMatch::Eq("foo".to_string())),
+                                Continue,
                             )
                             .build(),
                     )
@@ -478,6 +505,7 @@ mod tests {
                                     )),
                                     Predicate::InputBank(StringMatch::Eq("bank1".to_string())),
                                 ]),
+                                Continue,
                             )
                             .rule(
                                 Action::SetSrcAccount("assets::acct1-bank2".to_string()),
@@ -487,6 +515,7 @@ mod tests {
                                     )),
                                     Predicate::InputBank(StringMatch::Eq("bank2".to_string())),
                                 ]),
+                                Continue,
                             )
                             .rule(
                                 Action::SetSrcAccount("assets::acct2-bank1".to_string()),
@@ -496,6 +525,7 @@ mod tests {
                                     )),
                                     Predicate::InputBank(StringMatch::Eq("bank1".to_string())),
                                 ]),
+                                Continue,
                             )
                             .rule(
                                 Action::SetSrcAccount("assets::acct2-bank2".to_string()),
@@ -505,6 +535,7 @@ mod tests {
                                     )),
                                     Predicate::InputBank(StringMatch::Eq("bank2".to_string())),
                                 ]),
+                                Continue,
                             )
                             .rule(
                                 Action::SetSrcAccount("assets::acct3-or-4".to_string()),
@@ -516,6 +547,7 @@ mod tests {
                                         "acct4".to_string(),
                                     )),
                                 ]),
+                                Continue,
                             )
                             .build(),
                     )
@@ -591,6 +623,7 @@ mod tests {
 
     #[test]
     fn validate_valid_tables() {
+        use RuleResult::*;
         struct Test(&'static str, Table);
         let tests = vec![
             Test(
@@ -603,7 +636,7 @@ mod tests {
                     .chain(
                         "start",
                         ChainBuilder::new()
-                            .rule(jump_chain("foo"), Predicate::True)
+                            .rule(jump_chain("foo"), Predicate::True, Continue)
                             .build(),
                     )
                     .chain("foo", Chain::default())
@@ -618,6 +651,7 @@ mod tests {
 
     #[test]
     fn validate_invalid_tables() {
+        use RuleResult::*;
         struct Test(&'static str, Table);
         let tests = vec![
             Test(
@@ -630,13 +664,13 @@ mod tests {
                     .chain(
                         "start",
                         ChainBuilder::new()
-                            .rule(jump_chain("foo"), Predicate::True)
+                            .rule(jump_chain("foo"), Predicate::True, Continue)
                             .build(),
                     )
                     .chain(
                         "foo",
                         ChainBuilder::new()
-                            .rule(jump_chain("not-exist"), Predicate::True)
+                            .rule(jump_chain("not-exist"), Predicate::True, Continue)
                             .build(),
                     )
                     .build(),
