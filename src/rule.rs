@@ -172,6 +172,7 @@ enum Predicate {
     Any(Vec<Predicate>),
     InputAccountName(StringMatch),
     InputBank(StringMatch),
+    Not(Box<Predicate>),
 }
 
 impl Predicate {
@@ -183,7 +184,12 @@ impl Predicate {
             Any(preds) => preds.iter().any(|p| p.is_match(trn)),
             InputAccountName(matcher) => matcher.matches_string(&trn.account_name),
             InputBank(matcher) => matcher.matches_string(&trn.bank),
+            Not(pred) => !pred.is_match(trn),
         }
+    }
+
+    fn not(self) -> Self {
+        Predicate::Not(Box::new(self))
     }
 }
 
@@ -549,6 +555,21 @@ mod tests {
                                 ]),
                                 Continue,
                             )
+                            .rule(
+                                Action::SetSrcAccount("assets::acct-other-bank1".to_string()),
+                                Predicate::All(vec![
+                                    Predicate::InputAccountName(StringMatch::Eq(
+                                        "acct1".to_string(),
+                                    ))
+                                    .not(),
+                                    Predicate::InputAccountName(StringMatch::Eq(
+                                        "acct2".to_string(),
+                                    ))
+                                    .not(),
+                                    Predicate::InputBank(StringMatch::Eq("bank1".to_string())),
+                                ]),
+                                Continue,
+                            )
                             .build(),
                     )
                     .build(),
@@ -607,6 +628,15 @@ mod tests {
                         trn: InputTransactionBuilder::new().account_name("acct4").build(),
                         want: DerivedComponentsBuilder::new()
                             .source_account("assets::acct3-or-4")
+                            .build(),
+                    },
+                    Case {
+                        trn: InputTransactionBuilder::new()
+                            .account_name("acct3")
+                            .bank("bank1")
+                            .build(),
+                        want: DerivedComponentsBuilder::new()
+                            .source_account("assets::acct-other-bank1")
                             .build(),
                     },
                 ],
