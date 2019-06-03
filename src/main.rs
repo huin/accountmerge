@@ -35,7 +35,6 @@ struct Opt {
 fn main() -> Result<(), Error> {
     let opt = Opt::from_args();
     let rules = rule::Table::from_path(&opt.rules)?;
-    println!("{:?}", rules);
     let input_transactions = bank::nationwide::transactions_from_path(&opt.input)?;
     let output_transactions_result: Result<Vec<_>, Error> = input_transactions
         .iter()
