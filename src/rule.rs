@@ -188,6 +188,7 @@ impl Predicate {
         }
     }
 
+    #[cfg(test)]
     fn not(self) -> Self {
         Predicate::Not(Box::new(self))
     }
