@@ -56,28 +56,28 @@ fn to_output(
     use bank::Paid;
     use output::*;
     let cmp = rules.derive_components(&in_trn)?;
-    Ok(Transaction {
-        date: in_trn.date,
-        description: format!("{} - {}", in_trn.type_, in_trn.description),
-        postings: vec![
-            Posting {
-                account: cmp
-                    .source_account
-                    .unwrap_or_else(|| "assets::unknown".to_string()),
-                amount: in_trn.paid.src_acct_amt()?,
-                balance: Some(in_trn.balance),
-            },
-            Posting {
-                account: cmp.dest_account.unwrap_or_else(|| {
-                    if let Paid::In(_) = in_trn.paid {
-                        "income::unknown".to_string()
-                    } else {
-                        "expenses::unknown".to_string()
-                    }
-                }),
-                amount: in_trn.paid.dest_acct_amt()?,
-                balance: None,
-            },
-        ],
-    })
+
+    let source_account = cmp
+        .source_account
+        .unwrap_or_else(|| "assets:unknown".to_string());
+    let dest_account = cmp.dest_account.unwrap_or_else(|| {
+        if let Paid::In(_) = in_trn.paid {
+            "income:unknown".to_string()
+        } else {
+            "expenses:unknown".to_string()
+        }
+    });
+
+    let trn = TransactionBuilder::new(
+        in_trn.date,
+        format!("{} - {}", in_trn.type_, in_trn.description),
+    )
+    .posting(
+        source_account,
+        in_trn.paid.src_acct_amt()?,
+        Some(in_trn.balance),
+    )
+    .posting(dest_account, in_trn.paid.dest_acct_amt()?, None)
+    .build();
+    Ok(trn)
 }

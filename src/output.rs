@@ -27,6 +27,40 @@ impl fmt::Display for Transaction {
     }
 }
 
+pub struct TransactionBuilder {
+    trn: Transaction,
+}
+
+impl TransactionBuilder {
+    pub fn new<S: Into<String>>(date: NaiveDate, description: S) -> Self {
+        TransactionBuilder {
+            trn: Transaction {
+                date,
+                description: description.into(),
+                postings: vec![],
+            },
+        }
+    }
+
+    pub fn posting<S: Into<String>>(
+        mut self,
+        account: S,
+        amount: GbpValue,
+        balance: Option<GbpValue>,
+    ) -> Self {
+        self.trn.postings.push(Posting {
+            account: account.into(),
+            amount,
+            balance,
+        });
+        self
+    }
+
+    pub fn build(self) -> Transaction {
+        self.trn
+    }
+}
+
 pub struct Posting {
     pub account: String,
     pub amount: GbpValue,
