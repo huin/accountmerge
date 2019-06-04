@@ -20,8 +20,8 @@ use failure::Error;
 use structopt::StructOpt;
 
 mod bank;
+mod hledger;
 mod money;
-mod output;
 mod rule;
 
 #[derive(Debug, StructOpt)]
@@ -38,7 +38,7 @@ fn main() -> Result<(), Error> {
     let input_transactions = bank::nationwide::transactions_from_path(&opt.input)?;
     let output_transactions_result: Result<Vec<_>, Error> = input_transactions
         .iter()
-        .map(|in_trn| to_output(&rules, in_trn))
+        .map(|in_trn| to_hledger(&rules, in_trn))
         .collect();
     let output_transactions = output_transactions_result?;
     for trn in &output_transactions {
@@ -49,12 +49,12 @@ fn main() -> Result<(), Error> {
 
 // temporary function to test output format. It's not (entirely) useful until we're labelling
 // accounts properly.
-fn to_output(
+fn to_hledger(
     rules: &rule::Table,
     in_trn: &bank::InputTransaction,
-) -> Result<output::Transaction, Error> {
+) -> Result<hledger::Transaction, Error> {
     use bank::Paid;
-    use output::*;
+    use hledger::*;
     let cmp = rules.derive_components(&in_trn)?;
 
     let source_account = cmp
