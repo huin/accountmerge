@@ -4,6 +4,8 @@ use chrono::{Datelike, NaiveDate};
 
 use crate::money::GbpValue;
 
+pub mod parser;
+
 pub struct Transaction {
     pub date: NaiveDate,
     pub description: String,
