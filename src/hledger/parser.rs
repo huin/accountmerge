@@ -3,11 +3,15 @@ use std::str::FromStr;
 
 use chrono::NaiveDate;
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take_while1};
+use nom::bytes::complete::{tag, take_while, take_while1};
 use nom::character::complete::space1;
 use nom::combinator::{map, map_opt, map_res, opt};
 use nom::sequence::{pair, preceded, terminated, tuple};
 use nom::{AsChar, IResult, InputTakeAtPosition};
+
+fn comment(i: &str) -> IResult<&str, &str> {
+    preceded(tag(";"), take_while(|chr| chr != '\n' && chr != '\r'))(i)
+}
 
 fn date(i: &str) -> IResult<&str, NaiveDate> {
     use num::*;
@@ -103,6 +107,7 @@ struct TransactionHeader {
     status: Option<Status>,
     code: Option<String>,
     description: Option<String>,
+    comment: Option<String>,
 }
 
 fn transaction_header(i: &str) -> IResult<&str, TransactionHeader> {
@@ -112,12 +117,14 @@ fn transaction_header(i: &str) -> IResult<&str, TransactionHeader> {
             optional_field(status),
             optional_field(transaction_code),
             optional_field(description),
+            opt(comment),
         )),
-        |(date, status, code, description)| TransactionHeader {
+        |(date, status, code, description, comment)| TransactionHeader {
             date,
             status,
             code: code.map(Into::into),
             description: description.map(Into::into),
+            comment: comment.map(Into::into),
         },
     )(i)
 }
@@ -133,6 +140,7 @@ fn test_transaction_header() {
                 status: Some(Status::Star),
                 code: Some("code".to_string()),
                 description: Some("description".to_string()),
+                comment: None,
             }
         ))
     );
