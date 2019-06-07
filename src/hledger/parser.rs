@@ -4,7 +4,7 @@ use std::str::FromStr;
 use chrono::NaiveDate;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1};
-use nom::character::complete::space1;
+use nom::character::complete::{line_ending, space1};
 use nom::combinator::{map, map_opt, map_res, opt};
 use nom::sequence::{preceded, terminated, tuple};
 use nom::{AsChar, IResult, InputTakeAtPosition};
@@ -117,8 +117,9 @@ fn transaction_header(i: &str) -> IResult<&str, TransactionHeader> {
             optional_field(transaction_code),
             optional_field(description),
             opt(comment),
+            line_ending,
         )),
-        |(date, status, code, description, comment)| TransactionHeader {
+        |(date, status, code, description, comment, _)| TransactionHeader {
             date,
             status,
             code: code.map(Into::into),
@@ -131,7 +132,7 @@ fn transaction_header(i: &str) -> IResult<&str, TransactionHeader> {
 #[test]
 fn test_transaction_header() {
     assert_eq!(
-        transaction_header("2000/1/2 * (code) description"),
+        transaction_header("2000/1/2 * (code) description\n"),
         Ok((
             "",
             TransactionHeader {
