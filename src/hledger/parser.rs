@@ -6,7 +6,7 @@ use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1};
 use nom::character::complete::space1;
 use nom::combinator::{map, map_opt, map_res, opt};
-use nom::sequence::{pair, preceded, terminated, tuple};
+use nom::sequence::{preceded, terminated, tuple};
 use nom::{AsChar, IResult, InputTakeAtPosition};
 
 fn comment(i: &str) -> IResult<&str, &str> {
@@ -48,8 +48,7 @@ where
     F: Fn(I) -> IResult<I, O>,
     <I as InputTakeAtPosition>::Item: AsChar + Clone,
 {
-    let p = opt(map(pair(space1, field), |(_, v)| v));
-    move |input: I| p(input)
+    opt(preceded(space1, field))
 }
 
 #[derive(Debug, Fail)]
