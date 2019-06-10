@@ -43,7 +43,7 @@ impl TryFrom<GbpValue> for UnsignedGbpValue {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GbpValue {
     pub pence: i32,
 }
