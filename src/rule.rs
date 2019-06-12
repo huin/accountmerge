@@ -3,8 +3,7 @@ use std::fs::File;
 use std::path::Path;
 
 use failure::Error;
-
-use crate::bank::InputTransaction;
+use ledger_parser::{Posting, Transaction};
 
 const START_CHAIN: &str = "start";
 
@@ -14,10 +13,19 @@ pub enum RuleError {
     ChainNotFound { chain: String },
 }
 
-#[derive(Debug, Default, Eq, PartialEq)]
-pub struct DerivedComponents {
-    pub dest_account: Option<String>,
-    pub source_account: Option<String>,
+pub struct PostingContext<'a> {
+    trn: &'a mut Transaction,
+    posting_idx: usize,
+}
+
+impl PostingContext<'_> {
+    fn posting(&self) -> &Posting {
+        &self.trn.postings[self.posting_idx]
+    }
+
+    fn mut_posting(&mut self) -> &mut Posting {
+        &mut self.trn.postings[self.posting_idx]
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -33,14 +41,16 @@ impl Table {
         Ok(table)
     }
 
-    pub fn derive_components(
-        &self,
-        trn: &InputTransaction,
-    ) -> Result<DerivedComponents, RuleError> {
+    pub fn update_transaction(&self, trn: &mut Transaction) -> Result<(), RuleError> {
         let start = self.get_chain(START_CHAIN)?;
-        let mut cmp = DerivedComponents::default();
-        start.apply(self, trn, &mut cmp)?;
-        Ok(cmp)
+        for i in 0..trn.postings.len() {
+            let mut ctx = PostingContext {
+                trn: trn,
+                posting_idx: i,
+            };
+            start.apply(self, &mut ctx)?;
+        }
+        Ok(())
     }
 
     fn get_chain(&self, name: &str) -> Result<&Chain, RuleError> {
@@ -66,14 +76,9 @@ struct Chain {
 }
 
 impl Chain {
-    fn apply(
-        &self,
-        table: &Table,
-        trn: &InputTransaction,
-        cmp: &mut DerivedComponents,
-    ) -> Result<(), RuleError> {
+    fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<(), RuleError> {
         for rule in &self.rules {
-            match rule.apply(table, trn, cmp)? {
+            match rule.apply(table, ctx)? {
                 RuleResult::Continue => {}
                 RuleResult::Return => break,
             }
@@ -97,14 +102,9 @@ struct Rule {
 }
 
 impl Rule {
-    fn apply(
-        &self,
-        table: &Table,
-        trn: &InputTransaction,
-        cmp: &mut DerivedComponents,
-    ) -> Result<RuleResult, RuleError> {
-        if self.predicate.is_match(trn) {
-            self.action.apply(table, trn, cmp)?;
+    fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<RuleResult, RuleError> {
+        if self.predicate.is_match(ctx) {
+            self.action.apply(table, ctx)?;
             Ok(self.result)
         } else {
             Ok(RuleResult::Continue)
@@ -126,29 +126,20 @@ enum RuleResult {
 enum Action {
     Noop,
     JumpChain(String),
-    SetDestAccount(String),
-    SetSrcAccount(String),
+    SetAccount(String),
 }
 
 impl Action {
-    fn apply(
-        &self,
-        table: &Table,
-        trn: &InputTransaction,
-        cmp: &mut DerivedComponents,
-    ) -> Result<(), RuleError> {
+    fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<(), RuleError> {
         use Action::*;
 
         match self {
             Noop => {}
             JumpChain(name) => {
-                table.get_chain(name)?.apply(table, trn, cmp)?;
+                table.get_chain(name)?.apply(table, ctx)?;
             }
-            SetDestAccount(v) => {
-                cmp.dest_account = Some(v.clone());
-            }
-            SetSrcAccount(v) => {
-                cmp.source_account = Some(v.clone());
+            SetAccount(v) => {
+                ctx.mut_posting().account = v.clone();
             }
         }
 
@@ -170,21 +161,21 @@ enum Predicate {
     True,
     All(Vec<Predicate>),
     Any(Vec<Predicate>),
-    InputAccountName(StringMatch),
-    InputBank(StringMatch),
+    Account(StringMatch),
+    TransactionDescription(StringMatch),
     Not(Box<Predicate>),
 }
 
 impl Predicate {
-    fn is_match(&self, trn: &InputTransaction) -> bool {
+    fn is_match(&self, ctx: &PostingContext) -> bool {
         use Predicate::*;
         match self {
             True => true,
-            All(preds) => preds.iter().all(|p| p.is_match(trn)),
-            Any(preds) => preds.iter().any(|p| p.is_match(trn)),
-            InputAccountName(matcher) => matcher.matches_string(&trn.account_name),
-            InputBank(matcher) => matcher.matches_string(&trn.bank),
-            Not(pred) => !pred.is_match(trn),
+            All(preds) => preds.iter().all(|p| p.is_match(ctx)),
+            Any(preds) => preds.iter().any(|p| p.is_match(ctx)),
+            Account(matcher) => matcher.matches_string(&ctx.posting().account),
+            TransactionDescription(matcher) => matcher.matches_string(&ctx.trn.description),
+            Not(pred) => !pred.is_match(ctx),
         }
     }
 
@@ -214,9 +205,10 @@ mod tests {
     use super::*;
 
     use chrono::NaiveDate;
+    use ledger_parser::{Amount, Commodity, CommodityPosition};
+    use rust_decimal::Decimal;
 
-    use crate::bank::Paid;
-    use crate::money::{GbpValue, UnsignedGbpValue};
+    use crate::builder::TransactionBuilder;
 
     struct TableBuilder {
         table: Table,
@@ -262,62 +254,13 @@ mod tests {
         }
     }
 
-    /// Build an `InputTransaction` for testing.
-    struct InputTransactionBuilder {
-        trn: InputTransaction,
-    }
-    impl InputTransactionBuilder {
-        fn new() -> Self {
-            InputTransactionBuilder {
-                trn: InputTransaction {
-                    bank: "foo bank".to_string(),
-                    account_name: "foo account".to_string(),
-                    date: NaiveDate::from_ymd(2000, 1, 5),
-                    type_: "Withdrawal".to_string(),
-                    description: "".to_string(),
-                    paid: Paid::In(UnsignedGbpValue::from_pence(100)),
-                    balance: GbpValue::from_pence(200),
-                },
-            }
-        }
-
-        fn account_name(mut self, account_name: &str) -> Self {
-            self.trn.account_name = account_name.to_string();
-            self
-        }
-
-        fn bank(mut self, bank: &str) -> Self {
-            self.trn.bank = bank.to_string();
-            self
-        }
-
-        fn build(self) -> InputTransaction {
-            self.trn
-        }
-    }
-
-    struct DerivedComponentsBuilder {
-        cmp: DerivedComponents,
-    }
-    impl DerivedComponentsBuilder {
-        fn new() -> Self {
-            DerivedComponentsBuilder {
-                cmp: DerivedComponents::default(),
-            }
-        }
-
-        fn dest_account(mut self, account: &str) -> Self {
-            self.cmp.dest_account = Some(account.to_string());
-            self
-        }
-
-        fn source_account(mut self, account: &str) -> Self {
-            self.cmp.source_account = Some(account.to_string());
-            self
-        }
-
-        fn build(self) -> DerivedComponents {
-            self.cmp
+    fn amount(dollars: i64, cents: i64) -> Amount {
+        Amount {
+            commodity: Commodity {
+                name: "$".to_string(),
+                position: CommodityPosition::Left,
+            },
+            quantity: Decimal::new(dollars * 100 + cents, 2),
         }
     }
 
@@ -334,16 +277,19 @@ mod tests {
             cases: Vec<Case>,
         };
         struct Case {
-            trn: InputTransaction,
-            want: DerivedComponents,
+            input: Transaction,
+            want: Transaction,
         }
+
+        let test_date = NaiveDate::from_ymd(2001, 1, 2);
+
         let tests = vec![
             Test {
                 name: "empty chain",
                 table: TableBuilder::new().chain("start", Chain::default()).build(),
                 cases: vec![Case {
-                    trn: InputTransactionBuilder::new().build(),
-                    want: DerivedComponents::default(),
+                    input: TransactionBuilder::new(test_date, "foo").build(),
+                    want: TransactionBuilder::new(test_date, "foo").build(),
                 }],
             },
             Test {
@@ -353,7 +299,7 @@ mod tests {
                         "start",
                         ChainBuilder::new()
                             .rule(
-                                Action::SetSrcAccount("foo".to_string()),
+                                Action::SetAccount("foo".to_string()),
                                 Predicate::True,
                                 Continue,
                             )
@@ -361,29 +307,12 @@ mod tests {
                     )
                     .build(),
                 cases: vec![Case {
-                    trn: InputTransactionBuilder::new().build(),
-                    want: DerivedComponentsBuilder::new()
-                        .source_account("foo")
+                    input: TransactionBuilder::new(test_date, "description")
+                        .posting("anything", amount(100, 0), None)
                         .build(),
-                }],
-            },
-            Test {
-                name: "set dest account",
-                table: TableBuilder::new()
-                    .chain(
-                        "start",
-                        ChainBuilder::new()
-                            .rule(
-                                Action::SetDestAccount("bar".to_string()),
-                                Predicate::True,
-                                Continue,
-                            )
-                            .build(),
-                    )
-                    .build(),
-                cases: vec![Case {
-                    trn: InputTransactionBuilder::new().build(),
-                    want: DerivedComponentsBuilder::new().dest_account("bar").build(),
+                    want: TransactionBuilder::new(test_date, "description")
+                        .posting("foo", amount(100, 0), None)
+                        .build(),
                 }],
             },
             Test {
@@ -399,7 +328,7 @@ mod tests {
                         "some-chain",
                         ChainBuilder::new()
                             .rule(
-                                Action::SetSrcAccount("foo".to_string()),
+                                Action::SetAccount("foo".to_string()),
                                 Predicate::True,
                                 Continue,
                             )
@@ -407,9 +336,11 @@ mod tests {
                     )
                     .build(),
                 cases: vec![Case {
-                    trn: InputTransactionBuilder::new().build(),
-                    want: DerivedComponentsBuilder::new()
-                        .source_account("foo")
+                    input: TransactionBuilder::new(test_date, "description")
+                        .posting("anything", amount(100, 0), None)
+                        .build(),
+                    want: TransactionBuilder::new(test_date, "description")
+                        .posting("foo", amount(100, 0), None)
                         .build(),
                 }],
             },
@@ -421,7 +352,7 @@ mod tests {
                         ChainBuilder::new()
                             .rule(Action::Noop, Predicate::True, Return)
                             .rule(
-                                Action::SetSrcAccount("foo".to_string()),
+                                Action::SetAccount("foo".to_string()),
                                 Predicate::True,
                                 Continue,
                             )
@@ -429,8 +360,12 @@ mod tests {
                     )
                     .build(),
                 cases: vec![Case {
-                    trn: InputTransactionBuilder::new().build(),
-                    want: DerivedComponentsBuilder::new().build(),
+                    input: TransactionBuilder::new(test_date, "description")
+                        .posting("original:value", amount(100, 0), None)
+                        .build(),
+                    want: TransactionBuilder::new(test_date, "description")
+                        .posting("original:value", amount(100, 0), None)
+                        .build(),
                 }],
             },
             Test {
@@ -440,13 +375,13 @@ mod tests {
                         "start",
                         ChainBuilder::new()
                             .rule(
-                                Action::SetSrcAccount("assets::foo".to_string()),
-                                Predicate::InputAccountName(StringMatch::Eq("foo".to_string())),
+                                Action::SetAccount("assets:foo".to_string()),
+                                Predicate::Account(StringMatch::Eq("foo".to_string())),
                                 Continue,
                             )
                             .rule(
-                                Action::SetSrcAccount("assets::bar".to_string()),
-                                Predicate::InputAccountName(StringMatch::Eq("bar".to_string())),
+                                Action::SetAccount("assets:bar".to_string()),
+                                Predicate::Account(StringMatch::Eq("bar".to_string())),
                                 Continue,
                             )
                             .build(),
@@ -454,47 +389,28 @@ mod tests {
                     .build(),
                 cases: vec![
                     Case {
-                        trn: InputTransactionBuilder::new().account_name("foo").build(),
-                        want: DerivedComponentsBuilder::new()
-                            .source_account("assets::foo")
+                        input: TransactionBuilder::new(test_date, "description")
+                            .posting("foo", amount(100, 0), None)
+                            .build(),
+                        want: TransactionBuilder::new(test_date, "description")
+                            .posting("assets:foo", amount(100, 0), None)
                             .build(),
                     },
                     Case {
-                        trn: InputTransactionBuilder::new().account_name("bar").build(),
-                        want: DerivedComponentsBuilder::new()
-                            .source_account("assets::bar")
+                        input: TransactionBuilder::new(test_date, "description")
+                            .posting("bar", amount(100, 0), None)
+                            .build(),
+                        want: TransactionBuilder::new(test_date, "description")
+                            .posting("assets:bar", amount(100, 0), None)
                             .build(),
                     },
                     Case {
-                        trn: InputTransactionBuilder::new().account_name("quux").build(),
-                        want: DerivedComponentsBuilder::new().build(),
-                    },
-                ],
-            },
-            Test {
-                name: "set account based on input bank",
-                table: TableBuilder::new()
-                    .chain(
-                        "start",
-                        ChainBuilder::new()
-                            .rule(
-                                Action::SetSrcAccount("assets::foo".to_string()),
-                                Predicate::InputBank(StringMatch::Eq("foo".to_string())),
-                                Continue,
-                            )
+                        input: TransactionBuilder::new(test_date, "description")
+                            .posting("quux", amount(100, 0), None)
                             .build(),
-                    )
-                    .build(),
-                cases: vec![
-                    Case {
-                        trn: InputTransactionBuilder::new().bank("foo").build(),
-                        want: DerivedComponentsBuilder::new()
-                            .source_account("assets::foo")
+                        want: TransactionBuilder::new(test_date, "description")
+                            .posting("quux", amount(100, 0), None)
                             .build(),
-                    },
-                    Case {
-                        trn: InputTransactionBuilder::new().bank("bar").build(),
-                        want: DerivedComponentsBuilder::new().build(),
                     },
                 ],
             },
@@ -505,139 +421,123 @@ mod tests {
                         "start",
                         ChainBuilder::new()
                             .rule(
-                                Action::SetSrcAccount("assets::acct1-bank1".to_string()),
+                                Action::SetAccount("assets:acct1-bank1".to_string()),
                                 Predicate::All(vec![
-                                    Predicate::InputAccountName(StringMatch::Eq(
-                                        "acct1".to_string(),
+                                    Predicate::Account(StringMatch::Eq("acct1".to_string())),
+                                    Predicate::TransactionDescription(StringMatch::Eq(
+                                        "bank1".to_string(),
                                     )),
-                                    Predicate::InputBank(StringMatch::Eq("bank1".to_string())),
                                 ]),
-                                Continue,
+                                Return,
                             )
                             .rule(
-                                Action::SetSrcAccount("assets::acct1-bank2".to_string()),
+                                Action::SetAccount("assets:acct1-bank2".to_string()),
                                 Predicate::All(vec![
-                                    Predicate::InputAccountName(StringMatch::Eq(
-                                        "acct1".to_string(),
+                                    Predicate::Account(StringMatch::Eq("acct1".to_string())),
+                                    Predicate::TransactionDescription(StringMatch::Eq(
+                                        "bank2".to_string(),
                                     )),
-                                    Predicate::InputBank(StringMatch::Eq("bank2".to_string())),
                                 ]),
-                                Continue,
+                                Return,
                             )
                             .rule(
-                                Action::SetSrcAccount("assets::acct2-bank1".to_string()),
+                                Action::SetAccount("assets:acct2-bank1".to_string()),
                                 Predicate::All(vec![
-                                    Predicate::InputAccountName(StringMatch::Eq(
-                                        "acct2".to_string(),
+                                    Predicate::Account(StringMatch::Eq("acct2".to_string())),
+                                    Predicate::TransactionDescription(StringMatch::Eq(
+                                        "bank1".to_string(),
                                     )),
-                                    Predicate::InputBank(StringMatch::Eq("bank1".to_string())),
                                 ]),
-                                Continue,
+                                Return,
                             )
                             .rule(
-                                Action::SetSrcAccount("assets::acct2-bank2".to_string()),
+                                Action::SetAccount("assets:acct2-bank2".to_string()),
                                 Predicate::All(vec![
-                                    Predicate::InputAccountName(StringMatch::Eq(
-                                        "acct2".to_string(),
+                                    Predicate::Account(StringMatch::Eq("acct2".to_string())),
+                                    Predicate::TransactionDescription(StringMatch::Eq(
+                                        "bank2".to_string(),
                                     )),
-                                    Predicate::InputBank(StringMatch::Eq("bank2".to_string())),
                                 ]),
-                                Continue,
+                                Return,
                             )
                             .rule(
-                                Action::SetSrcAccount("assets::acct3-or-4".to_string()),
+                                Action::SetAccount("assets:acct3-or-4".to_string()),
                                 Predicate::Any(vec![
-                                    Predicate::InputAccountName(StringMatch::Eq(
-                                        "acct3".to_string(),
-                                    )),
-                                    Predicate::InputAccountName(StringMatch::Eq(
-                                        "acct4".to_string(),
-                                    )),
+                                    Predicate::Account(StringMatch::Eq("acct3".to_string())),
+                                    Predicate::Account(StringMatch::Eq("acct4".to_string())),
                                 ]),
-                                Continue,
+                                Return,
                             )
                             .rule(
-                                Action::SetSrcAccount("assets::acct-other-bank1".to_string()),
+                                Action::SetAccount("assets:acct-other-bank1".to_string()),
                                 Predicate::All(vec![
-                                    Predicate::InputAccountName(StringMatch::Eq(
-                                        "acct1".to_string(),
-                                    ))
-                                    .not(),
-                                    Predicate::InputAccountName(StringMatch::Eq(
-                                        "acct2".to_string(),
-                                    ))
-                                    .not(),
-                                    Predicate::InputBank(StringMatch::Eq("bank1".to_string())),
+                                    Predicate::Account(StringMatch::Eq("acct1".to_string())).not(),
+                                    Predicate::Account(StringMatch::Eq("acct2".to_string())).not(),
+                                    Predicate::TransactionDescription(StringMatch::Eq(
+                                        "bank1".to_string(),
+                                    )),
                                 ]),
-                                Continue,
+                                Return,
                             )
                             .build(),
                     )
                     .build(),
                 cases: vec![
                     Case {
-                        trn: InputTransactionBuilder::new()
-                            .account_name("acct1")
-                            .bank("unmatched")
+                        input: TransactionBuilder::new(test_date, "unmatched")
+                            .posting("acct1", amount(10, 0), None)
                             .build(),
                         // Fallthrough without matching any rules.
-                        want: DerivedComponentsBuilder::new().build(),
-                    },
-                    Case {
-                        trn: InputTransactionBuilder::new()
-                            .account_name("acct1")
-                            .bank("bank1")
-                            .build(),
-                        want: DerivedComponentsBuilder::new()
-                            .source_account("assets::acct1-bank1")
+                        want: TransactionBuilder::new(test_date, "unmatched")
+                            .posting("acct1", amount(10, 0), None)
                             .build(),
                     },
                     Case {
-                        trn: InputTransactionBuilder::new()
-                            .account_name("acct1")
-                            .bank("bank2")
+                        input: TransactionBuilder::new(test_date, "bank1")
+                            .posting("acct1", amount(10, 0), None)
                             .build(),
-                        want: DerivedComponentsBuilder::new()
-                            .source_account("assets::acct1-bank2")
-                            .build(),
-                    },
-                    Case {
-                        trn: InputTransactionBuilder::new()
-                            .account_name("acct2")
-                            .bank("bank1")
-                            .build(),
-                        want: DerivedComponentsBuilder::new()
-                            .source_account("assets::acct2-bank1")
+                        want: TransactionBuilder::new(test_date, "bank1")
+                            .posting("assets:acct1-bank1", amount(10, 0), None)
                             .build(),
                     },
                     Case {
-                        trn: InputTransactionBuilder::new()
-                            .account_name("acct2")
-                            .bank("bank2")
+                        input: TransactionBuilder::new(test_date, "bank1")
+                            .posting("acct2", amount(10, 0), None)
                             .build(),
-                        want: DerivedComponentsBuilder::new()
-                            .source_account("assets::acct2-bank2")
-                            .build(),
-                    },
-                    Case {
-                        trn: InputTransactionBuilder::new().account_name("acct3").build(),
-                        want: DerivedComponentsBuilder::new()
-                            .source_account("assets::acct3-or-4")
+                        want: TransactionBuilder::new(test_date, "bank1")
+                            .posting("assets:acct2-bank1", amount(10, 0), None)
                             .build(),
                     },
                     Case {
-                        trn: InputTransactionBuilder::new().account_name("acct4").build(),
-                        want: DerivedComponentsBuilder::new()
-                            .source_account("assets::acct3-or-4")
+                        input: TransactionBuilder::new(test_date, "bank2")
+                            .posting("acct2", amount(10, 0), None)
+                            .build(),
+                        want: TransactionBuilder::new(test_date, "bank2")
+                            .posting("assets:acct2-bank2", amount(10, 0), None)
                             .build(),
                     },
                     Case {
-                        trn: InputTransactionBuilder::new()
-                            .account_name("acct3")
-                            .bank("bank1")
+                        input: TransactionBuilder::new(test_date, "description")
+                            .posting("acct3", amount(10, 0), None)
                             .build(),
-                        want: DerivedComponentsBuilder::new()
-                            .source_account("assets::acct-other-bank1")
+                        want: TransactionBuilder::new(test_date, "description")
+                            .posting("assets:acct3-or-4", amount(10, 0), None)
+                            .build(),
+                    },
+                    Case {
+                        input: TransactionBuilder::new(test_date, "description")
+                            .posting("acct4", amount(10, 0), None)
+                            .build(),
+                        want: TransactionBuilder::new(test_date, "description")
+                            .posting("assets:acct3-or-4", amount(10, 0), None)
+                            .build(),
+                    },
+                    Case {
+                        input: TransactionBuilder::new(test_date, "bank1")
+                            .posting("acct5", amount(10, 0), None)
+                            .build(),
+                        want: TransactionBuilder::new(test_date, "bank1")
+                            .posting("assets:acct-other-bank1", amount(10, 0), None)
                             .build(),
                     },
                 ],
@@ -646,8 +546,9 @@ mod tests {
 
         for test in &tests {
             for (i, case) in test.cases.iter().enumerate() {
-                let cmp = test.table.derive_components(&case.trn).unwrap();
-                assert_eq!(case.want, cmp, "for test {}#{}", test.name, i);
+                let mut trn = case.input.clone();
+                test.table.update_transaction(&mut trn).unwrap();
+                assert_eq!(case.want, trn, "for test {}#{}", test.name, i);
             }
         }
     }

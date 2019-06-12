@@ -1,4 +1,4 @@
-mod input;
 pub mod nationwide;
 
-pub use input::*;
+pub const EXPENSES_UNKNOWN: &str = "expenses:unknown";
+pub const INCOME_UNKNOWN: &str = "income:unknown";

@@ -5,14 +5,15 @@ use std::str::FromStr;
 
 use chrono::NaiveDate;
 use failure::Error;
-use ledger_parser::{Amount, Commodity, CommodityPosition};
+use ledger_parser::{Amount, Commodity, CommodityPosition, Transaction};
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::{de, de::DeserializeOwned, Deserialize, Deserializer};
 
-use crate::bank::InputTransaction;
+use crate::bank::{EXPENSES_UNKNOWN, INCOME_UNKNOWN};
+use crate::builder::TransactionBuilder;
 
-const BANK_NAME: &'static str = "Nationwide";
+const BANK_NAME: &str = "Nationwide";
 
 #[derive(Debug, Fail)]
 enum ReadError {
@@ -40,7 +41,7 @@ struct AccountQuantity {
     amount: DeGbpValue,
 }
 
-pub fn transactions_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<InputTransaction>, Error> {
+pub fn transactions_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<Transaction>, Error> {
     let reader = encoding_rs_io::DecodeReaderBytesBuilder::new()
         .encoding(Some(encoding_rs::WINDOWS_1252))
         .build(File::open(path)?);
@@ -65,9 +66,10 @@ pub fn transactions_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<InputTransa
 }
 
 fn read_transactions<R: std::io::Read>(
-    account_name: &str,
+    // TODO: Use account name.
+    _account_name: &str,
     csv_records: &mut csv::StringRecordsIter<R>,
-) -> Result<Vec<InputTransaction>, Error> {
+) -> Result<Vec<Transaction>, Error> {
     let headers: Vec<String> = deserialize_required_record(csv_records)?
         .ok_or(ReadError::bad_file_format("missing transaction headers"))?;
     if headers.len() != 6 {
@@ -84,34 +86,39 @@ fn read_transactions<R: std::io::Read>(
     for result in csv_records {
         let str_record = result?;
         let record: DeTransaction = str_record.deserialize(None)?;
-        transactions.push(InputTransaction {
-            bank: BANK_NAME.to_string(),
-            account_name: account_name.to_string(),
-            date: record.date.0,
-            type_: record.type_,
-            description: record.description,
-            paid: match (record.paid_in, record.paid_out) {
-                (Some(DeGbpValue(v)), None) => v,
-                (
-                    None,
-                    Some(DeGbpValue(Amount {
-                        quantity,
-                        commodity,
-                    })),
-                ) => Amount {
-                    quantity: -quantity,
-                    commodity,
-                },
-                _ => {
-                    return Err(
-                        ReadError::bad_file_format("expected either paid in or paid out").into(),
-                    )
-                }
-            },
-            balance: record.balance.0,
-        });
+
+        let (peer, self_amt, peer_amt) = match (record.paid_in, record.paid_out) {
+            // Paid in only.
+            (Some(DeGbpValue(amt)), None) => {
+                let peer_amt = neg_amount(&amt);
+                (INCOME_UNKNOWN, amt, peer_amt)
+            }
+            // Paid out only.
+            (None, Some(DeGbpValue(amt))) => (EXPENSES_UNKNOWN, neg_amount(&amt), amt),
+            // Paid in and out or neither - both are errors.
+            _ => {
+                return Err(
+                    ReadError::bad_file_format("expected either paid in or paid out").into(),
+                )
+            }
+        };
+
+        transactions.push(
+            TransactionBuilder::new(record.date.0, record.description)
+                .posting("assets:unknown", self_amt, Some(record.balance.0))
+                .posting(peer, peer_amt, None)
+                .build(),
+        );
     }
+
     Ok(transactions)
+}
+
+fn neg_amount(amt: &Amount) -> Amount {
+    Amount {
+        quantity: -amt.quantity,
+        commodity: amt.commodity.clone(),
+    }
 }
 
 #[derive(Debug, Deserialize)]
