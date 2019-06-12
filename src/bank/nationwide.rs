@@ -1,4 +1,3 @@
-use std::convert::TryInto;
 use std::fmt;
 use std::fs::File;
 use std::path::Path;
@@ -6,11 +5,12 @@ use std::str::FromStr;
 
 use chrono::NaiveDate;
 use failure::Error;
+use ledger_parser::{Amount, Commodity, CommodityPosition};
 use regex::Regex;
+use rust_decimal::Decimal;
 use serde::{de, de::DeserializeOwned, Deserialize, Deserializer};
 
-use crate::bank::{InputTransaction, Paid};
-use crate::money::GbpValue;
+use crate::bank::InputTransaction;
 
 const BANK_NAME: &'static str = "Nationwide";
 
@@ -91,8 +91,17 @@ fn read_transactions<R: std::io::Read>(
             type_: record.type_,
             description: record.description,
             paid: match (record.paid_in, record.paid_out) {
-                (Some(DeGbpValue(v)), None) => Paid::In(v.try_into()?),
-                (None, Some(DeGbpValue(v))) => Paid::Out(v.try_into()?),
+                (Some(DeGbpValue(v)), None) => v,
+                (
+                    None,
+                    Some(DeGbpValue(Amount {
+                        quantity,
+                        commodity,
+                    })),
+                ) => Amount {
+                    quantity: -quantity,
+                    commodity,
+                },
                 _ => {
                     return Err(
                         ReadError::bad_file_format("expected either paid in or paid out").into(),
@@ -140,7 +149,7 @@ impl<'de> de::Visitor<'de> for InputDateVisitor {
 }
 
 #[derive(Debug)]
-struct DeGbpValue(GbpValue);
+struct DeGbpValue(Amount);
 
 impl<'de> Deserialize<'de> for DeGbpValue {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -163,9 +172,15 @@ impl<'de> de::Visitor<'de> for DeGbpValueVisitor {
         let captures = RE
             .captures(s)
             .ok_or_else(|| de::Error::custom("incorrect monetary format"))?;
-        let pounds: i32 = deserialize_captured_number(&captures, 1)?;
-        let pence: i32 = deserialize_captured_number(&captures, 2)?;
-        Ok(DeGbpValue(GbpValue::from_parts(pounds, pence)))
+        let pounds: i64 = deserialize_captured_number(&captures, 1)?;
+        let pence: i64 = deserialize_captured_number(&captures, 2)?;
+        Ok(DeGbpValue(Amount {
+            commodity: Commodity {
+                name: "GBP".to_string(),
+                position: CommodityPosition::Left,
+            },
+            quantity: Decimal::new(pounds * 100 + pence, 2),
+        }))
     }
 }
 

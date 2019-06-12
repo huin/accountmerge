@@ -1,30 +1,5 @@
-use std::convert::TryInto;
-
 use chrono::NaiveDate;
-
-use crate::money::{GbpValue, MoneyError, UnsignedGbpValue};
-
-#[derive(Clone, Copy, Debug)]
-pub enum Paid {
-    In(UnsignedGbpValue),
-    Out(UnsignedGbpValue),
-}
-
-impl Paid {
-    pub fn src_acct_amt(self) -> Result<GbpValue, MoneyError> {
-        match self {
-            Paid::In(v) => v.try_into(),
-            Paid::Out(v) => v.try_into().map(|v: GbpValue| -v),
-        }
-    }
-
-    pub fn dest_acct_amt(self) -> Result<GbpValue, MoneyError> {
-        match self {
-            Paid::In(v) => v.try_into().map(|v: GbpValue| -v),
-            Paid::Out(v) => v.try_into(),
-        }
-    }
-}
+use ledger_parser::Amount;
 
 #[derive(Debug)]
 pub struct InputTransaction {
@@ -33,6 +8,6 @@ pub struct InputTransaction {
     pub date: NaiveDate,
     pub type_: String,
     pub description: String,
-    pub paid: Paid,
-    pub balance: GbpValue,
+    pub paid: Amount,
+    pub balance: Amount,
 }
