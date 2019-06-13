@@ -1,46 +1,38 @@
-Table(
-    chains: {
-        "start": Chain(
-            rules: [
-                Rule(
-                    predicate: Account(Eq("assets:unknown")),
-                    action: SetAccount("assets:current"),
-                    result: Return,
-                ),
-                Rule(
-                    predicate: Account(Eq("expenses:unknown")),
-                    action: JumpChain("expenses"),
-                    result: Return,
-                ),
-                Rule(
-                    predicate: Account(Eq("income:unknown")),
-                    action: JumpChain("income"),
-                    result: Return,
-                ),
-            ],
+Table({
+    "start": Chain([
+        Rule(
+            predicate: Account(Eq("assets:unknown")),
+            action: SetAccount("assets:current"),
+            result: Return,
         ),
-        "expenses": Chain(
-            rules: [
-                Rule(
-                    predicate: TransactionDescription(Eq("ATM Withdrawal")),
-                    action: SetAccount("expenses:petty"),
-                    result: Return,
-                ),
-                Rule(
-                    predicate: TransactionDescription(Eq("Transfer to Savings")),
-                    action: SetAccount("assets:savings"),
-                    result: Return,
-                ),
-            ],
+        Rule(
+            predicate: Account(Eq("expenses:unknown")),
+            action: JumpChain("expenses"),
+            result: Return,
         ),
-        "income": Chain(
-            rules: [
-                Rule(
-                    predicate: TransactionDescription(Eq("Payroll")),
-                    action: SetAccount("income:salary"),
-                    result: Return,
-                ),
-            ],
+        Rule(
+            predicate: Account(Eq("income:unknown")),
+            action: JumpChain("income"),
+            result: Return,
         ),
-    },
-)
+    ]),
+    "expenses": Chain([
+        Rule(
+            predicate: TransactionDescription(Eq("ATM Withdrawal")),
+            action: SetAccount("expenses:petty"),
+            result: Return,
+        ),
+        Rule(
+            predicate: TransactionDescription(Eq("Transfer to Savings")),
+            action: SetAccount("assets:savings"),
+            result: Return,
+        ),
+    ]),
+    "income": Chain([
+        Rule(
+            predicate: TransactionDescription(Eq("Payroll")),
+            action: SetAccount("income:salary"),
+            result: Return,
+        ),
+    ]),
+})

@@ -29,9 +29,7 @@ impl PostingContext<'_> {
 }
 
 #[derive(Debug, Default, Deserialize)]
-pub struct Table {
-    chains: HashMap<String, Chain>,
-}
+pub struct Table(HashMap<String, Chain>);
 
 impl Table {
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
@@ -54,16 +52,14 @@ impl Table {
     }
 
     fn get_chain(&self, name: &str) -> Result<&Chain, RuleError> {
-        self.chains
-            .get(name)
-            .ok_or_else(|| RuleError::ChainNotFound {
-                chain: name.to_string(),
-            })
+        self.0.get(name).ok_or_else(|| RuleError::ChainNotFound {
+            chain: name.to_string(),
+        })
     }
 
     fn validate(&self) -> Result<(), RuleError> {
         self.get_chain(START_CHAIN)?;
-        for (_, chain) in &self.chains {
+        for (_, chain) in &self.0 {
             chain.validate(self)?;
         }
         Ok(())
@@ -71,13 +67,11 @@ impl Table {
 }
 
 #[derive(Debug, Default, Deserialize)]
-struct Chain {
-    rules: Vec<Rule>,
-}
+struct Chain(Vec<Rule>);
 
 impl Chain {
     fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<(), RuleError> {
-        for rule in &self.rules {
+        for rule in &self.0 {
             match rule.apply(table, ctx)? {
                 RuleResult::Continue => {}
                 RuleResult::Return => break,
@@ -87,7 +81,7 @@ impl Chain {
     }
 
     fn validate(&self, table: &Table) -> Result<(), RuleError> {
-        for r in &self.rules {
+        for r in &self.0 {
             r.validate(table)?;
         }
         Ok(())
@@ -221,7 +215,7 @@ mod tests {
         }
 
         fn chain(mut self, name: &str, chain: Chain) -> Self {
-            self.table.chains.insert(name.to_string(), chain);
+            self.table.0.insert(name.to_string(), chain);
             self
         }
 
@@ -241,7 +235,7 @@ mod tests {
         }
 
         fn rule(mut self, action: Action, predicate: Predicate, result: RuleResult) -> Self {
-            self.chain.rules.push(Rule {
+            self.chain.0.push(Rule {
                 action,
                 predicate,
                 result,
