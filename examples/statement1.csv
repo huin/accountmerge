@@ -4,4 +4,5 @@
 
 "Date","Transaction type","Description","Paid out","Paid in","Balance"
 "01 Jan 2019","ATM","ATM Withdrawal","£30.00","","£200.00"
-"05 Jan 2019","Transfer","Transfer to Savings","£100.00","","£100.00"
+"02 Jan 2019","Transfer","Payroll","","£300.00","£500.00"
+"05 Jan 2019","Transfer","Transfer to Savings","£100.00","","£400.00"
