@@ -24,6 +24,7 @@ use structopt::StructOpt;
 mod bank;
 mod builder;
 mod rule;
+mod tags;
 
 #[derive(Debug, StructOpt)]
 struct Opt {
