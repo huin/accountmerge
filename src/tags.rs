@@ -25,10 +25,7 @@ pub fn parse_comment(s: &str) -> Vec<CommentPart> {
                 .get(1)
                 .expect("should always have group 1")
                 .as_str();
-            let value = kv_parts
-                .get(2)
-                .expect("should always have group 2")
-                .as_str();
+            let value = kv_parts.get(2).map(|c| c.as_str()).unwrap_or("");
             parts.push(CommentPart::ValueTag(key.to_string(), value.to_string()));
         } else {
             // Flag tag groups can be mixed into a line with comment text.
@@ -99,5 +96,12 @@ fn test_parse_comment() {
             CommentPart::ValueTag("key".to_string(), "value".to_string()),
         ],
         parse_comment("comment\n:flag: ignored-key: value\nkey: value"),
+    );
+    assert_eq!(
+        vec![
+            CommentPart::Text("comment".to_string()),
+            CommentPart::ValueTag("key-without-value".to_string(), "".to_string()),
+        ],
+        parse_comment("comment\nkey-without-value:"),
     );
 }
