@@ -16,13 +16,17 @@ extern crate serde;
 extern crate serde_derive;
 extern crate structopt;
 
+#[cfg(test)]
+extern crate text_diff;
+#[cfg(test)]
+extern crate textwrap;
+
 use std::path::PathBuf;
 
 use failure::Error;
 use structopt::StructOpt;
 
 mod bank;
-mod builder;
 mod rule;
 mod tags;
 

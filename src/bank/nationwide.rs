@@ -5,13 +5,12 @@ use std::str::FromStr;
 
 use chrono::NaiveDate;
 use failure::Error;
-use ledger_parser::{Amount, Commodity, CommodityPosition, Transaction};
+use ledger_parser::{Amount, Commodity, CommodityPosition, Posting, Transaction};
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::{de, de::DeserializeOwned, Deserialize, Deserializer};
 
 use crate::bank::{EXPENSES_UNKNOWN, INCOME_UNKNOWN};
-use crate::builder::TransactionBuilder;
 
 const BANK_NAME: &str = "Nationwide";
 
@@ -103,12 +102,30 @@ fn read_transactions<R: std::io::Read>(
             }
         };
 
-        transactions.push(
-            TransactionBuilder::new(record.date.0, record.description)
-                .posting("assets:unknown", self_amt, Some(record.balance.0))
-                .posting(peer, peer_amt, None)
-                .build(),
-        );
+        transactions.push(Transaction {
+            date: record.date.0,
+            description: record.description,
+            comment: None,
+            status: None,
+            code: None,
+            effective_date: None,
+            postings: vec![
+                Posting {
+                    account: "assets:unknown".to_string(),
+                    amount: self_amt,
+                    balance: Some(record.balance.0),
+                    comment: None,
+                    status: None,
+                },
+                Posting {
+                    account: peer.to_string(),
+                    amount: peer_amt,
+                    balance: None,
+                    comment: None,
+                    status: None,
+                },
+            ],
+        });
     }
 
     Ok(transactions)

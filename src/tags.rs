@@ -1,16 +1,16 @@
 use regex::Regex;
 
 #[derive(Debug, Eq, PartialEq)]
-enum CommentPart {
+pub enum CommentPart {
     /// Tag that is present or not, e.g: ":TAG:".
     FlagTag(String),
     /// Tag that has a string value, e.g: "TAG: value".
-    ValueTag(String, Option<String>),
+    ValueTag(String, String),
     /// Non-tag comment content.
     Text(String),
 }
 
-fn parse_comment(s: &str) -> Vec<CommentPart> {
+pub fn parse_comment(s: &str) -> Vec<CommentPart> {
     lazy_static! {
         static ref VALUE_TAG_RX: Regex = Regex::new(r"^[ ]*([^: ]+):(?:[ ]+(.+))?$").unwrap();
     }
@@ -29,14 +29,7 @@ fn parse_comment(s: &str) -> Vec<CommentPart> {
                 .get(2)
                 .expect("should always have group 2")
                 .as_str();
-            parts.push(CommentPart::ValueTag(
-                key.to_string(),
-                if value.len() == 0 {
-                    None
-                } else {
-                    Some(value.to_string())
-                },
-            ));
+            parts.push(CommentPart::ValueTag(key.to_string(), value.to_string()));
         } else {
             // Flag tag groups can be mixed into a line with comment text.
             let mut leading_start: usize = 0;
@@ -75,7 +68,7 @@ fn test_parse_comment() {
     assert_eq!(
         vec![
             CommentPart::Text("start text".to_string()),
-            CommentPart::ValueTag("key".to_string(), Some("value".to_string())),
+            CommentPart::ValueTag("key".to_string(), "value".to_string()),
             CommentPart::Text("end text".to_string()),
         ],
         parse_comment("start text\nkey: value\nend text"),
@@ -103,7 +96,7 @@ fn test_parse_comment() {
             CommentPart::Text("comment".to_string()),
             CommentPart::FlagTag("flag".to_string()),
             CommentPart::Text(" ignored-key: value".to_string()),
-            CommentPart::ValueTag("key".to_string(), Some("value".to_string())),
+            CommentPart::ValueTag("key".to_string(), "value".to_string()),
         ],
         parse_comment("comment\n:flag: ignored-key: value\nkey: value"),
     );

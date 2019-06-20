@@ -5,6 +5,8 @@ use std::path::Path;
 use failure::Error;
 use ledger_parser::{Posting, Transaction};
 
+use crate::tags;
+
 const START_CHAIN: &str = "start";
 
 #[derive(Debug, Fail)]
@@ -13,9 +15,10 @@ pub enum RuleError {
     ChainNotFound { chain: String },
 }
 
-pub struct PostingContext<'a> {
+struct PostingContext<'a> {
     trn: &'a mut Transaction,
     posting_idx: usize,
+    posting_comment: CommentManipulator,
 }
 
 impl PostingContext<'_> {
@@ -25,6 +28,43 @@ impl PostingContext<'_> {
 
     fn mut_posting(&mut self) -> &mut Posting {
         &mut self.trn.postings[self.posting_idx]
+    }
+}
+
+struct CommentManipulator {
+    parts: Vec<tags::CommentPart>,
+}
+
+impl CommentManipulator {
+    fn from_opt_comment(comment: &Option<String>) -> Self {
+        CommentManipulator {
+            parts: comment
+                .as_ref()
+                .map(|c| tags::parse_comment(&c))
+                .unwrap_or_else(|| Vec::new()),
+        }
+    }
+
+    fn get_value_tag(&self, find_name: &str) -> Option<(&str)> {
+        for part in &self.parts {
+            match part {
+                tags::CommentPart::ValueTag(name, value) if name == find_name => {
+                    return Some(value)
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn has_value_tag(&self, find_name: &str) -> bool {
+        for part in &self.parts {
+            match part {
+                tags::CommentPart::ValueTag(name, _) if name == find_name => return true,
+                _ => {}
+            }
+        }
+        false
     }
 }
 
@@ -42,9 +82,11 @@ impl Table {
     pub fn update_transaction(&self, trn: &mut Transaction) -> Result<(), RuleError> {
         let start = self.get_chain(START_CHAIN)?;
         for i in 0..trn.postings.len() {
+            let pc = CommentManipulator::from_opt_comment(&trn.postings[i].comment);
             let mut ctx = PostingContext {
                 trn: trn,
                 posting_idx: i,
+                posting_comment: pc,
             };
             start.apply(self, &mut ctx)?;
         }
@@ -156,6 +198,8 @@ enum Predicate {
     All(Vec<Predicate>),
     Any(Vec<Predicate>),
     Account(StringMatch),
+    PostingHasValueTag(String),
+    PostingValueTag(String, StringMatch),
     TransactionDescription(StringMatch),
     Not(Box<Predicate>),
 }
@@ -168,6 +212,12 @@ impl Predicate {
             All(preds) => preds.iter().all(|p| p.is_match(ctx)),
             Any(preds) => preds.iter().any(|p| p.is_match(ctx)),
             Account(matcher) => matcher.matches_string(&ctx.posting().account),
+            PostingHasValueTag(tag_name) => ctx.posting_comment.has_value_tag(&tag_name),
+            PostingValueTag(tag_name, matcher) => ctx
+                .posting_comment
+                .get_value_tag(&tag_name)
+                .map(|value| matcher.matches_string(&value))
+                .unwrap_or(false),
             TransactionDescription(matcher) => matcher.matches_string(&ctx.trn.description),
             Not(pred) => !pred.is_match(ctx),
         }
@@ -197,12 +247,6 @@ impl StringMatch {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use chrono::NaiveDate;
-    use ledger_parser::{Amount, Commodity, CommodityPosition};
-    use rust_decimal::Decimal;
-
-    use crate::builder::TransactionBuilder;
 
     struct TableBuilder {
         table: Table,
@@ -248,18 +292,22 @@ mod tests {
         }
     }
 
-    fn amount(dollars: i64, cents: i64) -> Amount {
-        Amount {
-            commodity: Commodity {
-                name: "$".to_string(),
-                position: CommodityPosition::Left,
-            },
-            quantity: Decimal::new(dollars * 100 + cents, 2),
-        }
-    }
-
     fn jump_chain(chain: &str) -> Action {
         Action::JumpChain(chain.to_string())
+    }
+
+    fn parse_transactions(s: &str) -> Vec<Transaction> {
+        ledger_parser::parse(textwrap::dedent(s).as_ref())
+            .expect("test input did not parse")
+            .transactions
+    }
+
+    fn format_transactions(transactions: &Vec<Transaction>) -> String {
+        let mut result = String::new();
+        for trn in transactions {
+            result.push_str(&format!("{}", trn));
+        }
+        result
     }
 
     #[test]
@@ -268,26 +316,39 @@ mod tests {
         struct Test {
             name: &'static str,
             table: Table,
-            cases: Vec<Case>,
+            cases: Vec<CompiledCase>,
+        };
+        struct CompiledCase {
+            input: Vec<Transaction>,
+            want: Vec<Transaction>,
         };
         struct Case {
-            input: Transaction,
-            want: Transaction,
+            input: &'static str,
+            want: &'static str,
+        };
+        fn compile_cases(cases: Vec<Case>) -> Vec<CompiledCase> {
+            cases
+                .into_iter()
+                .map(|case| CompiledCase {
+                    input: parse_transactions(case.input),
+                    want: parse_transactions(case.want),
+                })
+                .collect()
         }
-
-        let test_date = NaiveDate::from_ymd(2001, 1, 2);
 
         let tests = vec![
             Test {
                 name: "empty chain",
                 table: TableBuilder::new().chain("start", Chain::default()).build(),
-                cases: vec![Case {
-                    input: TransactionBuilder::new(test_date, "foo").build(),
-                    want: TransactionBuilder::new(test_date, "foo").build(),
-                }],
+                cases: compile_cases(vec![Case {
+                    input: r"2001/01/02 description
+                        anything  $100.00",
+                    want: r"2001/01/02 description
+                        anything  $100.00",
+                }]),
             },
             Test {
-                name: "set source account",
+                name: "set account",
                 table: TableBuilder::new()
                     .chain(
                         "start",
@@ -300,14 +361,12 @@ mod tests {
                             .build(),
                     )
                     .build(),
-                cases: vec![Case {
-                    input: TransactionBuilder::new(test_date, "description")
-                        .posting("anything", amount(100, 0), None)
-                        .build(),
-                    want: TransactionBuilder::new(test_date, "description")
-                        .posting("foo", amount(100, 0), None)
-                        .build(),
-                }],
+                cases: compile_cases(vec![Case {
+                    input: r"2001/01/02 description
+                        anything  $100.00",
+                    want: r"2001/01/02 description
+                        foo  $100.00",
+                }]),
             },
             Test {
                 name: "set account in jumped chain",
@@ -329,14 +388,12 @@ mod tests {
                             .build(),
                     )
                     .build(),
-                cases: vec![Case {
-                    input: TransactionBuilder::new(test_date, "description")
-                        .posting("anything", amount(100, 0), None)
-                        .build(),
-                    want: TransactionBuilder::new(test_date, "description")
-                        .posting("foo", amount(100, 0), None)
-                        .build(),
-                }],
+                cases: compile_cases(vec![Case {
+                    input: r"2001/01/02 description
+                        anything  $100.00",
+                    want: r"2001/01/02 description
+                        foo  $100.00",
+                }]),
             },
             Test {
                 name: "return before set account",
@@ -353,14 +410,12 @@ mod tests {
                             .build(),
                     )
                     .build(),
-                cases: vec![Case {
-                    input: TransactionBuilder::new(test_date, "description")
-                        .posting("original:value", amount(100, 0), None)
-                        .build(),
-                    want: TransactionBuilder::new(test_date, "description")
-                        .posting("original:value", amount(100, 0), None)
-                        .build(),
-                }],
+                cases: compile_cases(vec![Case {
+                    input: r"2001/01/02 description
+                        original:value  $100.00",
+                    want: r"2001/01/02 description
+                        original:value  $100.00",
+                }]),
             },
             Test {
                 name: "set account based on input account",
@@ -381,32 +436,26 @@ mod tests {
                             .build(),
                     )
                     .build(),
-                cases: vec![
+                cases: compile_cases(vec![
                     Case {
-                        input: TransactionBuilder::new(test_date, "description")
-                            .posting("foo", amount(100, 0), None)
-                            .build(),
-                        want: TransactionBuilder::new(test_date, "description")
-                            .posting("assets:foo", amount(100, 0), None)
-                            .build(),
+                        input: r"2001/01/02 description
+                            foo  $100.00",
+                        want: r"2001/01/02 description
+                            assets:foo  $100.00",
                     },
                     Case {
-                        input: TransactionBuilder::new(test_date, "description")
-                            .posting("bar", amount(100, 0), None)
-                            .build(),
-                        want: TransactionBuilder::new(test_date, "description")
-                            .posting("assets:bar", amount(100, 0), None)
-                            .build(),
+                        input: r"2001/01/02 description
+                            bar  $100.00",
+                        want: r"2001/01/02 description
+                            assets:bar  $100.00",
                     },
                     Case {
-                        input: TransactionBuilder::new(test_date, "description")
-                            .posting("quux", amount(100, 0), None)
-                            .build(),
-                        want: TransactionBuilder::new(test_date, "description")
-                            .posting("quux", amount(100, 0), None)
-                            .build(),
+                        input: r"2001/01/02 description
+                            quux  $100.00",
+                        want: r"2001/01/02 description
+                            quux  $100.00",
                     },
-                ],
+                ]),
             },
             Test {
                 name: "set account based on various boolean conditions",
@@ -476,73 +525,145 @@ mod tests {
                             .build(),
                     )
                     .build(),
-                cases: vec![
+                cases: compile_cases(vec![
                     Case {
-                        input: TransactionBuilder::new(test_date, "unmatched")
-                            .posting("acct1", amount(10, 0), None)
-                            .build(),
-                        // Fallthrough without matching any rules.
-                        want: TransactionBuilder::new(test_date, "unmatched")
-                            .posting("acct1", amount(10, 0), None)
-                            .build(),
+                        input: r"2001/01/02 unmatched
+                            acct1  $10.00",
+                        want: r"2001/01/02 unmatched
+                            acct1  $10.00",
                     },
                     Case {
-                        input: TransactionBuilder::new(test_date, "bank1")
-                            .posting("acct1", amount(10, 0), None)
-                            .build(),
-                        want: TransactionBuilder::new(test_date, "bank1")
-                            .posting("assets:acct1-bank1", amount(10, 0), None)
-                            .build(),
+                        input: r"2001/01/02 bank1
+                            acct1  $10.00",
+                        want: r"2001/01/02 bank1
+                            assets:acct1-bank1  $10.00",
                     },
                     Case {
-                        input: TransactionBuilder::new(test_date, "bank1")
-                            .posting("acct2", amount(10, 0), None)
-                            .build(),
-                        want: TransactionBuilder::new(test_date, "bank1")
-                            .posting("assets:acct2-bank1", amount(10, 0), None)
-                            .build(),
+                        input: r"2001/01/02 bank1
+                            acct2  $10.00",
+                        want: r"2001/01/02 bank1
+                            assets:acct2-bank1  $10.00",
                     },
                     Case {
-                        input: TransactionBuilder::new(test_date, "bank2")
-                            .posting("acct2", amount(10, 0), None)
-                            .build(),
-                        want: TransactionBuilder::new(test_date, "bank2")
-                            .posting("assets:acct2-bank2", amount(10, 0), None)
-                            .build(),
+                        input: r"2001/01/02 bank2
+                            acct2  $10.00",
+                        want: r"2001/01/02 bank2
+                            assets:acct2-bank2  $10.00",
                     },
                     Case {
-                        input: TransactionBuilder::new(test_date, "description")
-                            .posting("acct3", amount(10, 0), None)
-                            .build(),
-                        want: TransactionBuilder::new(test_date, "description")
-                            .posting("assets:acct3-or-4", amount(10, 0), None)
-                            .build(),
+                        input: r"2001/01/02 description
+                            acct3  $10.00",
+                        want: r"2001/01/02 description
+                            assets:acct3-or-4  $10.00",
                     },
                     Case {
-                        input: TransactionBuilder::new(test_date, "description")
-                            .posting("acct4", amount(10, 0), None)
-                            .build(),
-                        want: TransactionBuilder::new(test_date, "description")
-                            .posting("assets:acct3-or-4", amount(10, 0), None)
-                            .build(),
+                        input: r"2001/01/02 description
+                            assets:acct3-or-4  $10.00",
+                        want: r"2001/01/02 description
+                            assets:acct3-or-4  $10.00",
                     },
                     Case {
-                        input: TransactionBuilder::new(test_date, "bank1")
-                            .posting("acct5", amount(10, 0), None)
-                            .build(),
-                        want: TransactionBuilder::new(test_date, "bank1")
-                            .posting("assets:acct-other-bank1", amount(10, 0), None)
-                            .build(),
+                        input: r"2001/01/02 bank1
+                            acct5  $10.00",
+                        want: r"2001/01/02 bank1
+                            assets:acct-other-bank1  $10.00",
                     },
-                ],
+                ]),
+            },
+            Test {
+                name: "set bank based on tag value",
+                table: TableBuilder::new()
+                    .chain(
+                        "start",
+                        ChainBuilder::new()
+                            .rule(
+                                jump_chain("set-bank"),
+                                Predicate::PostingHasValueTag("bank".to_string()),
+                                Return,
+                            )
+                            .rule(
+                                Action::SetAccount("assets:unknown".to_string()),
+                                Predicate::True,
+                                Return,
+                            )
+                            .build(),
+                    )
+                    .chain(
+                        "set-bank",
+                        ChainBuilder::new()
+                            .rule(
+                                Action::SetAccount("assets:bank:foo".to_string()),
+                                Predicate::PostingValueTag(
+                                    "bank".to_string(),
+                                    StringMatch::Eq("foo".to_string()),
+                                ),
+                                Return,
+                            )
+                            .rule(
+                                Action::SetAccount("assets:bank:bar".to_string()),
+                                Predicate::PostingValueTag(
+                                    "bank".to_string(),
+                                    StringMatch::Eq("bar".to_string()),
+                                ),
+                                Return,
+                            )
+                            .rule(
+                                Action::SetAccount("assets:bank:other".to_string()),
+                                Predicate::True,
+                                Return,
+                            )
+                            .build(),
+                    )
+                    .build(),
+                cases: compile_cases(vec![
+                    Case {
+                        input: r"2001/01/02 description
+                            someaccount  $10.00
+                            ; bank: foo",
+                        want: r"2001/01/02 description
+                            assets:bank:foo  $10.00
+                            ; bank: foo",
+                    },
+                    Case {
+                        input: r"2001/01/02 description
+                            someaccount  $10.00
+                            ; bank: bar",
+                        want: r"2001/01/02 description
+                            assets:bank:bar  $10.00
+                            ; bank: bar",
+                    },
+                    Case {
+                        input: r"2001/01/02 description
+                            someaccount  $10.00
+                            ; bank: quux",
+                        want: r"2001/01/02 description
+                            assets:bank:other  $10.00
+                            ; bank: quux",
+                    },
+                    Case {
+                        input: r"2001/01/02 description
+                            someaccount  $10.00",
+                        want: r"2001/01/02 description
+                            assets:unknown  $10.00",
+                    },
+                ]),
             },
         ];
 
         for test in &tests {
             for (i, case) in test.cases.iter().enumerate() {
-                let mut trn = case.input.clone();
-                test.table.update_transaction(&mut trn).unwrap();
-                assert_eq!(case.want, trn, "for test {}#{}", test.name, i);
+                let mut got = case.input.clone();
+                for trn in &mut got {
+                    test.table.update_transaction(trn).unwrap();
+                }
+
+                let want_str = format_transactions(&case.want);
+                let got_str = format_transactions(&got);
+                if want_str != got_str {
+                    eprintln!("Test \"{}\" case #{}", test.name, i);
+                    eprintln!("For input:\n{}", format_transactions(&case.input));
+                    text_diff::assert_diff(&want_str, &got_str, "\n", 0);
+                }
             }
         }
     }
