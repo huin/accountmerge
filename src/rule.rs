@@ -72,6 +72,12 @@ impl CommentManipulator {
 pub struct Table(HashMap<String, Chain>);
 
 impl Table {
+    pub fn from_str(s: &str) -> Result<Self, Error> {
+        let table: Table = ron::de::from_str(s)?;
+        table.validate()?;
+        Ok(table)
+    }
+
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
         let reader = File::open(path)?;
         let table: Table = ron::de::from_reader(reader)?;
@@ -222,11 +228,6 @@ impl Predicate {
             Not(pred) => !pred.is_match(ctx),
         }
     }
-
-    #[cfg(test)]
-    fn not(self) -> Self {
-        Predicate::Not(Box::new(self))
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -312,10 +313,9 @@ mod tests {
 
     #[test]
     fn apply() {
-        use RuleResult::*;
         struct Test {
             name: &'static str,
-            table: Table,
+            table: &'static str,
             cases: Vec<CompiledCase>,
         };
         struct CompiledCase {
@@ -339,7 +339,7 @@ mod tests {
         let tests = vec![
             Test {
                 name: "empty chain",
-                table: TableBuilder::new().chain("start", Chain::default()).build(),
+                table: r#"Table ({"start": Chain([]) })"#,
                 cases: compile_cases(vec![Case {
                     input: r"2001/01/02 description
                         anything  $100.00",
@@ -349,18 +349,11 @@ mod tests {
             },
             Test {
                 name: "set account",
-                table: TableBuilder::new()
-                    .chain(
-                        "start",
-                        ChainBuilder::new()
-                            .rule(
-                                Action::SetAccount("foo".to_string()),
-                                Predicate::True,
-                                Continue,
-                            )
-                            .build(),
-                    )
-                    .build(),
+                table: r#"Table ({
+                        "start": Chain([
+                            Rule(action: SetAccount("foo"), predicate: True, result: Continue),
+                        ]),
+                    })"#,
                 cases: compile_cases(vec![Case {
                     input: r"2001/01/02 description
                         anything  $100.00",
@@ -370,24 +363,14 @@ mod tests {
             },
             Test {
                 name: "set account in jumped chain",
-                table: TableBuilder::new()
-                    .chain(
-                        "start",
-                        ChainBuilder::new()
-                            .rule(jump_chain("some-chain"), Predicate::True, Continue)
-                            .build(),
-                    )
-                    .chain(
-                        "some-chain",
-                        ChainBuilder::new()
-                            .rule(
-                                Action::SetAccount("foo".to_string()),
-                                Predicate::True,
-                                Continue,
-                            )
-                            .build(),
-                    )
-                    .build(),
+                table: r#"Table ({
+                        "start": Chain([
+                            Rule(action: JumpChain("some-chain"), predicate: True, result: Continue),
+                        ]),
+                        "some-chain": Chain([
+                            Rule(action: SetAccount("foo"), predicate: True, result: Continue),
+                        ]),
+                    })"#,
                 cases: compile_cases(vec![Case {
                     input: r"2001/01/02 description
                         anything  $100.00",
@@ -397,19 +380,12 @@ mod tests {
             },
             Test {
                 name: "return before set account",
-                table: TableBuilder::new()
-                    .chain(
-                        "start",
-                        ChainBuilder::new()
-                            .rule(Action::Noop, Predicate::True, Return)
-                            .rule(
-                                Action::SetAccount("foo".to_string()),
-                                Predicate::True,
-                                Continue,
-                            )
-                            .build(),
-                    )
-                    .build(),
+                table: r#"Table ({
+                        "start": Chain([
+                            Rule(action: Noop, predicate: True, result: Return),
+                            Rule(action: SetAccount("foo"), predicate: True, result: Continue),
+                        ]),
+                    })"#,
                 cases: compile_cases(vec![Case {
                     input: r"2001/01/02 description
                         original:value  $100.00",
@@ -419,23 +395,12 @@ mod tests {
             },
             Test {
                 name: "set account based on input account",
-                table: TableBuilder::new()
-                    .chain(
-                        "start",
-                        ChainBuilder::new()
-                            .rule(
-                                Action::SetAccount("assets:foo".to_string()),
-                                Predicate::Account(StringMatch::Eq("foo".to_string())),
-                                Continue,
-                            )
-                            .rule(
-                                Action::SetAccount("assets:bar".to_string()),
-                                Predicate::Account(StringMatch::Eq("bar".to_string())),
-                                Continue,
-                            )
-                            .build(),
-                    )
-                    .build(),
+                table: r#"Table ({
+                        "start": Chain([
+                            Rule(action: SetAccount("assets:foo"), predicate: Account(Eq("foo")), result: Continue),
+                            Rule(action: SetAccount("assets:bar"), predicate: Account(Eq("bar")), result: Continue),
+                        ]),
+                    })"#,
                 cases: compile_cases(vec![
                     Case {
                         input: r"2001/01/02 description
@@ -459,72 +424,59 @@ mod tests {
             },
             Test {
                 name: "set account based on various boolean conditions",
-                table: TableBuilder::new()
-                    .chain(
-                        "start",
-                        ChainBuilder::new()
-                            .rule(
-                                Action::SetAccount("assets:acct1-bank1".to_string()),
-                                Predicate::All(vec![
-                                    Predicate::Account(StringMatch::Eq("acct1".to_string())),
-                                    Predicate::TransactionDescription(StringMatch::Eq(
-                                        "bank1".to_string(),
-                                    )),
+                table: r#"Table ({
+                        "start": Chain([
+                            Rule(
+                                action: SetAccount("assets:acct1-bank1"),
+                                predicate: All([
+                                    Account(Eq("acct1")),
+                                    TransactionDescription(Eq("bank1")),
                                 ]),
-                                Return,
-                            )
-                            .rule(
-                                Action::SetAccount("assets:acct1-bank2".to_string()),
-                                Predicate::All(vec![
-                                    Predicate::Account(StringMatch::Eq("acct1".to_string())),
-                                    Predicate::TransactionDescription(StringMatch::Eq(
-                                        "bank2".to_string(),
-                                    )),
+                                result: Return,
+                            ),
+                            Rule(
+                                action: SetAccount("assets:acct1-bank2"),
+                                predicate: All([
+                                    Account(Eq("acct1")),
+                                    TransactionDescription(Eq("bank2")),
                                 ]),
-                                Return,
-                            )
-                            .rule(
-                                Action::SetAccount("assets:acct2-bank1".to_string()),
-                                Predicate::All(vec![
-                                    Predicate::Account(StringMatch::Eq("acct2".to_string())),
-                                    Predicate::TransactionDescription(StringMatch::Eq(
-                                        "bank1".to_string(),
-                                    )),
+                                result: Return,
+                            ),
+                            Rule(
+                                action: SetAccount("assets:acct2-bank1"),
+                                predicate: All([
+                                    Account(Eq("acct2")),
+                                    TransactionDescription(Eq("bank1")),
                                 ]),
-                                Return,
-                            )
-                            .rule(
-                                Action::SetAccount("assets:acct2-bank2".to_string()),
-                                Predicate::All(vec![
-                                    Predicate::Account(StringMatch::Eq("acct2".to_string())),
-                                    Predicate::TransactionDescription(StringMatch::Eq(
-                                        "bank2".to_string(),
-                                    )),
+                                result: Return,
+                            ),
+                            Rule(
+                                action: SetAccount("assets:acct2-bank2"),
+                                predicate: All([
+                                    Account(Eq("acct2")),
+                                    TransactionDescription(Eq("bank2")),
                                 ]),
-                                Return,
-                            )
-                            .rule(
-                                Action::SetAccount("assets:acct3-or-4".to_string()),
-                                Predicate::Any(vec![
-                                    Predicate::Account(StringMatch::Eq("acct3".to_string())),
-                                    Predicate::Account(StringMatch::Eq("acct4".to_string())),
+                                result: Return,
+                            ),
+                            Rule(
+                                action: SetAccount("assets:acct3-or-4"),
+                                predicate: Any([
+                                    Account(Eq("acct3")),
+                                    Account(Eq("acct4")),
                                 ]),
-                                Return,
-                            )
-                            .rule(
-                                Action::SetAccount("assets:acct-other-bank1".to_string()),
-                                Predicate::All(vec![
-                                    Predicate::Account(StringMatch::Eq("acct1".to_string())).not(),
-                                    Predicate::Account(StringMatch::Eq("acct2".to_string())).not(),
-                                    Predicate::TransactionDescription(StringMatch::Eq(
-                                        "bank1".to_string(),
-                                    )),
+                                result: Return,
+                            ),
+                            Rule(
+                                action: SetAccount("assets:acct-other-bank1"),
+                                predicate: All([
+                                    Not(Account(Eq("acct1"))),
+                                    Not(Account(Eq("acct2"))),
+                                    TransactionDescription(Eq("bank1")),
                                 ]),
-                                Return,
-                            )
-                            .build(),
-                    )
-                    .build(),
+                                result: Return,
+                            ),
+                        ]),
+                    })"#,
                 cases: compile_cases(vec![
                     Case {
                         input: r"2001/01/02 unmatched
@@ -572,49 +524,37 @@ mod tests {
             },
             Test {
                 name: "set bank based on tag value",
-                table: TableBuilder::new()
-                    .chain(
-                        "start",
-                        ChainBuilder::new()
-                            .rule(
-                                jump_chain("set-bank"),
-                                Predicate::PostingHasValueTag("bank".to_string()),
-                                Return,
-                            )
-                            .rule(
-                                Action::SetAccount("assets:unknown".to_string()),
-                                Predicate::True,
-                                Return,
-                            )
-                            .build(),
-                    )
-                    .chain(
-                        "set-bank",
-                        ChainBuilder::new()
-                            .rule(
-                                Action::SetAccount("assets:bank:foo".to_string()),
-                                Predicate::PostingValueTag(
-                                    "bank".to_string(),
-                                    StringMatch::Eq("foo".to_string()),
-                                ),
-                                Return,
-                            )
-                            .rule(
-                                Action::SetAccount("assets:bank:bar".to_string()),
-                                Predicate::PostingValueTag(
-                                    "bank".to_string(),
-                                    StringMatch::Eq("bar".to_string()),
-                                ),
-                                Return,
-                            )
-                            .rule(
-                                Action::SetAccount("assets:bank:other".to_string()),
-                                Predicate::True,
-                                Return,
-                            )
-                            .build(),
-                    )
-                    .build(),
+                table: r#"Table({
+                        "start": Chain([
+                            Rule(
+                                action: JumpChain("set-bank"),
+                                predicate: PostingHasValueTag("bank"),
+                                result: Return,
+                            ),
+                            Rule(
+                                action: SetAccount("assets:unknown"),
+                                predicate: True,
+                                result: Return,
+                            ),
+                        ]),
+                        "set-bank": Chain([
+                            Rule(
+                                action: SetAccount("assets:bank:foo"),
+                                predicate: PostingValueTag("bank", Eq("foo")),
+                                result: Return,
+                            ),
+                            Rule(
+                                action: SetAccount("assets:bank:bar"),
+                                predicate: PostingValueTag("bank", Eq("bar")),
+                                result: Return,
+                            ),
+                            Rule(
+                                action: SetAccount("assets:bank:other"),
+                                predicate: True,
+                                result: Return,
+                            ),
+                        ]),
+                    })"#,
                 cases: compile_cases(vec![
                     Case {
                         input: r"2001/01/02 description
@@ -651,10 +591,12 @@ mod tests {
         ];
 
         for test in &tests {
+            let table = Table::from_str(test.table)
+                .expect(&format!("failed to parse table for test {}", test.name));
             for (i, case) in test.cases.iter().enumerate() {
                 let mut got = case.input.clone();
                 for trn in &mut got {
-                    test.table.update_transaction(trn).unwrap();
+                    table.update_transaction(trn).unwrap();
                 }
 
                 let want_str = format_transactions(&case.want);
