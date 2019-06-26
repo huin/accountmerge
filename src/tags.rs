@@ -33,34 +33,43 @@ pub fn format_comment(parts: &Vec<CommentPart>) -> String {
     let mut out_parts: Vec<String> = Vec::new();
     let mut prev_part: Option<&CommentPart> = None;
     for cur_part in parts {
-        match (prev_part, cur_part) {
-            // cur_part == FlagTag
-            (Some(FlagTag(_)), FlagTag(name)) => out_parts.push(format!("{}:", name)),
-            (_, FlagTag(name)) => out_parts.push(format!(":{}:", name)),
+        match cur_part {
+            FlagTag(name) => {
+                match prev_part {
+                    Some(FlagTag(_)) => {}
+                    _ => out_parts.push(":".to_string()),
+                }
+                out_parts.push(format!("{}:", name));
+            }
 
-            // cur_part == ValueTag
-            (None, ValueTag(name, value)) => out_parts.push(format!("{}: {}", name, value)),
-            (Some(NewLine), ValueTag(name, value)) => {
-                out_parts.push(format!("{}: {}", name, value))
+            ValueTag(name, value) => {
+                match prev_part {
+                    None => {}
+                    Some(NewLine) => {}
+                    _ => out_parts.push("\n".to_string()),
+                }
+                out_parts.push(format!("{}: {}", name, value));
             }
-            (Some(_), ValueTag(name, value)) => out_parts.push(format!("\n{}: {}", name, value)),
 
-            // cur_part == Text
-            (None, Text(text)) => {
-                out_parts.push(text.trim_start().to_string());
+            Text(text) => {
+                match prev_part {
+                    Some(ValueTag(_, _)) => out_parts.push("\n".to_string()),
+                    _ => {}
+                }
+                let trimmed = match prev_part {
+                    Some(ValueTag(_, _)) => text.trim_start(),
+                    Some(NewLine) => text.trim_start(),
+                    None => text.trim_start(),
+                    _ => text,
+                };
+                out_parts.push(trimmed.to_string());
             }
-            (Some(ValueTag(_, _)), Text(text)) => {
-                out_parts.push("\n".to_string());
-                out_parts.push(text.trim_start().to_string());
-            }
-            (Some(NewLine), Text(text)) => {
-                out_parts.push(text.trim_start().to_string());
-            }
-            (_, Text(text)) => out_parts.push(text.to_string()),
 
-            // cur_part == NewLine
-            (None, NewLine) => {}
-            (_, NewLine) => out_parts.push("\n".to_string()),
+            NewLine => {
+                if prev_part.is_some() {
+                    out_parts.push("\n".to_string());
+                }
+            }
         }
         prev_part = Some(cur_part);
     }
