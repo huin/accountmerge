@@ -18,7 +18,7 @@ pub enum RuleError {
 struct PostingContext<'a> {
     trn: &'a mut Transaction,
     posting_idx: usize,
-    posting_comment: CommentManipulator,
+    posting_comment: tags::CommentManipulator,
 }
 
 impl PostingContext<'_> {
@@ -28,63 +28,6 @@ impl PostingContext<'_> {
 
     fn mut_posting(&mut self) -> &mut Posting {
         &mut self.trn.postings[self.posting_idx]
-    }
-}
-
-struct CommentManipulator {
-    parts: Vec<tags::CommentPart>,
-}
-
-impl CommentManipulator {
-    fn from_opt_comment(comment: &Option<String>) -> Self {
-        CommentManipulator {
-            parts: comment
-                .as_ref()
-                .map(|c| tags::parse_comment(&c))
-                .unwrap_or_else(|| Vec::new()),
-        }
-    }
-
-    fn format(&self) -> Option<String> {
-        if self.parts.len() > 0 {
-            Some(tags::format_comment(&self.parts))
-        } else {
-            None
-        }
-    }
-
-    fn get_value_tag(&self, find_name: &str) -> Option<(&str)> {
-        for part in &self.parts {
-            match part {
-                tags::CommentPart::ValueTag(name, value) if name == find_name => {
-                    return Some(value)
-                }
-                _ => {}
-            }
-        }
-        None
-    }
-
-    fn has_value_tag(&self, find_name: &str) -> bool {
-        for part in &self.parts {
-            match part {
-                tags::CommentPart::ValueTag(name, _) if name == find_name => return true,
-                _ => {}
-            }
-        }
-        false
-    }
-
-    fn remove_value_tag(&mut self, find_name: &str) {
-        use tags::CommentPart::ValueTag;
-        self.parts = self
-            .parts
-            .drain(..)
-            .filter(|part| match part {
-                ValueTag(name, _) => name != find_name,
-                _ => true,
-            })
-            .collect();
     }
 }
 
@@ -108,7 +51,7 @@ impl Table {
     pub fn update_transaction(&self, trn: &mut Transaction) -> Result<(), RuleError> {
         let start = self.get_chain(START_CHAIN)?;
         for i in 0..trn.postings.len() {
-            let pc = CommentManipulator::from_opt_comment(&trn.postings[i].comment);
+            let pc = tags::CommentManipulator::from_opt_comment(&trn.postings[i].comment);
             let mut ctx = PostingContext {
                 trn: trn,
                 posting_idx: i,

@@ -92,6 +92,61 @@ pub fn parse_comment(s: &str) -> Vec<CommentPart> {
     parts
 }
 
+pub struct CommentManipulator {
+    parts: Vec<CommentPart>,
+}
+
+impl CommentManipulator {
+    pub fn from_opt_comment(comment: &Option<String>) -> Self {
+        CommentManipulator {
+            parts: comment
+                .as_ref()
+                .map(|c| parse_comment(&c))
+                .unwrap_or_else(|| Vec::new()),
+        }
+    }
+
+    pub fn format(&self) -> Option<String> {
+        if self.parts.len() > 0 {
+            Some(format_comment(&self.parts))
+        } else {
+            None
+        }
+    }
+
+    pub fn get_value_tag(&self, find_name: &str) -> Option<(&str)> {
+        for part in &self.parts {
+            match part {
+                CommentPart::ValueTag(name, value) if name == find_name => return Some(value),
+                _ => {}
+            }
+        }
+        None
+    }
+
+    pub fn has_value_tag(&self, find_name: &str) -> bool {
+        for part in &self.parts {
+            match part {
+                CommentPart::ValueTag(name, _) if name == find_name => return true,
+                _ => {}
+            }
+        }
+        false
+    }
+
+    pub fn remove_value_tag(&mut self, find_name: &str) {
+        use CommentPart::ValueTag;
+        self.parts = self
+            .parts
+            .drain(..)
+            .filter(|part| match part {
+                ValueTag(name, _) => name != find_name,
+                _ => true,
+            })
+            .collect();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
