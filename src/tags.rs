@@ -37,6 +37,7 @@ pub fn format_comment(parts: &Vec<CommentPart>) -> String {
             (_, Text(text)) => out_parts.push(text.to_string()),
 
             // cur_part == NewLine
+            (None, NewLine) => {}
             (_, NewLine) => out_parts.push("\n".to_string()),
         }
         prev_part = Some(cur_part);

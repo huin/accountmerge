@@ -45,6 +45,14 @@ impl CommentManipulator {
         }
     }
 
+    fn format(&self) -> Option<String> {
+        if self.parts.len() > 0 {
+            Some(tags::format_comment(&self.parts))
+        } else {
+            None
+        }
+    }
+
     fn get_value_tag(&self, find_name: &str) -> Option<(&str)> {
         for part in &self.parts {
             match part {
@@ -65,6 +73,18 @@ impl CommentManipulator {
             }
         }
         false
+    }
+
+    fn remove_value_tag(&mut self, find_name: &str) {
+        use tags::CommentPart::ValueTag;
+        self.parts = self
+            .parts
+            .drain(..)
+            .filter(|part| match part {
+                ValueTag(name, _) => name != find_name,
+                _ => true,
+            })
+            .collect();
     }
 }
 
@@ -95,6 +115,7 @@ impl Table {
                 posting_comment: pc,
             };
             start.apply(self, &mut ctx)?;
+            trn.postings[i].comment = ctx.posting_comment.format();
         }
         Ok(())
     }
@@ -169,6 +190,7 @@ enum Action {
     Noop,
     JumpChain(String),
     SetAccount(String),
+    RemovePostingValueTag(String),
 }
 
 impl Action {
@@ -182,6 +204,9 @@ impl Action {
             }
             SetAccount(v) => {
                 ctx.mut_posting().account = v.clone();
+            }
+            RemovePostingValueTag(name) => {
+                ctx.posting_comment.remove_value_tag(&name);
             }
         }
 
@@ -585,6 +610,37 @@ mod tests {
                             someaccount  $10.00",
                         want: r"2001/01/02 description
                             assets:unknown  $10.00",
+                    },
+                ]),
+            },
+            Test {
+                name: "remove value tag",
+                table: r#"Table({
+                    "start": Chain([
+                        Rule(
+                            action: RemovePostingValueTag("name1"),
+                            predicate: True,
+                            result: Return,
+                        ),
+                    ]),
+                })"#,
+                cases: compile_cases(vec![
+                    Case {
+                        input: r"
+                            2001/01/02 description1  ; name1: transaction tag not removed
+                                someaccount  $10.00
+                                ; name1: posting tag removed
+                                ; name2: unrelated tag not removed
+                            2001/01/03 description2
+                                someaccount  $20.00
+                        ",
+                        want: r"
+                            2001/01/02 description1  ; name1: transaction tag not removed
+                                someaccount  $10.00
+                                ; name2: unrelated tag not removed
+                            2001/01/03 description2
+                                someaccount  $20.00
+                        ",
                     },
                 ]),
             },
