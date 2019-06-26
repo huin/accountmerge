@@ -134,6 +134,7 @@ enum Action {
     Noop,
     JumpChain(String),
     SetAccount(String),
+    RemovePostingFlagTag(String),
     RemovePostingValueTag(String),
 }
 
@@ -149,6 +150,7 @@ impl Action {
             SetAccount(v) => {
                 ctx.mut_posting().account = v.clone();
             }
+            RemovePostingFlagTag(name) => ctx.posting_comment.remove_flag_tag(&name),
             RemovePostingValueTag(name) => {
                 ctx.posting_comment.remove_value_tag(&name);
             }
@@ -173,6 +175,7 @@ enum Predicate {
     All(Vec<Predicate>),
     Any(Vec<Predicate>),
     Account(StringMatch),
+    PostingHasFlagTag(String),
     PostingHasValueTag(String),
     PostingValueTag(String, StringMatch),
     TransactionDescription(StringMatch),
@@ -187,6 +190,7 @@ impl Predicate {
             All(preds) => preds.iter().all(|p| p.is_match(ctx)),
             Any(preds) => preds.iter().any(|p| p.is_match(ctx)),
             Account(matcher) => matcher.matches_string(&ctx.posting().account),
+            PostingHasFlagTag(tag_name) => ctx.posting_comment.has_flag_tag(&tag_name),
             PostingHasValueTag(tag_name) => ctx.posting_comment.has_value_tag(&tag_name),
             PostingValueTag(tag_name, matcher) => ctx
                 .posting_comment
@@ -582,6 +586,70 @@ mod tests {
                             2001/01/02 description1  ; name1: transaction tag not removed
                                 someaccount  $10.00
                                 ; name2: unrelated tag not removed
+                            2001/01/03 description2
+                                someaccount  $20.00
+                        ",
+                    },
+                ]),
+            },
+            Test {
+                name: "set based on flag tag",
+                table: r#"Table({
+                    "start": Chain([
+                        Rule(
+                            action: SetAccount("matched"),
+                            predicate: PostingHasFlagTag("tag1"),
+                            result: Return,
+                        ),
+                    ]),
+                })"#,
+                cases: compile_cases(vec![
+                    Case {
+                        input: r"
+                            2001/01/02 description1
+                                someaccount  $10.00
+                                ; :tag1: posting tag matches
+                            2001/01/03 description2  ; :tag1: transaction tag not matched
+                                someaccount  $20.00
+                        ",
+                        want: r"
+                            2001/01/02 description1
+                                matched  $10.00
+                                ; :tag1: posting tag matches
+                            2001/01/03 description2  ; :tag1: transaction tag not matched
+                                someaccount  $20.00
+                        ",
+                    },
+                ]),
+            },
+            Test {
+                name: "remove flag tag",
+                table: r#"Table({
+                    "start": Chain([
+                        Rule(
+                            action: RemovePostingFlagTag("tag1"),
+                            predicate: True,
+                            result: Return,
+                        ),
+                    ]),
+                })"#,
+                cases: compile_cases(vec![
+                    Case {
+                        input: r"
+                            2001/01/02 description1  ; :tag1: transaction tag not matched
+                                someaccount  $10.00
+                                ; :tag1: posting tag removed
+                                ; :tag1:tag2: tag in sequence removed
+                                ; :tag2: unrelated tag not removed
+                            2001/01/03 description2
+                                someaccount  $20.00
+                        ",
+                        want: r"
+                            2001/01/02 description1  ; :tag1: transaction tag not matched
+                                someaccount  $10.00
+                                ; posting tag removed
+                                ; :tag2: tag in sequence removed
+                                ; :tag2: unrelated tag not removed
                             2001/01/03 description2
                                 someaccount  $20.00
                         ",

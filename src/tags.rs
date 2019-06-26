@@ -46,9 +46,15 @@ pub fn format_comment(parts: &Vec<CommentPart>) -> String {
             (Some(_), ValueTag(name, value)) => out_parts.push(format!("\n{}: {}", name, value)),
 
             // cur_part == Text
+            (None, Text(text)) => {
+                out_parts.push(text.trim_start().to_string());
+            }
             (Some(ValueTag(_, _)), Text(text)) => {
                 out_parts.push("\n".to_string());
-                out_parts.push(text.to_string());
+                out_parts.push(text.trim_start().to_string());
+            }
+            (Some(NewLine), Text(text)) => {
+                out_parts.push(text.trim_start().to_string());
             }
             (_, Text(text)) => out_parts.push(text.to_string()),
 
@@ -148,10 +154,34 @@ impl CommentManipulator {
         None
     }
 
-    pub fn has_value_tag(&self, find_name: &str) -> bool {
+    pub fn has_flag_tag(&self, find_name: &str) -> bool {
+        use CommentPart::FlagTag;
         for part in &self.parts {
             match part {
-                CommentPart::ValueTag(name, _) if name == find_name => return true,
+                FlagTag(name) if name == find_name => return true,
+                _ => {}
+            }
+        }
+        false
+    }
+
+    pub fn remove_flag_tag(&mut self, find_name: &str) {
+        use CommentPart::FlagTag;
+        self.parts = self
+            .parts
+            .drain(..)
+            .filter(|part| match part {
+                FlagTag(name) => name != find_name,
+                _ => true,
+            })
+            .collect();
+    }
+
+    pub fn has_value_tag(&self, find_name: &str) -> bool {
+        use CommentPart::ValueTag;
+        for part in &self.parts {
+            match part {
+                ValueTag(name, _) if name == find_name => return true,
                 _ => {}
             }
         }
@@ -270,7 +300,7 @@ mod tests {
         );
         // Are newlines injected when needed, even if not specified?
         assert_eq!(
-            "text :tag1:tag2:\nname1: value1\n more text :tag3:\nname2: value2",
+            "text :tag1:tag2:\nname1: value1\nmore text :tag3:\nname2: value2",
             &format_comment(&vec![
                 CommentPart::text("text "),
                 CommentPart::flag_tag("tag1"),
