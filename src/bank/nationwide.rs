@@ -104,10 +104,7 @@ fn read_transactions<R: std::io::Read>(
         };
 
         let mut posting_comment = tags::CommentManipulator::new();
-        posting_comment.push(tags::CommentPart::ValueTag(
-            BANK_TAG.to_string(),
-            BANK_NAME.to_string(),
-        ));
+        posting_comment.push(tags::CommentPart::value_tag(BANK_TAG, BANK_NAME));
 
         transactions.push(Transaction {
             date: record.date.0,

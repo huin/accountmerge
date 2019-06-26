@@ -12,6 +12,22 @@ pub enum CommentPart {
     NewLine,
 }
 
+impl CommentPart {
+    #[cfg(test)]
+    pub fn flag_tag<S: Into<String>>(name: S) -> Self {
+        CommentPart::FlagTag(name.into())
+    }
+
+    #[cfg(test)]
+    pub fn text<S: Into<String>>(text: S) -> Self {
+        CommentPart::Text(text.into())
+    }
+
+    pub fn value_tag<S1: Into<String>, S2: Into<String>>(name: S1, value: S2) -> Self {
+        CommentPart::ValueTag(name.into(), value.into())
+    }
+}
+
 pub fn format_comment(parts: &Vec<CommentPart>) -> String {
     use CommentPart::*;
     let mut out_parts: Vec<String> = Vec::new();
@@ -159,66 +175,61 @@ impl CommentManipulator {
 mod tests {
     use super::*;
 
-    fn flag_tag<S: Into<String>>(name: S) -> CommentPart {
-        CommentPart::FlagTag(name.into())
-    }
-
-    fn text<S: Into<String>>(text: S) -> CommentPart {
-        CommentPart::Text(text.into())
-    }
-
-    fn value_tag<S: Into<String>>(name: S, value: S) -> CommentPart {
-        CommentPart::ValueTag(name.into(), value.into())
-    }
-
     #[test]
     fn test_parse_comment() {
         use CommentPart::NewLine;
 
         let empty: Vec<CommentPart> = vec![];
         assert_eq!(empty, parse_comment(""));
-        assert_eq!(vec![text("comment text")], parse_comment("comment text"));
+        assert_eq!(
+            vec![CommentPart::text("comment text")],
+            parse_comment("comment text")
+        );
         assert_eq!(
             vec![
-                text("start text"),
+                CommentPart::text("start text"),
                 NewLine,
-                value_tag("key", "value"),
+                CommentPart::value_tag("key", "value"),
                 NewLine,
-                text("end text"),
+                CommentPart::text("end text"),
             ],
             parse_comment("start text\nkey: value\nend text"),
         );
         assert_eq!(
             vec![
-                text("start text "),
-                flag_tag("TAG1"),
-                flag_tag("TAG2"),
-                text(" end text"),
+                CommentPart::text("start text "),
+                CommentPart::flag_tag("TAG1"),
+                CommentPart::flag_tag("TAG2"),
+                CommentPart::text(" end text"),
             ],
             parse_comment("start text :TAG1:TAG2: end text\n"),
         );
         assert_eq!(
             vec![
-                text("start text "),
-                flag_tag("TAG1"),
-                flag_tag("TAG2"),
-                text(" end : text : with : colons"),
+                CommentPart::text("start text "),
+                CommentPart::flag_tag("TAG1"),
+                CommentPart::flag_tag("TAG2"),
+                CommentPart::text(" end : text : with : colons"),
             ],
             parse_comment("start text :TAG1:TAG2: end : text : with : colons\n"),
         );
         assert_eq!(
             vec![
-                text("comment"),
+                CommentPart::text("comment"),
                 NewLine,
-                flag_tag("flag"),
-                text(" ignored-key: value"),
+                CommentPart::flag_tag("flag"),
+                CommentPart::text(" ignored-key: value"),
                 NewLine,
-                value_tag("key", "value"),
+                CommentPart::value_tag("key", "value"),
             ],
             parse_comment("comment\n:flag: ignored-key: value\nkey: value"),
         );
         assert_eq!(
-            vec![text("comment"), NewLine, value_tag("key-without-value", "")],
+            vec![
+                CommentPart::text("comment"),
+                NewLine,
+                CommentPart::value_tag("key-without-value", "")
+            ],
             parse_comment("comment\nkey-without-value:"),
         );
     }
@@ -229,41 +240,45 @@ mod tests {
         assert_eq!("", &format_comment(&vec![]));
         assert_eq!(
             "first line\nsecond line",
-            &format_comment(&vec![text("first line"), NewLine, text("second line")]),
+            &format_comment(&vec![
+                CommentPart::text("first line"),
+                NewLine,
+                CommentPart::text("second line")
+            ]),
         );
         assert_eq!(
             "first line\nsecond line\nname: value",
             &format_comment(&vec![
-                text("first line"),
+                CommentPart::text("first line"),
                 NewLine,
-                text("second line"),
+                CommentPart::text("second line"),
                 NewLine,
-                value_tag("name", "value"),
+                CommentPart::value_tag("name", "value"),
             ]),
         );
         assert_eq!(
             "text :tag1:tag2: more text :tag3:\n:tag4:",
             &format_comment(&vec![
-                text("text "),
-                flag_tag("tag1"),
-                flag_tag("tag2"),
-                text(" more text "),
-                flag_tag("tag3"),
+                CommentPart::text("text "),
+                CommentPart::flag_tag("tag1"),
+                CommentPart::flag_tag("tag2"),
+                CommentPart::text(" more text "),
+                CommentPart::flag_tag("tag3"),
                 NewLine,
-                flag_tag("tag4"),
+                CommentPart::flag_tag("tag4"),
             ]),
         );
         // Are newlines injected when needed, even if not specified?
         assert_eq!(
             "text :tag1:tag2:\nname1: value1\n more text :tag3:\nname2: value2",
             &format_comment(&vec![
-                text("text "),
-                flag_tag("tag1"),
-                flag_tag("tag2"),
-                value_tag("name1", "value1"),
-                text(" more text "),
-                flag_tag("tag3"),
-                value_tag("name2", "value2"),
+                CommentPart::text("text "),
+                CommentPart::flag_tag("tag1"),
+                CommentPart::flag_tag("tag2"),
+                CommentPart::value_tag("name1", "value1"),
+                CommentPart::text(" more text "),
+                CommentPart::flag_tag("tag3"),
+                CommentPart::value_tag("name2", "value2"),
             ]),
         );
     }
