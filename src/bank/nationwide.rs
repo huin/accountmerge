@@ -10,7 +10,8 @@ use regex::Regex;
 use rust_decimal::Decimal;
 use serde::{de, de::DeserializeOwned, Deserialize, Deserializer};
 
-use crate::bank::{EXPENSES_UNKNOWN, INCOME_UNKNOWN};
+use crate::bank::{BANK_TAG, EXPENSES_UNKNOWN, INCOME_UNKNOWN};
+use crate::tags;
 
 const BANK_NAME: &str = "Nationwide";
 
@@ -102,6 +103,12 @@ fn read_transactions<R: std::io::Read>(
             }
         };
 
+        let mut posting_comment = tags::CommentManipulator::new();
+        posting_comment.push(tags::CommentPart::ValueTag(
+            BANK_TAG.to_string(),
+            BANK_NAME.to_string(),
+        ));
+
         transactions.push(Transaction {
             date: record.date.0,
             description: record.description,
@@ -121,7 +128,7 @@ fn read_transactions<R: std::io::Read>(
                     account: peer.to_string(),
                     amount: peer_amt,
                     balance: None,
-                    comment: None,
+                    comment: posting_comment.format(),
                     status: None,
                 },
             ],

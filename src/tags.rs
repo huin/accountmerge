@@ -97,6 +97,14 @@ pub struct CommentManipulator {
 }
 
 impl CommentManipulator {
+    pub fn new() -> Self {
+        Self { parts: vec![] }
+    }
+
+    pub fn push(&mut self, comment: CommentPart) {
+        self.parts.push(comment);
+    }
+
     pub fn from_opt_comment(comment: &Option<String>) -> Self {
         CommentManipulator {
             parts: comment

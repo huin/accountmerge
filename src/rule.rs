@@ -35,6 +35,7 @@ impl PostingContext<'_> {
 pub struct Table(HashMap<String, Chain>);
 
 impl Table {
+    #[cfg(test)]
     pub fn from_str(s: &str) -> Result<Self, Error> {
         let table: Table = ron::de::from_str(s)?;
         table.validate()?;
