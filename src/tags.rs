@@ -28,7 +28,7 @@ impl CommentPart {
     }
 }
 
-pub fn format_comment(parts: &Vec<CommentPart>) -> String {
+fn format_comment(parts: &Vec<CommentPart>) -> String {
     use CommentPart::*;
     let mut out_parts: Vec<String> = Vec::new();
     let mut prev_part: Option<&CommentPart> = None;
@@ -76,7 +76,7 @@ pub fn format_comment(parts: &Vec<CommentPart>) -> String {
     out_parts.join("")
 }
 
-pub fn parse_comment(s: &str) -> Vec<CommentPart> {
+fn parse_comment(s: &str) -> Vec<CommentPart> {
     lazy_static! {
         static ref VALUE_TAG_RX: Regex = Regex::new(r"^[ ]*([^: ]+):(?:[ ]+(.+))?$").unwrap();
     }
