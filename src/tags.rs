@@ -28,7 +28,7 @@ impl CommentPart {
     }
 }
 
-fn format_comment(parts: &Vec<CommentPart>) -> String {
+fn format_comment(parts: &Vec<CommentPart>) -> Option<String> {
     use CommentPart::*;
     let mut out_parts: Vec<String> = Vec::new();
     let mut prev_part: Option<&CommentPart> = None;
@@ -73,7 +73,12 @@ fn format_comment(parts: &Vec<CommentPart>) -> String {
         }
         prev_part = Some(cur_part);
     }
-    out_parts.join("")
+    let comment = out_parts.join("");
+    if comment.trim() == "" {
+        None
+    } else {
+        Some(comment)
+    }
 }
 
 fn parse_comment(s: &str) -> Vec<CommentPart> {
@@ -145,9 +150,9 @@ impl CommentManipulator {
         }
     }
 
-    pub fn format(&self) -> Option<String> {
+    pub fn to_opt_comment(&self) -> Option<String> {
         if self.parts.len() > 0 {
-            Some(format_comment(&self.parts))
+            format_comment(&self.parts)
         } else {
             None
         }

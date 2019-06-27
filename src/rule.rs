@@ -59,7 +59,7 @@ impl Table {
                 posting_comment: pc,
             };
             start.apply(self, &mut ctx)?;
-            trn.postings[i].comment = ctx.posting_comment.format();
+            trn.postings[i].comment = ctx.posting_comment.to_opt_comment();
         }
         Ok(())
     }

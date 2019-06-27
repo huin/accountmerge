@@ -118,7 +118,7 @@ fn read_transactions<R: std::io::Read>(
                     account: "assets:unknown".to_string(),
                     amount: self_amt,
                     balance: Some(record.balance.0),
-                    comment: posting_comment.format(),
+                    comment: posting_comment.to_opt_comment(),
                     status: None,
                 },
                 Posting {
