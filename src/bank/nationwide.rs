@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use chrono::NaiveDate;
 use failure::Error;
-use ledger_parser::{Amount, Commodity, CommodityPosition, Posting, Transaction};
+use ledger_parser::{Amount, Balance, Commodity, CommodityPosition, Posting, Transaction};
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::{de, de::DeserializeOwned, Deserialize, Deserializer};
@@ -117,7 +117,7 @@ fn read_transactions<R: std::io::Read>(
                 Posting {
                     account: "assets:unknown".to_string(),
                     amount: self_amt,
-                    balance: Some(record.balance.0),
+                    balance: Some(Balance::Amount(record.balance.0)),
                     comment: posting_comment.to_opt_comment(),
                     status: None,
                 },
