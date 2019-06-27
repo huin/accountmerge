@@ -281,18 +281,18 @@ mod tests {
     #[test]
     fn test_format_comment() {
         use CommentPart::NewLine;
-        assert_eq!("", &format_comment(&vec![]));
+        assert_eq!(None, format_comment(&vec![]));
         assert_eq!(
-            "first line\nsecond line",
-            &format_comment(&vec![
+            Some("first line\nsecond line".to_string()),
+            format_comment(&vec![
                 CommentPart::text("first line"),
                 NewLine,
                 CommentPart::text("second line")
             ]),
         );
         assert_eq!(
-            "first line\nsecond line\nname: value",
-            &format_comment(&vec![
+            Some("first line\nsecond line\nname: value".to_string()),
+            format_comment(&vec![
                 CommentPart::text("first line"),
                 NewLine,
                 CommentPart::text("second line"),
@@ -301,8 +301,8 @@ mod tests {
             ]),
         );
         assert_eq!(
-            "text :tag1:tag2: more text :tag3:\n:tag4:",
-            &format_comment(&vec![
+            Some("text :tag1:tag2: more text :tag3:\n:tag4:".to_string()),
+            format_comment(&vec![
                 CommentPart::text("text "),
                 CommentPart::flag_tag("tag1"),
                 CommentPart::flag_tag("tag2"),
@@ -314,8 +314,8 @@ mod tests {
         );
         // Are newlines injected when needed, even if not specified?
         assert_eq!(
-            "text :tag1:tag2:\nname1: value1\nmore text :tag3:\nname2: value2",
-            &format_comment(&vec![
+            Some("text :tag1:tag2:\nname1: value1\nmore text :tag3:\nname2: value2".to_string()),
+            format_comment(&vec![
                 CommentPart::text("text "),
                 CommentPart::flag_tag("tag1"),
                 CommentPart::flag_tag("tag2"),
