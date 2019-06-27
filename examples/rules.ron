@@ -1,8 +1,8 @@
 Table({
     "start": Chain([
         Rule(
-            predicate: Account(Eq("assets:unknown")),
-            action: SetAccount("assets:current"),
+            predicate: PostingHasValueTag("bank"),
+            action: JumpChain("bank_account"),
             result: Return,
         ),
         Rule(
@@ -14,6 +14,18 @@ Table({
             predicate: Account(Eq("income:unknown")),
             action: JumpChain("income"),
             result: Return,
+        ),
+    ]),
+    "bank_account": Chain([
+        Rule(
+            predicate: PostingValueTag("bank", Eq("Nationwide")),
+            action: JumpChain("nationwide"),
+            result: Continue,
+        ),
+        Rule(
+            predicate: True,
+            action: RemovePostingValueTag("bank"),
+            result: Continue,
         ),
     ]),
     "expenses": Chain([
@@ -33,6 +45,23 @@ Table({
             predicate: TransactionDescription(Eq("Payroll")),
             action: SetAccount("income:salary"),
             result: Return,
+        ),
+    ]),
+    "nationwide": Chain([
+        Rule(
+            predicate: PostingValueTag("account", Eq("Current")),
+            action: SetAccount("assets:nationwide:current"),
+            result: Continue,
+        ),
+        Rule(
+            predicate: PostingValueTag("account", Eq("Savings")),
+            action: SetAccount("assets:nationwide:savings"),
+            result: Continue,
+        ),
+        Rule(
+            predicate: True,
+            action: RemovePostingValueTag("account"),
+            result: Continue,
         ),
     ]),
 })
