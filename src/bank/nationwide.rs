@@ -10,7 +10,7 @@ use regex::Regex;
 use rust_decimal::Decimal;
 use serde::{de, de::DeserializeOwned, Deserialize, Deserializer};
 
-use crate::bank::{BANK_TAG, EXPENSES_UNKNOWN, INCOME_UNKNOWN};
+use crate::bank::{ACCOUNT_TAG, BANK_TAG, EXPENSES_UNKNOWN, INCOME_UNKNOWN};
 use crate::tags;
 
 const BANK_NAME: &str = "Nationwide";
@@ -66,8 +66,7 @@ pub fn transactions_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<Transaction
 }
 
 fn read_transactions<R: std::io::Read>(
-    // TODO: Use account name.
-    _account_name: &str,
+    account_name: &str,
     csv_records: &mut csv::StringRecordsIter<R>,
 ) -> Result<Vec<Transaction>, Error> {
     let headers: Vec<String> = deserialize_required_record(csv_records)?
@@ -104,6 +103,7 @@ fn read_transactions<R: std::io::Read>(
         };
 
         let mut posting_comment = tags::CommentManipulator::new();
+        posting_comment.push(tags::CommentPart::value_tag(ACCOUNT_TAG, account_name));
         posting_comment.push(tags::CommentPart::value_tag(BANK_TAG, BANK_NAME));
 
         transactions.push(Transaction {
