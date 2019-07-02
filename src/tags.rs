@@ -48,6 +48,22 @@ impl CommentLine {
         CommentLine::ValueTag(ValueTag::new(name, value))
     }
 
+    fn normalize(&mut self) {
+        match self {
+            CommentLine::Line(parts) => {
+                parts.retain(|parts| !parts.is_empty());
+            }
+            _ => {}
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        match self {
+            CommentLine::Line(parts) => parts.is_empty(),
+            _ => false,
+        }
+    }
+
     fn has_flag_tag(&self, find_name: &str) -> bool {
         match self {
             CommentLine::Line(parts) => parts.iter().any(|part| part.has_flag_tag(find_name)),
@@ -106,6 +122,13 @@ pub enum CommentLinePart {
 }
 
 impl CommentLinePart {
+    fn is_empty(&self) -> bool {
+        match self {
+            CommentLinePart::FlagTags(tags) => tags.is_empty(),
+            _ => false,
+        }
+    }
+
     fn has_flag_tag(&self, find_name: &str) -> bool {
         match self {
             CommentLinePart::FlagTags(tags) => tags.iter().any(|tag| tag.0 == find_name),
@@ -202,6 +225,14 @@ pub struct CommentLines {
 impl CommentLines {
     pub fn new() -> Self {
         Self { lines: vec![] }
+    }
+
+    /// Removes empty flag groups and empty lines.
+    pub fn normalize(&mut self) {
+        for line in &mut self.lines {
+            line.normalize();
+        }
+        self.lines.retain(|line| !line.is_empty());
     }
 
     pub fn push_line(&mut self, comment: CommentLine) {
