@@ -102,10 +102,10 @@ fn read_transactions<R: std::io::Read>(
             }
         };
 
-        let mut posting_comment = tags::CommentManipulator::new();
-        posting_comment.push(tags::CommentPart::value_tag(ACCOUNT_TAG, account_name));
-        posting_comment.push(tags::CommentPart::value_tag(BANK_TAG, BANK_NAME));
-        posting_comment.push(tags::CommentPart::value_tag(
+        let mut posting_comment = tags::CommentLines::new();
+        posting_comment.push_line(tags::CommentLine::value_tag(ACCOUNT_TAG, account_name));
+        posting_comment.push_line(tags::CommentLine::value_tag(BANK_TAG, BANK_NAME));
+        posting_comment.push_line(tags::CommentLine::value_tag(
             TRANSACTION_TYPE_TAG,
             record.type_,
         ));
