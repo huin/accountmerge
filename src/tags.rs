@@ -1,3 +1,5 @@
+use std::fmt::{self, Formatter};
+
 use regex::Regex;
 
 /// Tag that has a string value, e.g: `"TAG: value"`.
@@ -13,6 +15,12 @@ impl ValueTag {
             name: name.into(),
             value: value.into(),
         }
+    }
+}
+
+impl fmt::Display for ValueTag {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}: {}", self.name.trim(), self.value.trim())
     }
 }
 
@@ -66,6 +74,31 @@ impl CommentLine {
     }
 }
 
+impl fmt::Display for CommentLine {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        match self {
+            CommentLine::ValueTag(vt) => write!(f, "{}", vt),
+            CommentLine::Line(parts) => {
+                for part in parts {
+                    match part {
+                        CommentLinePart::Text(text) => f.write_str(&text)?,
+                        CommentLinePart::FlagTags(tags) => {
+                            if tags.len() > 0 {
+                                for tag in tags {
+                                    f.write_str(":")?;
+                                    f.write_str(&tag.0.trim())?;
+                                }
+                                f.write_str(":")?;
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum CommentLinePart {
     FlagTags(Vec<FlagTag>),
@@ -92,33 +125,10 @@ impl CommentLinePart {
 }
 
 fn format_comment(lines: &Vec<CommentLine>) -> Option<String> {
-    let mut out_lines: Vec<String> = Vec::new();
-    for line in lines {
-        match line {
-            CommentLine::ValueTag(vt) => {
-                out_lines.push(format!("{}: {}", vt.name, vt.value));
-            }
-            CommentLine::Line(parts) => {
-                let mut line_parts = Vec::<&str>::new();
-                for part in parts {
-                    use CommentLinePart::*;
-                    match part {
-                        Text(text) => line_parts.push(&text),
-                        FlagTags(tags) => {
-                            if tags.len() > 0 {
-                                for tag in tags {
-                                    line_parts.push(":");
-                                    line_parts.push(&tag.0);
-                                }
-                                line_parts.push(":");
-                            }
-                        }
-                    }
-                }
-                out_lines.push(line_parts.join("").trim().to_string());
-            }
-        }
-    }
+    let out_lines: Vec<String> = lines
+        .iter()
+        .map(|line| format!("{}", line).trim().to_string())
+        .collect();
     let comment = out_lines.join("\n");
     if comment.trim() == "" {
         None
