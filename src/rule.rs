@@ -222,6 +222,7 @@ impl StringMatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::{format_transactions, parse_transactions};
 
     struct TableBuilder {
         table: Table,
@@ -269,20 +270,6 @@ mod tests {
 
     fn jump_chain(chain: &str) -> Action {
         Action::JumpChain(chain.to_string())
-    }
-
-    fn parse_transactions(s: &str) -> Vec<Transaction> {
-        ledger_parser::parse(textwrap::dedent(s).as_ref())
-            .expect("test input did not parse")
-            .transactions
-    }
-
-    fn format_transactions(transactions: &Vec<Transaction>) -> String {
-        let mut result = String::new();
-        for trn in transactions {
-            result.push_str(&format!("{}", trn));
-        }
-        result
     }
 
     #[test]
@@ -668,13 +655,14 @@ mod tests {
                     table.update_transaction(trn).unwrap();
                 }
 
-                let want_str = format_transactions(&case.want);
-                let got_str = format_transactions(&got);
-                if want_str != got_str {
-                    eprintln!("Test \"{}\" case #{}", test.name, i);
-                    eprintln!("For input:\n{}", format_transactions(&case.input));
-                    text_diff::assert_diff(&want_str, &got_str, "\n", 0);
-                }
+                assert_transactions_eq!(
+                    case.want,
+                    got,
+                    "Test \"{}\" case #{}\nFor input:\n{}",
+                    test.name,
+                    i,
+                    format_transactions(&case.input)
+                );
             }
         }
     }

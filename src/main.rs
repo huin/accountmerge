@@ -26,7 +26,12 @@ use std::path::PathBuf;
 use failure::Error;
 use structopt::StructOpt;
 
+#[cfg(test)]
+#[macro_use]
+mod testutil;
+
 mod bank;
+mod merge;
 mod rule;
 mod tags;
 
