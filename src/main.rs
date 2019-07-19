@@ -36,22 +36,42 @@ mod rule;
 mod tags;
 
 #[derive(Debug, StructOpt)]
-struct Opt {
+struct Command {
+    #[structopt(subcommand)]
+    subcmd: SubCommand,
+}
+
+#[derive(Debug, StructOpt)]
+enum SubCommand {
+    #[structopt(name = "import")]
+    Import(Import),
+}
+
+#[derive(Debug, StructOpt)]
+struct Import {
     #[structopt(parse(from_os_str))]
     input: PathBuf,
     #[structopt(short = "r", long = "rules")]
-    rules: PathBuf,
+    rules: Option<PathBuf>,
 }
 
 fn main() -> Result<(), Error> {
-    let opt = Opt::from_args();
-    let rules = rule::Table::from_path(&opt.rules)?;
-    let mut transactions = bank::nationwide::transactions_from_path(&opt.input)?;
-    for trn in &mut transactions {
-        println!("=========");
-        println!("BEFORE: {}", trn);
-        rules.update_transaction(trn)?;
-        println!("AFTER: {}", trn);
+    let cmd = Command::from_args();
+    match cmd.subcmd {
+        SubCommand::Import(import) => {
+            let mut transactions = bank::nationwide::transactions_from_path(&import.input)?;
+            if let Some(rules_path) = &import.rules {
+                let rules = rule::Table::from_path(rules_path)?;
+                for trn in &mut transactions {
+                    rules.update_transaction(trn)?;
+                }
+            }
+            let ledger = ledger_parser::Ledger {
+                transactions: transactions,
+                commodity_prices: Default::default(),
+            };
+            println!("{}", ledger);
+        }
     }
     Ok(())
 }
