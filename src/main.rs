@@ -21,6 +21,7 @@ extern crate text_diff;
 #[cfg(test)]
 extern crate textwrap;
 
+use std::io::Read;
 use std::path::PathBuf;
 
 use failure::Error;
@@ -35,6 +36,12 @@ mod merge;
 mod rule;
 mod tags;
 
+#[derive(Debug, Fail)]
+enum MergeError {
+    #[fail(display = "parse error: {}", reason)]
+    ParseError { reason: String },
+}
+
 #[derive(Debug, StructOpt)]
 struct Command {
     #[structopt(subcommand)]
@@ -45,6 +52,17 @@ struct Command {
 enum SubCommand {
     #[structopt(name = "import")]
     Import(Import),
+    #[structopt(name = "merge")]
+    Merge(Merge),
+}
+
+fn main() -> Result<(), Error> {
+    let cmd = Command::from_args();
+    use SubCommand::*;
+    match cmd.subcmd {
+        Import(import) => do_import(&import),
+        Merge(merge) => do_merge(&merge),
+    }
 }
 
 #[derive(Debug, StructOpt)]
@@ -55,23 +73,49 @@ struct Import {
     rules: Option<PathBuf>,
 }
 
-fn main() -> Result<(), Error> {
-    let cmd = Command::from_args();
-    match cmd.subcmd {
-        SubCommand::Import(import) => {
-            let mut transactions = bank::nationwide::transactions_from_path(&import.input)?;
-            if let Some(rules_path) = &import.rules {
-                let rules = rule::Table::from_path(rules_path)?;
-                for trn in &mut transactions {
-                    rules.update_transaction(trn)?;
-                }
-            }
-            let ledger = ledger_parser::Ledger {
-                transactions: transactions,
-                commodity_prices: Default::default(),
-            };
-            println!("{}", ledger);
+fn do_import(import: &Import) -> Result<(), Error> {
+    let mut transactions = bank::nationwide::transactions_from_path(&import.input)?;
+    if let Some(rules_path) = &import.rules {
+        let rules = rule::Table::from_path(rules_path)?;
+        for trn in &mut transactions {
+            rules.update_transaction(trn)?;
         }
     }
+    let ledger = ledger_parser::Ledger {
+        transactions: transactions,
+        commodity_prices: Default::default(),
+    };
+    println!("{}", ledger);
     Ok(())
+}
+
+#[derive(Debug, StructOpt)]
+struct Merge {
+    #[structopt(parse(from_os_str))]
+    inputs: Vec<PathBuf>,
+}
+
+fn do_merge(merge: &Merge) -> Result<(), Error> {
+    let mut merger = merge::Merger::new();
+
+    for path in &merge.inputs {
+        let ledger = read_from_file(&path)?;
+        merger.merge(ledger.transactions);
+    }
+
+    let ledger = ledger_parser::Ledger {
+        transactions: merger.build(),
+        commodity_prices: Default::default(),
+    };
+    println!("{}", ledger);
+
+    Ok(())
+}
+
+fn read_from_file(path: &std::path::Path) -> Result<ledger_parser::Ledger, Error> {
+    let mut content = String::new();
+    let mut f = std::fs::File::open(path)?;
+    f.read_to_string(&mut content)?;
+
+    ledger_parser::parse(&content).map_err(|e| MergeError::ParseError { reason: e }.into())
 }
