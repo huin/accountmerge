@@ -1,26 +1,37 @@
+use std::collections::HashMap;
+
+use chrono::NaiveDate;
 use ledger_parser::{Posting, Transaction};
 
 pub struct Merger {
-    transactions: Vec<Transaction>,
+    trn_arena: Vec<Transaction>,
+    trn_by_date: HashMap<NaiveDate, Vec<usize>>,
 }
+
+const EMPTY_INDICES: [usize; 0] = [];
 
 impl Merger {
     pub fn new() -> Self {
         Merger {
-            transactions: Vec::new(),
+            trn_arena: Vec::new(),
+            trn_by_date: HashMap::new(),
         }
     }
 
-    pub fn merge(&mut self, mut src: Vec<Transaction>) {
-        src.sort_by(|a, b| a.date.cmp(&b.date));
-        // TODO: Optimize transaction search based on date.
-        // TODO: Search multiple matching transactions.
+    pub fn merge(&mut self, src: Vec<Transaction>) {
+        // Reuse vector allocation in loop (cleared each time).
+        let mut candidate_trns = Vec::<usize>::new();
+
         for src_trn in src.into_iter() {
-            if let Some(dest_trn) = self
-                .transactions
-                .iter_mut()
-                .find(|dest_trn| transactions_match(*dest_trn, &src_trn))
-            {
+            candidate_trns.clear();
+
+            // Find multiple matching transactions.
+            candidate_trns.extend(self.iter_trns_for_date(&src_trn.date).filter(|&index| {
+                all_transaction_postings_match_subset(&self.trn_arena[index], &src_trn)
+            }));
+
+            if candidate_trns.len() == 1 {
+                let dest_trn = &mut self.trn_arena[candidate_trns[0]];
                 for src_posting in &src_trn.postings {
                     if let Some(dest_posting) = dest_trn
                         .postings
@@ -30,30 +41,60 @@ impl Merger {
                         update_posting(dest_posting, src_posting);
                     }
                 }
+            } else if candidate_trns.len() > 1 {
+                unimplemented!("TODO - how to handle when multiple transactions match the input");
             } else {
-                self.transactions.push(src_trn);
+                self.add_transaction(src_trn);
             }
         }
     }
 
+    fn iter_trns_for_date<'a>(&'a self, date: &NaiveDate) -> impl Iterator<Item = usize> + 'a {
+        self.trn_by_date
+            .get(date)
+            .map_or_else(|| EMPTY_INDICES.as_ref(), |id_vec| id_vec.as_slice())
+            .iter()
+            .map(|&index| index)
+    }
+
+    fn add_transaction(&mut self, trn: Transaction) -> usize {
+        let date = trn.date;
+        self.trn_arena.push(trn);
+        let index = self.trn_arena.len() - 1;
+        self.trn_by_date
+            .entry(date)
+            .or_insert(Vec::new())
+            .push(index);
+        index
+    }
+
     pub fn build(self) -> Vec<Transaction> {
-        self.transactions
-    }
-}
-
-fn transactions_match(a: &Transaction, b: &Transaction) -> bool {
-    a.date == b.date && a.description == b.description && all_transaction_postings_match(a, b)
-}
-
-fn all_transaction_postings_match(a: &Transaction, b: &Transaction) -> bool {
-    for pa in &a.postings {
-        if b.postings.iter().any(|pb| postings_match(pa, pb)) {
-            continue;
-        } else {
-            return false;
+        let mut dates: Vec<NaiveDate> = self.trn_by_date.keys().cloned().collect();
+        dates.sort();
+        let mut trn_by_date = self.trn_by_date;
+        let mut trn_arena: Vec<Option<Transaction>> =
+            self.trn_arena.into_iter().map(|trn| Some(trn)).collect();
+        let mut out = Vec::<Transaction>::new();
+        for date in &dates {
+            if let Some(date_trn_indices) = trn_by_date.remove(date) {
+                for index in date_trn_indices {
+                    let mut trn: Option<Transaction> = None;
+                    std::mem::swap(&mut trn, &mut trn_arena[index]);
+                    out.push(trn.expect("duplicate index in date_trn_indices"));
+                }
+            }
         }
+        out
     }
-    true
+}
+
+fn all_transaction_postings_match_subset(superset: &Transaction, subset: &Transaction) -> bool {
+    subset.postings.iter().all(|sub_posting| {
+        superset
+            .postings
+            .iter()
+            .any(|sup_posting| postings_match(sub_posting, sup_posting))
+    })
 }
 
 fn postings_match(a: &Posting, b: &Posting) -> bool {
