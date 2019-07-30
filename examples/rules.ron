@@ -35,12 +35,27 @@ Table({
             result: Return,
         ),
         Rule(
+            predicate: TransactionDescription(Eq("Transfer to Current")),
+            action: SetAccount("assets:nationwide:current"),
+            result: Return,
+        ),
+        Rule(
             predicate: TransactionDescription(Eq("Transfer to Savings")),
-            action: SetAccount("assets:savings"),
+            action: SetAccount("assets:nationwide:savings"),
             result: Return,
         ),
     ]),
     "income": Chain([
+        Rule(
+            predicate: TransactionDescription(Eq("Transfer from Current")),
+            action: SetAccount("assets:nationwide:current"),
+            result: Return,
+        ),
+        Rule(
+            predicate: TransactionDescription(Eq("Transfer from Savings")),
+            action: SetAccount("assets:nationwide:savings"),
+            result: Return,
+        ),
         Rule(
             predicate: TransactionDescription(Eq("Payroll")),
             action: SetAccount("income:salary"),
