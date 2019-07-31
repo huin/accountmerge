@@ -1,0 +1,7 @@
+2000/01/01 Initial current account balance
+    assets:nationwide:current  GBP 170.00 =GBP 170.00
+    equity:initial-balances  GBP-170.00
+
+2000/01/01 Initial savings balance
+    assets:nationwide:savings  GBP 700.00 =GBP 700.00
+    equity:initial-balances  GBP-700.00
