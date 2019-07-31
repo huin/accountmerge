@@ -40,6 +40,8 @@ mod tags;
 enum MergeError {
     #[fail(display = "parse error: {}", reason)]
     ParseError { reason: String },
+    #[fail(display = "unmerged transactions:\n{}", unmerged)]
+    UnmergedError { unmerged: ledger_parser::Ledger },
 }
 
 #[derive(Debug, StructOpt)]
@@ -103,8 +105,20 @@ fn do_merge(merge: &Merge) -> Result<(), Error> {
         merger.merge(ledger.transactions);
     }
 
+    let result = merger.build();
+
+    if !result.unmerged.is_empty() {
+        return Err(MergeError::UnmergedError {
+            unmerged: ledger_parser::Ledger {
+                transactions: result.unmerged,
+                commodity_prices: Default::default(),
+            },
+        }
+        .into());
+    }
+
     let ledger = ledger_parser::Ledger {
-        transactions: merger.build(),
+        transactions: result.merged,
         commodity_prices: Default::default(),
     };
     println!("{}", ledger);

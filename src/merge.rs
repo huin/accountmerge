@@ -3,9 +3,15 @@ use std::collections::HashMap;
 use chrono::NaiveDate;
 use ledger_parser::{Posting, Transaction};
 
+pub struct MergeResult {
+    pub merged: Vec<Transaction>,
+    pub unmerged: Vec<Transaction>,
+}
+
 pub struct Merger {
     trn_arena: Vec<Transaction>,
     trn_by_date: HashMap<NaiveDate, Vec<usize>>,
+    unmerged_trns: Vec<Transaction>,
 }
 
 const EMPTY_INDICES: [usize; 0] = [];
@@ -15,6 +21,7 @@ impl Merger {
         Merger {
             trn_arena: Vec::new(),
             trn_by_date: HashMap::new(),
+            unmerged_trns: Vec::new(),
         }
     }
 
@@ -42,7 +49,7 @@ impl Merger {
                     }
                 }
             } else if candidate_trns.len() > 1 {
-                unimplemented!("TODO - how to handle when multiple transactions match the input");
+                self.unmerged_trns.push(src_trn);
             } else {
                 self.add_transaction(src_trn);
             }
@@ -68,7 +75,7 @@ impl Merger {
         index
     }
 
-    pub fn build(self) -> Vec<Transaction> {
+    pub fn build(self) -> MergeResult {
         let mut dates: Vec<NaiveDate> = self.trn_by_date.keys().cloned().collect();
         dates.sort();
         let mut trn_by_date = self.trn_by_date;
@@ -84,7 +91,11 @@ impl Merger {
                 }
             }
         }
-        out
+
+        MergeResult {
+            merged: out,
+            unmerged: self.unmerged_trns,
+        }
     }
 }
 
@@ -135,8 +146,10 @@ mod tests {
                 expenses:dining  GBP 5.00
             "#,
         ));
+        let result = &merger.build();
+        assert_eq!(result.unmerged, vec![]);
         assert_transactions_eq!(
-            &merger.build(),
+            &result.merged,
             parse_transactions(
                 r#"
                 2000/01/01 Salary
@@ -174,8 +187,10 @@ mod tests {
                     expenses:dining  GBP 5.00
                 "#,
         ));
+        let result = &merger.build();
+        assert_eq!(result.unmerged, vec![]);
         assert_transactions_eq!(
-            merger.build(),
+            &result.merged,
             parse_transactions(
                 r#"
                 2000/01/01 Salary
@@ -207,8 +222,10 @@ mod tests {
                     income:salary    GBP -100.00
                 "#,
         ));
+        let result = &merger.build();
+        assert_eq!(result.unmerged, vec![]);
         assert_transactions_eq!(
-            &merger.build(),
+            &result.merged,
             parse_transactions(
                 r#"
                 2000/01/01 Salary
@@ -237,8 +254,10 @@ mod tests {
                     income:salary    GBP -100.00
                 "#,
         ));
+        let result = &merger.build();
+        assert_eq!(result.unmerged, vec![]);
         assert_transactions_eq!(
-            &merger.build(),
+            &result.merged,
             parse_transactions(
                 r#"
                 2000/01/01 Salary
