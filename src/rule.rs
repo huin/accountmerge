@@ -18,7 +18,7 @@ pub enum RuleError {
 struct PostingContext<'a> {
     trn: &'a mut Transaction,
     posting_idx: usize,
-    posting_comment: comment::CommentLines,
+    posting_comment: comment::Comment,
 }
 
 impl PostingContext<'_> {
@@ -52,7 +52,7 @@ impl Table {
     pub fn update_transaction(&self, trn: &mut Transaction) -> Result<(), RuleError> {
         let start = self.get_chain(START_CHAIN)?;
         for i in 0..trn.postings.len() {
-            let pc = comment::CommentLines::from_opt_comment(&trn.postings[i].comment);
+            let pc = comment::Comment::from_opt_comment(&trn.postings[i].comment);
             let mut ctx = PostingContext {
                 trn: trn,
                 posting_idx: i,

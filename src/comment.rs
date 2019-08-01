@@ -218,11 +218,11 @@ fn parse_comment(s: &str) -> Vec<CommentLine> {
     parts
 }
 
-pub struct CommentLines {
+pub struct Comment {
     lines: Vec<CommentLine>,
 }
 
-impl CommentLines {
+impl Comment {
     pub fn new() -> Self {
         Self { lines: vec![] }
     }
@@ -240,7 +240,7 @@ impl CommentLines {
     }
 
     pub fn from_opt_comment(comment: &Option<String>) -> Self {
-        CommentLines {
+        Comment {
             lines: comment
                 .as_ref()
                 .map(|c| parse_comment(&c))
