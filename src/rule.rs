@@ -5,7 +5,7 @@ use std::path::Path;
 use failure::Error;
 use ledger_parser::{Posting, Transaction};
 
-use crate::tags;
+use crate::comment;
 
 const START_CHAIN: &str = "start";
 
@@ -18,7 +18,7 @@ pub enum RuleError {
 struct PostingContext<'a> {
     trn: &'a mut Transaction,
     posting_idx: usize,
-    posting_comment: tags::CommentLines,
+    posting_comment: comment::CommentLines,
 }
 
 impl PostingContext<'_> {
@@ -52,7 +52,7 @@ impl Table {
     pub fn update_transaction(&self, trn: &mut Transaction) -> Result<(), RuleError> {
         let start = self.get_chain(START_CHAIN)?;
         for i in 0..trn.postings.len() {
-            let pc = tags::CommentLines::from_opt_comment(&trn.postings[i].comment);
+            let pc = comment::CommentLines::from_opt_comment(&trn.postings[i].comment);
             let mut ctx = PostingContext {
                 trn: trn,
                 posting_idx: i,

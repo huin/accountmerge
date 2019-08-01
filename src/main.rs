@@ -32,9 +32,9 @@ use structopt::StructOpt;
 mod testutil;
 
 mod bank;
+mod comment;
 mod merge;
 mod rule;
-mod tags;
 
 #[derive(Debug, Fail)]
 enum MergeError {
