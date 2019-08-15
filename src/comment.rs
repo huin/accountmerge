@@ -15,6 +15,7 @@ pub struct Comment {
 }
 
 impl Comment {
+    /// Creates an empty `Comment`.
     pub fn new() -> Self {
         Self {
             lines: Default::default(),
@@ -23,10 +24,12 @@ impl Comment {
         }
     }
 
+    /// Starts declarative creation of a `Comment`.
     pub fn builder() -> CommentBuilder {
         CommentBuilder::new()
     }
 
+    /// Parses the given string into a `Comment`.
     pub fn from_opt_comment(comment: Option<&str>) -> Self {
         lazy_static! {
             static ref VALUE_TAG_RX: Regex = Regex::new(r"^[ ]*([^: ]+):(?:[ ]+(.+))?$").unwrap();
@@ -86,6 +89,7 @@ impl Comment {
         result
     }
 
+    /// Formats this `Comment` into a string.
     pub fn to_opt_comment(self) -> Option<String> {
         let mut out_lines = Vec::<String>::new();
 
@@ -127,6 +131,7 @@ fn trim_string(s: String) -> String {
     }
 }
 
+/// Helper to declaratively define a `Comment`.
 pub struct CommentBuilder {
     comment: Comment,
 }
@@ -137,6 +142,7 @@ impl CommentBuilder {
         }
     }
 
+    /// Builds the final `Comment`.
     pub fn build(self) -> Comment {
         self.comment
     }
