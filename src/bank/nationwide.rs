@@ -9,8 +9,11 @@ use ledger_parser::{Amount, Balance, Commodity, CommodityPosition, Posting, Tran
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::{de, de::DeserializeOwned, Deserialize, Deserializer};
+use sha1::{Digest, Sha1};
 
-use crate::bank::{ACCOUNT_TAG, BANK_TAG, EXPENSES_UNKNOWN, INCOME_UNKNOWN, TRANSACTION_TYPE_TAG};
+use crate::bank::{
+    ACCOUNT_TAG, BANK_TAG, EXPENSES_UNKNOWN, FINGERPRINT_TAG, INCOME_UNKNOWN, TRANSACTION_TYPE_TAG,
+};
 use crate::comment::Comment;
 
 const BANK_NAME: &str = "Nationwide";
@@ -81,10 +84,17 @@ fn read_transactions<R: std::io::Read>(
     check_header("Paid in", &headers[4])?;
     check_header("Balance", &headers[5])?;
 
+    let mut hasher = Sha1::new();
     let mut transactions = Vec::new();
     for result in csv_records {
         let str_record = result?;
         let record: DeTransaction = str_record.deserialize(None)?;
+
+        hasher.input(BANK_NAME);
+        hasher.input("\0");
+        hasher.input(&account_name);
+        hasher.input("\0");
+        record.hash(&mut hasher);
 
         let (peer, self_amt, peer_amt) = match (record.paid_in, record.paid_out) {
             // Paid in only.
@@ -102,10 +112,15 @@ fn read_transactions<R: std::io::Read>(
             }
         };
 
+        hasher.input(self_amt.to_string());
+        hasher.input("\0");
+        let fingerprint = hasher.result_reset();
+
         let posting_comment = Comment::builder()
             .with_value_tag(ACCOUNT_TAG, account_name)
             .with_value_tag(BANK_TAG, BANK_NAME)
             .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
+            .with_value_tag(FINGERPRINT_TAG, format!("{:x}", fingerprint))
             .build();
 
         transactions.push(Transaction {
@@ -152,6 +167,19 @@ struct DeTransaction {
     paid_out: Option<DeGbpValue>,
     paid_in: Option<DeGbpValue>,
     balance: DeGbpValue,
+}
+
+impl DeTransaction {
+    fn hash(&self, hasher: &mut Sha1) {
+        hasher.input(&self.type_);
+        hasher.input("\0");
+        hasher.input(&self.date.0.format("%Y/%m/%d").to_string());
+        hasher.input("\0");
+        hasher.input(&self.description);
+        hasher.input("\0");
+        hasher.input(&self.balance.0.to_string());
+        hasher.input("\0");
+    }
 }
 
 #[derive(Debug)]

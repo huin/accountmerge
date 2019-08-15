@@ -14,6 +14,7 @@ extern crate rust_decimal;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate sha1;
 extern crate structopt;
 
 #[cfg(test)]
