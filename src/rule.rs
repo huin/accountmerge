@@ -5,7 +5,7 @@ use std::path::Path;
 use failure::Error;
 use ledger_parser::{Posting, Transaction};
 
-use crate::comment;
+use crate::comment::Comment;
 
 const START_CHAIN: &str = "start";
 
@@ -18,7 +18,7 @@ pub enum RuleError {
 struct PostingContext<'a> {
     trn: &'a mut Transaction,
     posting_idx: usize,
-    posting_comment: comment::Comment,
+    posting_comment: Comment,
 }
 
 impl PostingContext<'_> {
@@ -52,14 +52,14 @@ impl Table {
     pub fn update_transaction(&self, trn: &mut Transaction) -> Result<(), RuleError> {
         let start = self.get_chain(START_CHAIN)?;
         for i in 0..trn.postings.len() {
-            let pc = comment::Comment::from_opt_comment(&trn.postings[i].comment);
+            let pc =
+                Comment::from_opt_comment(trn.postings[i].comment.as_ref().map(|s| s.as_ref()));
             let mut ctx = PostingContext {
                 trn: trn,
                 posting_idx: i,
                 posting_comment: pc,
             };
             start.apply(self, &mut ctx)?;
-            ctx.posting_comment.normalize();
             trn.postings[i].comment = ctx.posting_comment.to_opt_comment();
         }
         Ok(())
@@ -151,9 +151,11 @@ impl Action {
             SetAccount(v) => {
                 ctx.mut_posting().account = v.clone();
             }
-            RemovePostingFlagTag(name) => ctx.posting_comment.remove_flag_tag(&name),
+            RemovePostingFlagTag(name) => {
+                ctx.posting_comment.tags.remove(name);
+            }
             RemovePostingValueTag(name) => {
-                ctx.posting_comment.remove_value_tag(&name);
+                ctx.posting_comment.value_tags.remove(name);
             }
         }
 
@@ -191,11 +193,12 @@ impl Predicate {
             All(preds) => preds.iter().all(|p| p.is_match(ctx)),
             Any(preds) => preds.iter().any(|p| p.is_match(ctx)),
             Account(matcher) => matcher.matches_string(&ctx.posting().account),
-            PostingHasFlagTag(tag_name) => ctx.posting_comment.has_flag_tag(&tag_name),
-            PostingHasValueTag(tag_name) => ctx.posting_comment.has_value_tag(&tag_name),
+            PostingHasFlagTag(tag_name) => ctx.posting_comment.tags.contains(tag_name),
+            PostingHasValueTag(tag_name) => ctx.posting_comment.value_tags.contains_key(tag_name),
             PostingValueTag(tag_name, matcher) => ctx
                 .posting_comment
-                .get_value_tag(&tag_name)
+                .value_tags
+                .get(tag_name)
                 .map(|value| matcher.matches_string(&value))
                 .unwrap_or(false),
             TransactionDescription(matcher) => matcher.matches_string(&ctx.trn.description),
@@ -627,7 +630,6 @@ mod tests {
                             2001/01/02 description1  ; :tag1: transaction tag not matched
                                 someaccount  $10.00
                                 ; :tag1: posting tag removed
-                                ; :tag1:tag2: tag in sequence removed
                                 ; :tag2: unrelated tag not removed
                             2001/01/03 description2
                                 someaccount  $20.00
@@ -635,9 +637,8 @@ mod tests {
                         want: r"
                             2001/01/02 description1  ; :tag1: transaction tag not matched
                                 someaccount  $10.00
-                                ; posting tag removed
-                                ; :tag2: tag in sequence removed
-                                ; :tag2: unrelated tag not removed
+                                ; :tag2: posting tag removed
+                                ; unrelated tag not removed
                             2001/01/03 description2
                                 someaccount  $20.00
                         ",

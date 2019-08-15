@@ -11,7 +11,7 @@ use rust_decimal::Decimal;
 use serde::{de, de::DeserializeOwned, Deserialize, Deserializer};
 
 use crate::bank::{ACCOUNT_TAG, BANK_TAG, EXPENSES_UNKNOWN, INCOME_UNKNOWN, TRANSACTION_TYPE_TAG};
-use crate::comment;
+use crate::comment::Comment;
 
 const BANK_NAME: &str = "Nationwide";
 
@@ -102,13 +102,11 @@ fn read_transactions<R: std::io::Read>(
             }
         };
 
-        let mut posting_comment = comment::Comment::new();
-        posting_comment.push_line(comment::CommentLine::value_tag(ACCOUNT_TAG, account_name));
-        posting_comment.push_line(comment::CommentLine::value_tag(BANK_TAG, BANK_NAME));
-        posting_comment.push_line(comment::CommentLine::value_tag(
-            TRANSACTION_TYPE_TAG,
-            record.type_,
-        ));
+        let posting_comment = Comment::builder()
+            .with_value_tag(ACCOUNT_TAG, account_name)
+            .with_value_tag(BANK_TAG, BANK_NAME)
+            .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
+            .build();
 
         transactions.push(Transaction {
             date: record.date.0,
