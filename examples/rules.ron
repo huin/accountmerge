@@ -1,10 +1,14 @@
 Table({
     "start": Chain([
-        Rule(
-            predicate: PostingHasValueTag("bank"),
-            action: JumpChain("bank_account"),
-            result: Return,
-        ),
+        Rule(predicate: True, action: JumpChain("assign"), result: Continue),
+        Rule(predicate: True, action: JumpChain("clean"), result: Continue),
+    ]),
+    "clean": Chain([
+        Rule(predicate: True, action: RemovePostingValueTag("account"), result: Continue),
+        Rule(predicate: True, action: RemovePostingValueTag("bank"), result: Continue),
+        Rule(predicate: True, action: RemovePostingValueTag("trn_type"), result: Continue),
+    ]),
+    "assign": Chain([
         Rule(
             predicate: Account(Eq("expenses:unknown")),
             action: JumpChain("expenses"),
@@ -13,6 +17,11 @@ Table({
         Rule(
             predicate: Account(Eq("income:unknown")),
             action: JumpChain("income"),
+            result: Return,
+        ),
+        Rule(
+            predicate: PostingHasValueTag("bank"),
+            action: JumpChain("bank_account"),
             result: Return,
         ),
     ]),
@@ -59,6 +68,11 @@ Table({
         Rule(
             predicate: TransactionDescription(Eq("Payroll")),
             action: SetAccount("income:salary"),
+            result: Return,
+        ),
+        Rule(
+            predicate: PostingValueTag("trn_type", Eq("Interest")),
+            action: SetAccount("income:interest"),
             result: Return,
         ),
     ]),

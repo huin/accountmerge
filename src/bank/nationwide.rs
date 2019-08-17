@@ -155,7 +155,7 @@ fn read_transactions<R: std::io::Read>(
                     comment: Comment::builder()
                         .with_value_tag(ACCOUNT_TAG, account_name)
                         .with_value_tag(BANK_TAG, BANK_NAME)
-                        .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
+                        .with_value_tag(TRANSACTION_TYPE_TAG, record.type_.clone())
                         .with_value_tag(fp_key.clone(), format!("{:x}", self_fingerprint))
                         .build()
                         .to_opt_comment(),
@@ -166,6 +166,9 @@ fn read_transactions<R: std::io::Read>(
                     amount: peer_amt,
                     balance: None,
                     comment: Comment::builder()
+                        .with_value_tag(ACCOUNT_TAG, account_name)
+                        .with_value_tag(BANK_TAG, BANK_NAME)
+                        .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
                         .with_value_tag(fp_key.clone(), format!("{:x}", peer_fingerprint))
                         .build()
                         .to_opt_comment(),
