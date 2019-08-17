@@ -12,7 +12,8 @@ use serde::{de, de::DeserializeOwned, Deserialize, Deserializer};
 use sha1::{Digest, Sha1};
 
 use crate::bank::{
-    ACCOUNT_TAG, BANK_TAG, EXPENSES_UNKNOWN, FINGERPRINT_TAG, INCOME_UNKNOWN, TRANSACTION_TYPE_TAG,
+    ACCOUNT_TAG, BANK_TAG, EXPENSES_UNKNOWN, FINGERPRINT_TAG_PREFIX, INCOME_UNKNOWN,
+    TRANSACTION_TYPE_TAG,
 };
 use crate::comment::Comment;
 
@@ -84,19 +85,30 @@ fn read_transactions<R: std::io::Read>(
     check_header("Paid in", &headers[4])?;
     check_header("Balance", &headers[5])?;
 
-    let mut hasher = Sha1::new();
+    let fp_key = {
+        let mut hasher = Sha1::new();
+        hasher.input(BANK_NAME);
+        hasher.input("\0");
+        hasher.input(&account_name);
+        hasher.input("\0");
+        let fingerprint = hasher.result_reset();
+        let hex_fingerprint = format!("{:x}", fingerprint);
+        format!("{}-{}", FINGERPRINT_TAG_PREFIX, &hex_fingerprint[0..8])
+    };
+
+    let mut self_hasher = Sha1::new();
+    let mut peer_hasher = Sha1::new();
+
     let mut transactions = Vec::new();
     for result in csv_records {
         let str_record = result?;
         let record: DeTransaction = str_record.deserialize(None)?;
 
-        hasher.input(BANK_NAME);
-        hasher.input("\0");
-        hasher.input(&account_name);
-        hasher.input("\0");
-        record.hash(&mut hasher);
+        record.hash(&mut self_hasher);
+        peer_hasher.clone_from(&self_hasher);
 
-        let (peer, self_amt, peer_amt) = match (record.paid_in, record.paid_out) {
+        let self_account = "assets:unknown".to_string();
+        let (peer_account, self_amt, peer_amt) = match (record.paid_in, record.paid_out) {
             // Paid in only.
             (Some(DeGbpValue(amt)), None) => {
                 let peer_amt = neg_amount(&amt);
@@ -112,16 +124,21 @@ fn read_transactions<R: std::io::Read>(
             }
         };
 
-        hasher.input(self_amt.to_string());
-        hasher.input("\0");
-        let fingerprint = hasher.result_reset();
+        let self_fingerprint = {
+            self_hasher.input(&self_account);
+            self_hasher.input("\0");
+            self_hasher.input(self_amt.to_string());
+            self_hasher.input("\0");
+            self_hasher.result_reset()
+        };
 
-        let posting_comment = Comment::builder()
-            .with_value_tag(ACCOUNT_TAG, account_name)
-            .with_value_tag(BANK_TAG, BANK_NAME)
-            .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
-            .with_value_tag(FINGERPRINT_TAG, format!("{:x}", fingerprint))
-            .build();
+        let peer_fingerprint = {
+            peer_hasher.input(&peer_account);
+            peer_hasher.input("\0");
+            peer_hasher.input(peer_amt.to_string());
+            peer_hasher.input("\0");
+            peer_hasher.result_reset()
+        };
 
         transactions.push(Transaction {
             date: record.date.0,
@@ -132,17 +149,26 @@ fn read_transactions<R: std::io::Read>(
             effective_date: None,
             postings: vec![
                 Posting {
-                    account: "assets:unknown".to_string(),
+                    account: self_account,
                     amount: self_amt,
                     balance: Some(Balance::Amount(record.balance.0)),
-                    comment: posting_comment.to_opt_comment(),
+                    comment: Comment::builder()
+                        .with_value_tag(ACCOUNT_TAG, account_name)
+                        .with_value_tag(BANK_TAG, BANK_NAME)
+                        .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
+                        .with_value_tag(fp_key.clone(), format!("{:x}", self_fingerprint))
+                        .build()
+                        .to_opt_comment(),
                     status: None,
                 },
                 Posting {
-                    account: peer.to_string(),
+                    account: peer_account.to_string(),
                     amount: peer_amt,
                     balance: None,
-                    comment: None,
+                    comment: Comment::builder()
+                        .with_value_tag(fp_key.clone(), format!("{:x}", peer_fingerprint))
+                        .build()
+                        .to_opt_comment(),
                     status: None,
                 },
             ],
