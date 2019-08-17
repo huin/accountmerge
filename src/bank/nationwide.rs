@@ -132,6 +132,18 @@ fn read_transactions<R: std::io::Read>(
             self_hasher.result_reset()
         };
 
+        let mut self_comment = Comment::builder()
+            .with_value_tag(ACCOUNT_TAG, account_name)
+            .with_value_tag(BANK_TAG, BANK_NAME)
+            .with_value_tag(TRANSACTION_TYPE_TAG, record.type_.clone())
+            .build();
+
+        let mut peer_comment = self_comment.clone();
+
+        self_comment
+            .value_tags
+            .insert(fp_key.clone(), format!("{:x}", self_fingerprint));
+
         let peer_fingerprint = {
             peer_hasher.input(&peer_account);
             peer_hasher.input("\0");
@@ -139,6 +151,10 @@ fn read_transactions<R: std::io::Read>(
             peer_hasher.input("\0");
             peer_hasher.result_reset()
         };
+
+        peer_comment
+            .value_tags
+            .insert(fp_key.clone(), format!("{:x}", peer_fingerprint));
 
         transactions.push(Transaction {
             date: record.date.0,
@@ -152,26 +168,14 @@ fn read_transactions<R: std::io::Read>(
                     account: self_account,
                     amount: self_amt,
                     balance: Some(Balance::Amount(record.balance.0)),
-                    comment: Comment::builder()
-                        .with_value_tag(ACCOUNT_TAG, account_name)
-                        .with_value_tag(BANK_TAG, BANK_NAME)
-                        .with_value_tag(TRANSACTION_TYPE_TAG, record.type_.clone())
-                        .with_value_tag(fp_key.clone(), format!("{:x}", self_fingerprint))
-                        .build()
-                        .to_opt_comment(),
+                    comment: self_comment.to_opt_comment(),
                     status: None,
                 },
                 Posting {
                     account: peer_account.to_string(),
                     amount: peer_amt,
                     balance: None,
-                    comment: Comment::builder()
-                        .with_value_tag(ACCOUNT_TAG, account_name)
-                        .with_value_tag(BANK_TAG, BANK_NAME)
-                        .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
-                        .with_value_tag(fp_key.clone(), format!("{:x}", peer_fingerprint))
-                        .build()
-                        .to_opt_comment(),
+                    comment: peer_comment.to_opt_comment(),
                     status: None,
                 },
             ],

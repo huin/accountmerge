@@ -4,7 +4,7 @@ use regex::Regex;
 
 /// Parsed contents of a Ledger comment, suitable for manipulation before being
 /// (re)output.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Comment {
     /// Plain text lines in the comment.
     pub lines: Vec<String>,
