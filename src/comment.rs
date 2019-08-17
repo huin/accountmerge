@@ -121,6 +121,18 @@ impl Comment {
             None
         }
     }
+
+    pub fn merge_from(&mut self, other: &Self) {
+        for line in &other.lines {
+            self.lines.push(line.clone());
+        }
+        for tag in &other.tags {
+            self.tags.insert(tag.clone());
+        }
+        for (key, value) in &other.value_tags {
+            self.value_tags.insert(key.clone(), value.clone());
+        }
+    }
 }
 
 fn trim_string(s: String) -> String {
@@ -265,6 +277,36 @@ mod tests {
                 .with_value_tag("name2", "value2")
                 .build()
                 .to_opt_comment(),
+        );
+    }
+
+    #[test]
+    fn test_merge_comment() {
+        let mut orig = CommentBuilder::new()
+            .with_line("orig text")
+            .with_value_tag("orig_key1", "orig_value1")
+            .with_value_tag("orig_key2", "orig_value2")
+            .with_tag("orig_tag")
+            .build();
+        orig.merge_from(
+            &CommentBuilder::new()
+                .with_line("new text")
+                .with_value_tag("new_key1", "new_value1")
+                .with_value_tag("orig_key2", "new_value2")
+                .with_tag("new_tag")
+                .build(),
+        );
+        assert_eq!(
+            CommentBuilder::new()
+                .with_line("orig text")
+                .with_line("new text")
+                .with_value_tag("new_key1", "new_value1")
+                .with_value_tag("orig_key1", "orig_value1")
+                .with_value_tag("orig_key2", "new_value2")
+                .with_tag("new_tag")
+                .with_tag("orig_tag")
+                .build(),
+            orig,
         );
     }
 }
