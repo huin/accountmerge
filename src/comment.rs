@@ -122,6 +122,9 @@ impl Comment {
         }
     }
 
+    /// Merges tags and lines from `other` into `self`. Values from
+    /// `other.value_tags` will overwrite values in `self.value_tags` where
+    /// they share a key.
     pub fn merge_from(&mut self, other: &Self) {
         for line in &other.lines {
             self.lines.push(line.clone());
