@@ -124,16 +124,19 @@ impl Comment {
 
     /// Merges tags and lines from `other` into `self`. Values from
     /// `other.value_tags` will overwrite values in `self.value_tags` where
-    /// they share a key.
+    /// they share a key. It avoids adding duplicate lines from `other.lines`
+    /// if an exact match already exists in `self.lines`.
     pub fn merge_from(&mut self, other: &Self) {
-        for line in &other.lines {
-            self.lines.push(line.clone());
+        for other_line in &other.lines {
+            if !self.lines.iter().any(|self_line| self_line == other_line) {
+                self.lines.push(other_line.clone());
+            }
         }
-        for tag in &other.tags {
-            self.tags.insert(tag.clone());
+        for other_tag in &other.tags {
+            self.tags.insert(other_tag.clone());
         }
-        for (key, value) in &other.value_tags {
-            self.value_tags.insert(key.clone(), value.clone());
+        for (key, other_value) in &other.value_tags {
+            self.value_tags.insert(key.clone(), other_value.clone());
         }
     }
 }
