@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use chrono::NaiveDate;
 use ledger_parser::{Posting, Transaction};
 
+use crate::comment::Comment;
+
 pub struct MergeResult {
     pub merged: Vec<Transaction>,
     pub unmerged: Vec<Transaction>,
@@ -123,6 +125,10 @@ fn update_posting(dest: &mut Posting, src: &Posting) {
     if dest.balance.is_none() {
         dest.balance = src.balance.clone()
     }
+    let mut dest_comment = Comment::from_opt_comment(dest.comment.as_ref().map(String::as_str));
+    let src_comment = Comment::from_opt_comment(src.comment.as_ref().map(String::as_str));
+    dest_comment.merge_from(&src_comment);
+    dest.comment = dest_comment.to_opt_comment();
 }
 
 #[cfg(test)]
@@ -291,6 +297,14 @@ mod tests {
             parse_update("foo  GBP 10.00 =GBP 50.00", "foo  GBP 10.00 =GBP 90.00"),
             parse_posting("foo  GBP 10.00 =GBP 50.00"),
             "does not update existing balance",
+        );
+        assert_eq!(
+            parse_update(
+                "foo  GBP 10.00 =GBP 50.00 ; key: old-value",
+                "foo  GBP 10.00 =GBP 90.00 ; key: new-value"
+            ),
+            parse_posting("foo  GBP 10.00 =GBP 50.00 ; key: new-value"),
+            "merges comments",
         );
     }
 }
