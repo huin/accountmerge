@@ -120,7 +120,6 @@ fn postings_match(a: &Posting, b: &Posting) -> bool {
 }
 
 fn update_posting(dest: &mut Posting, src: &Posting) {
-    // TODO: Merge/update comments.
     // TODO: Merge/update status.
     if dest.balance.is_none() {
         dest.balance = src.balance.clone()
