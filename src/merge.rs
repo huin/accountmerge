@@ -11,7 +11,7 @@ pub struct MergeResult {
 }
 
 pub struct Merger {
-    trn_arena: Vec<Transaction>,
+    trn_arena: Vec<TransactionHolder>,
     trn_by_date: HashMap<NaiveDate, Vec<usize>>,
     unmerged_trns: Vec<Transaction>,
 }
@@ -35,9 +35,10 @@ impl Merger {
             candidate_trns.clear();
 
             // Find multiple matching transactions.
-            candidate_trns.extend(self.iter_trns_for_date(&src_trn.date).filter(|&index| {
-                all_transaction_postings_match_subset(&self.trn_arena[index], &src_trn)
-            }));
+            candidate_trns.extend(
+                self.iter_trns_for_date(&src_trn.date)
+                    .filter(|&index| self.trn_arena[index].all_postings_match_subset(&src_trn)),
+            );
 
             if candidate_trns.len() == 1 {
                 let dest_trn = &mut self.trn_arena[candidate_trns[0]];
@@ -45,9 +46,9 @@ impl Merger {
                     if let Some(dest_posting) = dest_trn
                         .postings
                         .iter_mut()
-                        .find(|dest_posting| postings_match(dest_posting, src_posting))
+                        .find(|dest_posting| dest_posting.matches(src_posting))
                     {
-                        update_posting(dest_posting, src_posting);
+                        dest_posting.update(src_posting);
                     }
                 }
             } else if candidate_trns.len() > 1 {
@@ -68,7 +69,8 @@ impl Merger {
 
     fn add_transaction(&mut self, trn: Transaction) -> usize {
         let date = trn.date;
-        self.trn_arena.push(trn);
+        self.trn_arena
+            .push(TransactionHolder::from_transaction(trn));
         let index = self.trn_arena.len() - 1;
         self.trn_by_date
             .entry(date)
@@ -81,8 +83,11 @@ impl Merger {
         let mut dates: Vec<NaiveDate> = self.trn_by_date.keys().cloned().collect();
         dates.sort();
         let mut trn_by_date = self.trn_by_date;
-        let mut trn_arena: Vec<Option<Transaction>> =
-            self.trn_arena.into_iter().map(|trn| Some(trn)).collect();
+        let mut trn_arena: Vec<Option<Transaction>> = self
+            .trn_arena
+            .into_iter()
+            .map(|trn| Some(trn.to_transaction()))
+            .collect();
         let mut out = Vec::<Transaction>::new();
         for date in &dates {
             if let Some(date_trn_indices) = trn_by_date.remove(date) {
@@ -101,33 +106,77 @@ impl Merger {
     }
 }
 
-fn all_transaction_postings_match_subset(superset: &Transaction, subset: &Transaction) -> bool {
-    subset.postings.iter().all(|sub_posting| {
-        superset
-            .postings
-            .iter()
-            .any(|sup_posting| postings_match(sub_posting, sup_posting))
-    })
+/// Contains a partially unpacked `Transaction`.
+struct TransactionHolder {
+    trn: Transaction,
+
+    postings: Vec<PostingHolder>,
 }
 
-fn postings_match(a: &Posting, b: &Posting) -> bool {
-    a.account == b.account
-        && a.amount == b.amount
-        && match (&a.balance, &b.balance) {
-            (Some(a_bal), Some(b_bal)) => a_bal == b_bal,
-            _ => true,
-        }
-}
-
-fn update_posting(dest: &mut Posting, src: &Posting) {
-    // TODO: Merge/update status.
-    if dest.balance.is_none() {
-        dest.balance = src.balance.clone()
+impl TransactionHolder {
+    fn from_transaction(mut trn: Transaction) -> Self {
+        let mut postings_in: Vec<Posting> = Default::default();
+        std::mem::swap(&mut postings_in, &mut trn.postings);
+        let postings = postings_in
+            .into_iter()
+            .map(PostingHolder::from_posting)
+            .collect();
+        TransactionHolder { trn, postings }
     }
-    let mut dest_comment = Comment::from_opt_comment(dest.comment.as_ref().map(String::as_str));
-    let src_comment = Comment::from_opt_comment(src.comment.as_ref().map(String::as_str));
-    dest_comment.merge_from(&src_comment);
-    dest.comment = dest_comment.to_opt_comment();
+
+    fn to_transaction(mut self) -> Transaction {
+        self.trn.postings = self
+            .postings
+            .into_iter()
+            .map(PostingHolder::to_posting)
+            .collect();
+        self.trn
+    }
+
+    fn all_postings_match_subset(&self, subset: &Transaction) -> bool {
+        subset.postings.iter().all(|sub_posting| {
+            self.postings
+                .iter()
+                .any(|sup_posting| sup_posting.matches(sub_posting))
+        })
+    }
+}
+
+/// Contains a partially unpacked `Posting`.
+struct PostingHolder {
+    posting: Posting,
+    comment: Comment,
+}
+
+impl PostingHolder {
+    fn from_posting(mut posting: Posting) -> Self {
+        let comment = Comment::from_opt_comment(posting.comment.as_ref().map(String::as_str));
+        posting.comment = None;
+        PostingHolder { posting, comment }
+    }
+
+    fn to_posting(mut self) -> Posting {
+        self.posting.comment = self.comment.to_opt_comment();
+        self.posting
+    }
+
+    fn matches(&self, b: &Posting) -> bool {
+        self.posting.account == b.account
+            && self.posting.amount == b.amount
+            && match (&self.posting.balance, &b.balance) {
+                (Some(a_bal), Some(b_bal)) => a_bal == b_bal,
+                _ => true,
+            }
+    }
+
+    fn update(&mut self, src: &Posting) {
+        // TODO: Merge/update status.
+        if self.posting.balance.is_none() {
+            self.posting.balance = src.balance.clone()
+        }
+        let src_comment = Comment::from_opt_comment(src.comment.as_ref().map(String::as_str));
+        self.comment.merge_from(&src_comment);
+    }
 }
 
 #[cfg(test)]
@@ -282,10 +331,11 @@ mod tests {
     #[test]
     fn test_update_posting() {
         let parse_update = |dest: &str, src: &str| {
-            let mut dest_posting = parse_posting(dest);
+            let dest_posting = parse_posting(dest);
             let src_posting = parse_posting(src);
-            update_posting(&mut dest_posting, &src_posting);
-            dest_posting
+            let mut holder = PostingHolder::from_posting(dest_posting);
+            holder.update(&src_posting);
+            holder.to_posting()
         };
         assert_eq!(
             parse_update("foo  GBP 10.00", "foo  GBP 10.00 =GBP 90.00"),
