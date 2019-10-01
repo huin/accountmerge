@@ -92,8 +92,8 @@ fn read_transactions<R: std::io::Read>(
         hasher.input(&account_name);
         hasher.input("\0");
         let fingerprint = hasher.result_reset();
-        let hex_fingerprint = format!("{:x}", fingerprint);
-        format!("{}-{}", FINGERPRINT_TAG_PREFIX, &hex_fingerprint[0..8])
+        let fingerprint_b64 = base64::encode_config(&fingerprint, base64::STANDARD_NO_PAD);
+        format!("{}-{}", FINGERPRINT_TAG_PREFIX, &fingerprint_b64[0..8])
     };
 
     let mut self_hasher = Sha1::new();
@@ -124,13 +124,16 @@ fn read_transactions<R: std::io::Read>(
             }
         };
 
-        let self_fingerprint = {
-            self_hasher.input(&self_account);
-            self_hasher.input("\0");
-            self_hasher.input(self_amt.to_string());
-            self_hasher.input("\0");
-            self_hasher.result_reset()
-        };
+        let self_fingerprint = base64::encode_config(
+            &{
+                self_hasher.input(&self_account);
+                self_hasher.input("\0");
+                self_hasher.input(self_amt.to_string());
+                self_hasher.input("\0");
+                self_hasher.result_reset()
+            },
+            base64::STANDARD_NO_PAD,
+        );
 
         let mut self_comment = Comment::builder()
             .with_value_tag(ACCOUNT_TAG, account_name)
@@ -142,19 +145,22 @@ fn read_transactions<R: std::io::Read>(
 
         self_comment
             .value_tags
-            .insert(fp_key.clone(), format!("{:x}", self_fingerprint));
+            .insert(fp_key.clone(), self_fingerprint);
 
-        let peer_fingerprint = {
-            peer_hasher.input(&peer_account);
-            peer_hasher.input("\0");
-            peer_hasher.input(peer_amt.to_string());
-            peer_hasher.input("\0");
-            peer_hasher.result_reset()
-        };
+        let peer_fingerprint = base64::encode_config(
+            &{
+                peer_hasher.input(&peer_account);
+                peer_hasher.input("\0");
+                peer_hasher.input(peer_amt.to_string());
+                peer_hasher.input("\0");
+                peer_hasher.result_reset()
+            },
+            base64::STANDARD_NO_PAD,
+        );
 
         peer_comment
             .value_tags
-            .insert(fp_key.clone(), format!("{:x}", peer_fingerprint));
+            .insert(fp_key.clone(), peer_fingerprint);
 
         transactions.push(Transaction {
             date: record.date.0,
