@@ -3,8 +3,6 @@
 *   For basic CSV sources that only include the date, include a counter of the
     transaction/posting within the day. Include this counter as part of the
     hash material.
-*   Hashes should be base64 or maybe even a higher base, not hex, to keep them
-    shorter within the journals.
 
 ## Matching algorithm
 
