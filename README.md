@@ -6,6 +6,9 @@
 
 ## Matching algorithm
 
+This algorithm is described as it is intended to be implemented, but is not
+yet implemented.
+
 For each transaction in the source, scan over each of its postings in turn to
 find an existing posting in the destination according to "Existing posting
 lookup" as described below. Use this posting to determine a *default
