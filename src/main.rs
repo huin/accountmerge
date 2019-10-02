@@ -17,6 +17,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate sha1;
 extern crate structopt;
+extern crate typed_generational_arena;
 
 #[cfg(test)]
 extern crate text_diff;

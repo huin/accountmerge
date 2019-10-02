@@ -21,6 +21,7 @@ serde = "1"
 serde_derive = "1"
 sha-1 = "0.8.1"
 structopt = "0.2"
+typed-generational-arena = "0.2.5"
 
 [dev-dependencies]
 text-diff = "0.4"

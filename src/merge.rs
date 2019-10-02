@@ -2,8 +2,12 @@ use std::collections::HashMap;
 
 use chrono::NaiveDate;
 use ledger_parser::{Posting, Transaction};
+use typed_generational_arena::{StandardArena, StandardIndex};
 
 use crate::comment::Comment;
+
+type TransactionArena = StandardArena<TransactionHolder>;
+type TransactionIndex = StandardIndex<TransactionHolder>;
 
 pub struct MergeResult {
     pub merged: Vec<Transaction>,
@@ -11,17 +15,17 @@ pub struct MergeResult {
 }
 
 pub struct Merger {
-    trn_arena: Vec<TransactionHolder>,
-    trn_by_date: HashMap<NaiveDate, Vec<usize>>,
+    trn_arena: TransactionArena,
+    trn_by_date: HashMap<NaiveDate, Vec<TransactionIndex>>,
     unmerged_trns: Vec<Transaction>,
 }
 
-const EMPTY_INDICES: [usize; 0] = [];
+const EMPTY_INDICES: [TransactionIndex; 0] = [];
 
 impl Merger {
     pub fn new() -> Self {
         Merger {
-            trn_arena: Vec::new(),
+            trn_arena: StandardArena::new(),
             trn_by_date: HashMap::new(),
             unmerged_trns: Vec::new(),
         }
@@ -29,16 +33,18 @@ impl Merger {
 
     pub fn merge(&mut self, src: Vec<Transaction>) {
         // Reuse vector allocation in loop (cleared each time).
-        let mut candidate_trns = Vec::<usize>::new();
+        let mut candidate_trns = Vec::<TransactionIndex>::new();
 
         for src_trn in src.into_iter() {
             candidate_trns.clear();
 
             // Find multiple matching transactions.
-            candidate_trns.extend(
-                self.iter_trns_for_date(&src_trn.date)
-                    .filter(|&index| self.trn_arena[index].all_postings_match_subset(&src_trn)),
-            );
+            candidate_trns.extend(self.iter_trns_for_date(&src_trn.date).filter(|&trn_index| {
+                self.trn_arena
+                    .get(trn_index)
+                    .expect("bad trn_arena index found in trn_by_date")
+                    .all_postings_match_subset(&src_trn)
+            }));
 
             if candidate_trns.len() == 1 {
                 let dest_trn = &mut self.trn_arena[candidate_trns[0]];
@@ -59,7 +65,10 @@ impl Merger {
         }
     }
 
-    fn iter_trns_for_date<'a>(&'a self, date: &NaiveDate) -> impl Iterator<Item = usize> + 'a {
+    fn iter_trns_for_date<'a>(
+        &'a self,
+        date: &NaiveDate,
+    ) -> impl Iterator<Item = TransactionIndex> + 'a {
         self.trn_by_date
             .get(date)
             .map_or_else(|| EMPTY_INDICES.as_ref(), |id_vec| id_vec.as_slice())
@@ -67,34 +76,36 @@ impl Merger {
             .map(|&index| index)
     }
 
-    fn add_transaction(&mut self, trn: Transaction) -> usize {
+    fn add_transaction(&mut self, trn: Transaction) -> TransactionIndex {
         let date = trn.date;
-        self.trn_arena
-            .push(TransactionHolder::from_transaction(trn));
-        let index = self.trn_arena.len() - 1;
+        let trn_index = self
+            .trn_arena
+            .insert(TransactionHolder::from_transaction(trn));
         self.trn_by_date
             .entry(date)
             .or_insert(Vec::new())
-            .push(index);
-        index
+            .push(trn_index);
+        trn_index
     }
 
-    pub fn build(self) -> MergeResult {
+    pub fn build(mut self) -> MergeResult {
         let mut dates: Vec<NaiveDate> = self.trn_by_date.keys().cloned().collect();
         dates.sort();
         let mut trn_by_date = self.trn_by_date;
-        let mut trn_arena: Vec<Option<Transaction>> = self
-            .trn_arena
-            .into_iter()
-            .map(|trn| Some(trn.to_transaction()))
-            .collect();
         let mut out = Vec::<Transaction>::new();
+
+        // Avoid mutably borrowing self twice.
+        let mut trn_arena = TransactionArena::new();
+        std::mem::swap(&mut trn_arena, &mut self.trn_arena);
+
         for date in &dates {
             if let Some(date_trn_indices) = trn_by_date.remove(date) {
-                for index in date_trn_indices {
-                    let mut trn: Option<Transaction> = None;
-                    std::mem::swap(&mut trn, &mut trn_arena[index]);
-                    out.push(trn.expect("duplicate index in date_trn_indices"));
+                for trn_index in date_trn_indices {
+                    let trn: Transaction = trn_arena
+                        .remove(trn_index)
+                        .expect("duplicate or unknown index in date_trn_indices")
+                        .to_transaction();
+                    out.push(trn);
                 }
             }
         }
