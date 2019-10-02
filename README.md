@@ -26,7 +26,8 @@ again according to "Existing posting lookup".
     adding the tags (including fingerprint key+value). If the source posting
     has the "canonical" tag, then additionally set the account name.
 *   If nothing matched, create a copy of the source posting within the *default
-    destination transaction*.
+    destination transaction*, and add the tag "unmatched" to inform the user
+    that manual intervention might be required on that posting.
 
 This may create unbalanced transactions, which is left to be manually resolved.
 So the user should run a check with the `ledger` command before continuing.
