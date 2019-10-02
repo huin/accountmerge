@@ -21,12 +21,11 @@ destination transaction*:
 Now process each source transaction again to find its match in the destination,
 again according to "Existing posting lookup".
 
-When a match is found, update the matching posting in the destination by
-adding the tags (including fingerprint key+value). If the source posting has
-the "canonical" tag, then additionally set the account name.
-
-If nothing matched, create a copy of the source posting within the *default
-destination transaction*.
+*   When a match is found, update the matching posting in the destination by
+    adding the tags (including fingerprint key+value). If the source posting
+    has the "canonical" tag, then additionally set the account name.
+*   If nothing matched, create a copy of the source posting within the *default
+    destination transaction*.
 
 This may create unbalanced transactions, which is left to be manually resolved.
 So the user should run a check with the `ledger` command before continuing.
