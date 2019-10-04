@@ -6,9 +6,6 @@
 
 ## Matching algorithm
 
-This algorithm is described as it is intended to be implemented, but is not
-yet implemented.
-
 For each transaction in the source, scan over each of its postings in turn to
 find an existing posting in the destination according to "Existing posting
 lookup" as described below. Use this posting to determine a *default
@@ -24,10 +21,10 @@ again according to "Existing posting lookup".
 
 *   When a match is found, update the matching posting in the destination by
     adding the tags (including fingerprint key+value). If the source posting
-    has the "canonical" tag, then additionally set the account name.
+    has the "canonical" tag and the destination does not, then additionally
+    set the account name.
 *   If nothing matched, create a copy of the source posting within the *default
-    destination transaction*, and add the tag "unmatched" to inform the user
-    that manual intervention might be required on that posting.
+    destination transaction*.
 
 This may create unbalanced transactions, which is left to be manually resolved.
 So the user should run a check with the `ledger` command before continuing.

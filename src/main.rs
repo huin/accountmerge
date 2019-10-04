@@ -40,11 +40,9 @@ mod merge;
 mod rule;
 
 #[derive(Debug, Fail)]
-enum MergeError {
+enum CommandError {
     #[fail(display = "parse error: {}", reason)]
     ParseError { reason: String },
-    #[fail(display = "unmerged transactions:\n{}", unmerged)]
-    UnmergedError { unmerged: ledger_parser::Ledger },
 }
 
 #[derive(Debug, StructOpt)]
@@ -105,23 +103,13 @@ fn do_merge(merge: &Merge) -> Result<(), Error> {
 
     for path in &merge.inputs {
         let ledger = read_from_file(&path)?;
-        merger.merge(ledger.transactions);
+        merger.merge(ledger.transactions)?;
     }
 
-    let result = merger.build();
-
-    if !result.unmerged.is_empty() {
-        return Err(MergeError::UnmergedError {
-            unmerged: ledger_parser::Ledger {
-                transactions: result.unmerged,
-                commodity_prices: Default::default(),
-            },
-        }
-        .into());
-    }
+    let transactions = merger.build();
 
     let ledger = ledger_parser::Ledger {
-        transactions: result.merged,
+        transactions,
         commodity_prices: Default::default(),
     };
     println!("{}", ledger);
@@ -134,5 +122,5 @@ fn read_from_file(path: &std::path::Path) -> Result<ledger_parser::Ledger, Error
     let mut f = std::fs::File::open(path)?;
     f.read_to_string(&mut content)?;
 
-    ledger_parser::parse(&content).map_err(|e| MergeError::ParseError { reason: e }.into())
+    ledger_parser::parse(&content).map_err(|e| CommandError::ParseError { reason: e }.into())
 }

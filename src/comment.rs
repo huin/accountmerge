@@ -126,18 +126,14 @@ impl Comment {
     /// `other.value_tags` will overwrite values in `self.value_tags` where
     /// they share a key. It avoids adding duplicate lines from `other.lines`
     /// if an exact match already exists in `self.lines`.
-    pub fn merge_from(&mut self, other: &Self) {
-        for other_line in &other.lines {
-            if !self.lines.iter().any(|self_line| self_line == other_line) {
-                self.lines.push(other_line.clone());
+    pub fn merge_from(&mut self, other: Self) {
+        for other_line in other.lines.into_iter() {
+            if !self.lines.iter().any(|self_line| self_line == &other_line) {
+                self.lines.push(other_line);
             }
         }
-        for other_tag in &other.tags {
-            self.tags.insert(other_tag.clone());
-        }
-        for (key, other_value) in &other.value_tags {
-            self.value_tags.insert(key.clone(), other_value.clone());
-        }
+        self.tags.extend(other.tags.into_iter());
+        self.value_tags.extend(other.value_tags.into_iter());
     }
 }
 
@@ -295,7 +291,7 @@ mod tests {
             .with_tag("orig_tag")
             .build();
         orig.merge_from(
-            &CommentBuilder::new()
+            CommentBuilder::new()
                 .with_line("new text")
                 .with_value_tag("new_key1", "new_value1")
                 .with_value_tag("orig_key2", "new_value2")
