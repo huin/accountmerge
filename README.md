@@ -19,7 +19,7 @@ destination transaction*:
 *   If no posting matches, create a new destination transaction as the default
     destination transaction.
 
-Now process each source transaction again to find its match in the destination,
+Now process each source posting again to find its match in the destination,
 again according to "Existing posting lookup".
 
 *   When a match is found, update the matching posting in the destination by
