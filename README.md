@@ -21,8 +21,8 @@ again according to "Existing posting lookup".
 
 *   When a match is found, update the matching posting in the destination by
     adding the tags (including fingerprint key+value). If the source posting
-    has the "canonical" tag and the destination does not, then additionally
-    set the account name.
+    does not have the "unknown-account" tag and the destination does, then
+    additionally copy the account name from source to destination.
 *   If nothing matched, create a copy of the source posting within the *default
     destination transaction*.
 

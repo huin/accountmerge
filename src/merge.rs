@@ -6,7 +6,7 @@ use ledger_parser::{Posting, Transaction};
 use typed_generational_arena::{StandardArena, StandardIndex};
 
 use crate::comment::Comment;
-use crate::tags::{CANONICAL_TAG, FINGERPRINT_TAG_PREFIX};
+use crate::tags::{FINGERPRINT_TAG_PREFIX, UNKNOWN_ACCOUNT_TAG};
 
 const BAD_POSTING_INDEX: &str = "internal error: used invalid PostingIndex";
 const BAD_TRANSACTION_INDEX: &str = "internal error: used invalid TransactionIndex";
@@ -348,7 +348,9 @@ impl PostingHolder {
         if self.posting.balance.is_none() {
             self.posting.balance = src.posting.balance.clone()
         }
-        if !self.comment.tags.contains(CANONICAL_TAG) && src.comment.tags.contains(CANONICAL_TAG) {
+        if self.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
+            && !src.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
+        {
             self.posting.account = src.posting.account;
         }
         self.comment.merge_from(src.comment);
