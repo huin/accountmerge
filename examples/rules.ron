@@ -1,6 +1,24 @@
 Table({
     "start": Chain([
-        Rule(predicate: True, action: JumpChain("assign"), result: Continue),
+        Rule(
+            predicate: True,
+            action: All([
+                JumpChain("assign"),
+                JumpChain("clean"),
+            ]),
+            result: Continue,
+        ),
+    ]),
+    "clean": Chain([
+        Rule(
+            predicate: True,
+            action: All([
+                RemovePostingValueTag("account"),
+                RemovePostingValueTag("bank"),
+                RemovePostingValueTag("trn_type"),
+            ]),
+            result: Continue,
+        ),
     ]),
     "assign": Chain([
         Rule(
