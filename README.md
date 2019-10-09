@@ -1,4 +1,4 @@
-## Fingerpring ideas:
+## Fingerprint ideas:
 
 *   For basic CSV sources that only include the date, include a counter of the
     transaction/posting within the day. Include this counter as part of the
