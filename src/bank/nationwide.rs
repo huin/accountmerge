@@ -11,11 +11,12 @@ use rust_decimal::Decimal;
 use serde::{de, de::DeserializeOwned, Deserialize, Deserializer};
 use sha1::{Digest, Sha1};
 
-use crate::bank::{
-    ACCOUNT_TAG, BANK_TAG, EXPENSES_UNKNOWN, FINGERPRINT_TAG_PREFIX, INCOME_UNKNOWN,
-    TRANSACTION_TYPE_TAG,
-};
+use crate::accounts::{EXPENSES_UNKNOWN, INCOME_UNKNOWN};
 use crate::comment::Comment;
+use crate::tags::{ACCOUNT_TAG, BANK_TAG, FINGERPRINT_TAG_PREFIX};
+
+/// Transaction type field, provided by the bank.
+pub const TRANSACTION_TYPE_TAG: &str = "trn_type";
 
 const BANK_NAME: &str = "Nationwide";
 

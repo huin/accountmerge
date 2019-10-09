@@ -34,10 +34,12 @@ use structopt::StructOpt;
 #[macro_use]
 mod testutil;
 
+mod accounts;
 mod bank;
 mod comment;
 mod merge;
 mod rule;
+mod tags;
 
 #[derive(Debug, Fail)]
 enum CommandError {

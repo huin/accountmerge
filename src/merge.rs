@@ -5,10 +5,8 @@ use failure::Error;
 use ledger_parser::{Posting, Transaction};
 use typed_generational_arena::{StandardArena, StandardIndex};
 
-use crate::bank::FINGERPRINT_TAG_PREFIX;
 use crate::comment::Comment;
-
-const CANONICAL_TAG: &str = "canonical";
+use crate::tags::{CANONICAL_TAG, FINGERPRINT_TAG_PREFIX};
 
 const BAD_POSTING_INDEX: &str = "internal error: used invalid PostingIndex";
 const BAD_TRANSACTION_INDEX: &str = "internal error: used invalid TransactionIndex";
