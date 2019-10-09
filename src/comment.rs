@@ -73,7 +73,6 @@ impl Comment {
                     leading_start = all.end();
 
                     // Flags.
-                    println!("{:?} {:?}", flags, flags.as_str());
                     for flag in flags.as_str().trim_end_matches(':').split(':') {
                         result.tags.insert(flag.to_string());
                     }
