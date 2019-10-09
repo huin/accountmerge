@@ -13,7 +13,7 @@ use sha1::{Digest, Sha1};
 
 use crate::accounts::{EXPENSES_UNKNOWN, INCOME_UNKNOWN};
 use crate::comment::Comment;
-use crate::tags::{ACCOUNT_TAG, BANK_TAG, FINGERPRINT_TAG_PREFIX};
+use crate::tags::{ACCOUNT_TAG, BANK_TAG, FINGERPRINT_TAG_PREFIX, UNKNOWN_ACCOUNT_TAG};
 
 /// Transaction type field, provided by the bank.
 pub const TRANSACTION_TYPE_TAG: &str = "trn_type";
@@ -94,7 +94,7 @@ fn read_transactions<R: std::io::Read>(
         hasher.input("\0");
         let fingerprint = hasher.result_reset();
         let fingerprint_b64 = base64::encode_config(&fingerprint, base64::STANDARD_NO_PAD);
-        format!("{}-{}", FINGERPRINT_TAG_PREFIX, &fingerprint_b64[0..8])
+        format!("{}{}", FINGERPRINT_TAG_PREFIX, &fingerprint_b64[0..8])
     };
 
     let mut self_hasher = Sha1::new();
@@ -137,6 +137,7 @@ fn read_transactions<R: std::io::Read>(
         );
 
         let mut self_comment = Comment::builder()
+            .with_tag(UNKNOWN_ACCOUNT_TAG)
             .with_value_tag(ACCOUNT_TAG, account_name)
             .with_value_tag(BANK_TAG, BANK_NAME)
             .with_value_tag(TRANSACTION_TYPE_TAG, record.type_.clone())

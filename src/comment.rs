@@ -166,7 +166,6 @@ impl CommentBuilder {
         self
     }
 
-    #[cfg(test)] // Currently only used in tests.
     pub fn with_tag<K: Into<String>>(mut self, k: K) -> Self {
         self.comment.tags.insert(k.into());
         self
