@@ -342,7 +342,7 @@ impl PostingHolder {
             }
     }
 
-    fn merge_from_input_posting(&mut self, src: InputPosting) -> Option<String> {
+    fn merge_from_input_posting(&mut self, mut src: InputPosting) -> Option<String> {
         // TODO: Merge/update status.
         if self.posting.balance.is_none() {
             self.posting.balance = src.posting.balance.clone()
@@ -350,8 +350,11 @@ impl PostingHolder {
         if self.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
             && !src.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
         {
+            self.comment.tags.remove(UNKNOWN_ACCOUNT_TAG);
             self.posting.account = src.posting.account;
         }
+        src.comment.tags.remove(UNKNOWN_ACCOUNT_TAG);
+
         self.comment.merge_from(src.comment);
         src.fingerprint_key
     }
@@ -543,6 +546,24 @@ mod tests {
             ),
             parse_posting("foo  GBP 10.00 =GBP 50.00 ; key: new-value"),
             "merges comments",
+        );
+        assert_eq!(
+            parse_merge_from("foo  GBP 10.00", "bar  GBP 10.00 ; :unknown-account:"),
+            parse_posting("foo  GBP 10.00"),
+            "Does not update from unknown account.",
+        );
+        assert_eq!(
+            parse_merge_from(
+                "foo  GBP 10.00 ; :unknown-account:",
+                "bar  GBP 10.00 ; :unknown-account:"
+            ),
+            parse_posting("foo  GBP 10.00 ; :unknown-account:"),
+            "Does not update unknown account from unknown account.",
+        );
+        assert_eq!(
+            parse_merge_from("foo  GBP 10.00 ; :unknown-account:", "bar  GBP 10.00"),
+            parse_posting("bar  GBP 10.00"),
+            "Updates unknown account and removes unknown-account tag.",
         );
     }
 
