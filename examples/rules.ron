@@ -1,12 +1,6 @@
 Table({
     "start": Chain([
         Rule(predicate: True, action: JumpChain("assign"), result: Continue),
-        Rule(predicate: True, action: JumpChain("clean"), result: Continue),
-    ]),
-    "clean": Chain([
-        Rule(predicate: True, action: RemovePostingValueTag("account"), result: Continue),
-        Rule(predicate: True, action: RemovePostingValueTag("bank"), result: Continue),
-        Rule(predicate: True, action: RemovePostingValueTag("trn_type"), result: Continue),
     ]),
     "assign": Chain([
         Rule(
@@ -26,15 +20,14 @@ Table({
         ),
     ]),
     "bank_account": Chain([
+        Rule(predicate: True, action: RemovePostingValueTag("trn_type"), result: Continue),
         Rule(
             predicate: PostingValueTag("bank", Eq("Nationwide")),
-            action: JumpChain("nationwide"),
-            result: Continue,
-        ),
-        Rule(
-            predicate: True,
-            action: RemovePostingValueTag("bank"),
-            result: Continue,
+            action: All([
+                RemovePostingValueTag("bank"),
+                JumpChain("nationwide"),
+            ]),
+            result: Return,
         ),
     ]),
     "expenses": Chain([
@@ -43,28 +36,8 @@ Table({
             action: SetAccount("expenses:petty"),
             result: Return,
         ),
-        Rule(
-            predicate: TransactionDescription(Eq("Transfer to Current")),
-            action: SetAccount("assets:nationwide:current"),
-            result: Return,
-        ),
-        Rule(
-            predicate: TransactionDescription(Eq("Transfer to Savings")),
-            action: SetAccount("assets:nationwide:savings"),
-            result: Return,
-        ),
     ]),
     "income": Chain([
-        Rule(
-            predicate: TransactionDescription(Eq("Transfer from Current")),
-            action: SetAccount("assets:nationwide:current"),
-            result: Return,
-        ),
-        Rule(
-            predicate: TransactionDescription(Eq("Transfer from Savings")),
-            action: SetAccount("assets:nationwide:savings"),
-            result: Return,
-        ),
         Rule(
             predicate: TransactionDescription(Eq("Payroll")),
             action: SetAccount("income:salary"),
@@ -79,18 +52,21 @@ Table({
     "nationwide": Chain([
         Rule(
             predicate: PostingValueTag("account", Eq("Current")),
-            action: SetAccount("assets:nationwide:current"),
-            result: Continue,
+            action: All([
+                RemovePostingFlagTag("unknown-account"),
+                RemovePostingValueTag("account"),
+                SetAccount("assets:nationwide:current"),
+            ]),
+            result: Return,
         ),
         Rule(
             predicate: PostingValueTag("account", Eq("Savings")),
-            action: SetAccount("assets:nationwide:savings"),
-            result: Continue,
-        ),
-        Rule(
-            predicate: True,
-            action: RemovePostingValueTag("account"),
-            result: Continue,
+            action: All([
+                RemovePostingFlagTag("unknown-account"),
+                RemovePostingValueTag("account"),
+                SetAccount("assets:nationwide:savings"),
+            ]),
+            result: Return,
         ),
     ]),
 })

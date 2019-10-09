@@ -132,6 +132,7 @@ enum RuleResult {
 
 #[derive(Debug, Deserialize)]
 enum Action {
+    All(Vec<Action>),
     Noop,
     JumpChain(String),
     SetAccount(String),
@@ -144,6 +145,11 @@ impl Action {
         use Action::*;
 
         match self {
+            All(actions) => {
+                for action in actions {
+                    action.apply(table, ctx)?;
+                }
+            }
             Noop => {}
             JumpChain(name) => {
                 table.get_chain(name)?.apply(table, ctx)?;
