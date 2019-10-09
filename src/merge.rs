@@ -335,8 +335,7 @@ impl PostingHolder {
 
     fn matches(&self, input: &InputPosting) -> bool {
         let b = &input.posting;
-        self.posting.account == b.account
-            && self.posting.amount == b.amount
+        self.posting.amount == b.amount
             && match (&self.posting.balance, &b.balance) {
                 (Some(a_bal), Some(b_bal)) => a_bal == b_bal,
                 _ => true,
@@ -523,9 +522,9 @@ mod tests {
         let parse_merge_from = |dest: &str, src: &str| {
             let dest_posting = InputPosting::from_posting(parse_posting(dest)).unwrap();
             let src_posting = InputPosting::from_posting(parse_posting(src)).unwrap();
-            let (mut holder, _) = PostingHolder::from_input_posting(dest_posting, dummy_idx);
-            holder.merge_from_input_posting(src_posting);
-            holder.to_posting()
+            let (mut dest_holder, _) = PostingHolder::from_input_posting(dest_posting, dummy_idx);
+            dest_holder.merge_from_input_posting(src_posting);
+            dest_holder.to_posting()
         };
         assert_eq!(
             parse_merge_from("foo  GBP 10.00", "foo  GBP 10.00 =GBP 90.00"),
@@ -544,6 +543,52 @@ mod tests {
             ),
             parse_posting("foo  GBP 10.00 =GBP 50.00 ; key: new-value"),
             "merges comments",
+        );
+    }
+
+    #[test]
+    fn test_match_posting() {
+        let dummy_idx = StandardIndex::from_idx_first_gen(0);
+        let parse_match = |dest: &str, src: &str| {
+            let dest_posting = InputPosting::from_posting(parse_posting(dest)).unwrap();
+            let src_posting = InputPosting::from_posting(parse_posting(src)).unwrap();
+            let (dest_holder, _) = PostingHolder::from_input_posting(dest_posting, dummy_idx);
+            dest_holder.matches(&src_posting)
+        };
+        assert_eq!(
+            parse_match("foo  GBP 10.00 =GBP 90.00", "foo  GBP 10.00 =GBP 90.00"),
+            true,
+            "Have same balances.",
+        );
+        assert_eq!(
+            parse_match("foo  GBP 10.00 =GBP 23.00", "foo  GBP 10.00 =GBP 90.00"),
+            false,
+            "Have differing balances."
+        );
+        assert_eq!(
+            parse_match("foo  GBP 10.00", "foo  GBP 10.00 =GBP 90.00"),
+            true,
+            "Only source balance.",
+        );
+        assert_eq!(
+            parse_match("foo  GBP 10.00 =GBP 90.00", "foo  GBP 10.00"),
+            true,
+            "Only dest balance.",
+        );
+        assert_eq!(
+            parse_match("foo  GBP 10.00", "foo  GBP 10.00"),
+            true,
+            "Same amount.",
+        );
+        assert_eq!(
+            parse_match("foo  GBP 23.00", "foo  GBP 10.00"),
+            false,
+            "Differing amount.",
+        );
+        assert_eq!(
+            parse_match("foo  GBP 10.00", "bar  GBP 10.00"),
+            true,
+            "Differing account.",
         );
     }
 }
