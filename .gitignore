@@ -1,4 +1,4 @@
-/examples/*.journal
+/example_output
 /target
 **/*.rs.bk
 *.sublime-workspace
