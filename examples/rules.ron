@@ -10,6 +10,8 @@ Table({
         ),
     ]),
     "clean": Chain([
+        // Clean out tags that are only used in rules rather than permanent
+        // record or merging.
         Rule(
             predicate: True,
             action: All([
@@ -20,7 +22,14 @@ Table({
             result: Continue,
         ),
     ]),
+    "mark-unknown": Chain([
+        Rule(predicate: True, action: AddPostingFlagTag("unknown-account"), result: Return),
+    ]),
     "assign": Chain([
+        // Remove unknown-account tag. It gets added back in the following
+        // chains if they fail to match the account.
+        Rule(predicate: True, action: RemovePostingFlagTag("unknown-account"), result: Continue),
+
         Rule(
             predicate: Account(Eq("expenses:unknown")),
             action: JumpChain("expenses"),
@@ -36,9 +45,11 @@ Table({
             action: JumpChain("bank_account"),
             result: Return,
         ),
+
+        // Failed to match account.
+        Rule(predicate: True, action: JumpChain("mark-unknown"), result: Return),
     ]),
     "bank_account": Chain([
-        Rule(predicate: True, action: RemovePostingValueTag("trn_type"), result: Continue),
         Rule(
             predicate: PostingValueTag("bank", Eq("Nationwide")),
             action: All([
@@ -47,6 +58,9 @@ Table({
             ]),
             result: Return,
         ),
+
+        // Failed to match account.
+        Rule(predicate: True, action: JumpChain("mark-unknown"), result: Return),
     ]),
     "expenses": Chain([
         Rule(
@@ -54,6 +68,9 @@ Table({
             action: SetAccount("expenses:petty"),
             result: Return,
         ),
+
+        // Failed to match account.
+        Rule(predicate: True, action: JumpChain("mark-unknown"), result: Return),
     ]),
     "income": Chain([
         Rule(
@@ -66,25 +83,23 @@ Table({
             action: SetAccount("income:interest"),
             result: Return,
         ),
+
+        // Failed to match account.
+        Rule(predicate: True, action: JumpChain("mark-unknown"), result: Return),
     ]),
     "nationwide": Chain([
         Rule(
             predicate: PostingValueTag("account", Eq("Current")),
-            action: All([
-                RemovePostingFlagTag("unknown-account"),
-                RemovePostingValueTag("account"),
-                SetAccount("assets:nationwide:current"),
-            ]),
+            action: SetAccount("assets:nationwide:current"),
             result: Return,
         ),
         Rule(
             predicate: PostingValueTag("account", Eq("Savings")),
-            action: All([
-                RemovePostingFlagTag("unknown-account"),
-                RemovePostingValueTag("account"),
-                SetAccount("assets:nationwide:savings"),
-            ]),
+            action: SetAccount("assets:nationwide:savings"),
             result: Return,
         ),
+
+        // Failed to match account.
+        Rule(predicate: True, action: JumpChain("mark-unknown"), result: Return),
     ]),
 })
