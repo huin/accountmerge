@@ -55,6 +55,8 @@ struct Command {
 
 #[derive(Debug, StructOpt)]
 enum SubCommand {
+    #[structopt(name = "apply-rules")]
+    ApplyRules(ApplyRules),
     #[structopt(name = "import")]
     Import(Import),
     #[structopt(name = "merge")]
@@ -65,27 +67,38 @@ fn main() -> Result<(), Error> {
     let cmd = Command::from_args();
     use SubCommand::*;
     match cmd.subcmd {
+        ApplyRules(apply_rules) => do_apply_rules(&apply_rules),
         Import(import) => do_import(&import),
         Merge(merge) => do_merge(&merge),
     }
 }
 
 #[derive(Debug, StructOpt)]
+struct ApplyRules {
+    #[structopt(short = "r", long = "rules")]
+    rules: PathBuf,
+    #[structopt(parse(from_os_str))]
+    input_journal: PathBuf,
+}
+
+fn do_apply_rules(apply_rules: &ApplyRules) -> Result<(), Error> {
+    let mut ledger = read_from_file(&apply_rules.input_journal)?;
+    let rules = rule::Table::from_path(&apply_rules.rules)?;
+    for trn in &mut ledger.transactions {
+        rules.update_transaction(trn)?;
+    }
+    println!("{}", ledger);
+    Ok(())
+}
+
+#[derive(Debug, StructOpt)]
 struct Import {
     #[structopt(parse(from_os_str))]
     input: PathBuf,
-    #[structopt(short = "r", long = "rules")]
-    rules: Option<PathBuf>,
 }
 
 fn do_import(import: &Import) -> Result<(), Error> {
-    let mut transactions = bank::nationwide::transactions_from_path(&import.input)?;
-    if let Some(rules_path) = &import.rules {
-        let rules = rule::Table::from_path(rules_path)?;
-        for trn in &mut transactions {
-            rules.update_transaction(trn)?;
-        }
-    }
+    let transactions = bank::nationwide::transactions_from_path(&import.input)?;
     let ledger = ledger_parser::Ledger {
         transactions: transactions,
         commodity_prices: Default::default(),
