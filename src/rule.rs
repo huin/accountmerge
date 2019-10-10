@@ -132,6 +132,7 @@ enum RuleResult {
 
 #[derive(Debug, Deserialize)]
 enum Action {
+    AddPostingFlagTag(String),
     All(Vec<Action>),
     Noop,
     JumpChain(String),
@@ -145,6 +146,9 @@ impl Action {
         use Action::*;
 
         match self {
+            AddPostingFlagTag(name) => {
+                ctx.posting_comment.tags.insert(name.to_string());
+            }
             All(actions) => {
                 for action in actions {
                     action.apply(table, ctx)?;
