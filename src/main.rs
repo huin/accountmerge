@@ -1,4 +1,5 @@
 extern crate base64;
+extern crate byteorder;
 extern crate chrono;
 extern crate csv;
 extern crate encoding_rs;
@@ -37,6 +38,7 @@ mod testutil;
 mod accounts;
 mod bank;
 mod comment;
+mod fingerprint;
 mod merge;
 mod rule;
 mod tags;

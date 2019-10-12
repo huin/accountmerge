@@ -9,10 +9,10 @@ use ledger_parser::{Amount, Balance, Commodity, CommodityPosition, Posting, Tran
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::{de, de::DeserializeOwned, Deserialize, Deserializer};
-use sha1::{Digest, Sha1};
 
 use crate::accounts::{EXPENSES_UNKNOWN, INCOME_UNKNOWN};
 use crate::comment::Comment;
+use crate::fingerprint::{FingerprintBuilder, Fingerprintable};
 use crate::tags::{ACCOUNT_TAG, BANK_TAG, FINGERPRINT_TAG_PREFIX, UNKNOWN_ACCOUNT_TAG};
 
 /// Transaction type field, provided by the bank.
@@ -86,27 +86,17 @@ fn read_transactions<R: std::io::Read>(
     check_header("Paid in", &headers[4])?;
     check_header("Balance", &headers[5])?;
 
-    let fp_key = {
-        let mut hasher = Sha1::new();
-        hasher.input(BANK_NAME);
-        hasher.input("\0");
-        hasher.input(&account_name);
-        hasher.input("\0");
-        let fingerprint = hasher.result_reset();
-        let fingerprint_b64 = base64::encode_config(&fingerprint, base64::STANDARD_NO_PAD);
-        format!("{}{}", FINGERPRINT_TAG_PREFIX, &fingerprint_b64[0..8])
-    };
-
-    let mut self_hasher = Sha1::new();
-    let mut peer_hasher = Sha1::new();
+    let fp_key = FingerprintBuilder::new()
+        .with_str(BANK_NAME)
+        .with_str(&account_name)
+        .build_with_prefix(FINGERPRINT_TAG_PREFIX);
 
     let mut transactions = Vec::new();
     for result in csv_records {
         let str_record = result?;
         let record: DeTransaction = str_record.deserialize(None)?;
 
-        record.hash(&mut self_hasher);
-        peer_hasher.clone_from(&self_hasher);
+        let record_fpb = FingerprintBuilder::new().with_fingerprintable(&record);
 
         let self_account = "assets:unknown".to_string();
         let (peer_account, self_amt, peer_amt) = match (record.paid_in, record.paid_out) {
@@ -125,16 +115,16 @@ fn read_transactions<R: std::io::Read>(
             }
         };
 
-        let self_fingerprint = base64::encode_config(
-            &{
-                self_hasher.input(&self_account);
-                self_hasher.input("\0");
-                self_hasher.input(self_amt.to_string());
-                self_hasher.input("\0");
-                self_hasher.result_reset()
-            },
-            base64::STANDARD_NO_PAD,
-        );
+        let self_fingerprint = record_fpb
+            .clone()
+            .with_str(&self_account)
+            .with_amount(&self_amt)
+            .build();
+
+        let peer_fingerprint = record_fpb
+            .with_str(&peer_account)
+            .with_amount(&peer_amt)
+            .build();
 
         let mut self_comment = Comment::builder()
             .with_tag(UNKNOWN_ACCOUNT_TAG)
@@ -148,17 +138,6 @@ fn read_transactions<R: std::io::Read>(
         self_comment
             .value_tags
             .insert(fp_key.clone(), self_fingerprint);
-
-        let peer_fingerprint = base64::encode_config(
-            &{
-                peer_hasher.input(&peer_account);
-                peer_hasher.input("\0");
-                peer_hasher.input(peer_amt.to_string());
-                peer_hasher.input("\0");
-                peer_hasher.result_reset()
-            },
-            base64::STANDARD_NO_PAD,
-        );
 
         peer_comment
             .value_tags
@@ -210,16 +189,12 @@ struct DeTransaction {
     balance: DeGbpValue,
 }
 
-impl DeTransaction {
-    fn hash(&self, hasher: &mut Sha1) {
-        hasher.input(&self.type_);
-        hasher.input("\0");
-        hasher.input(&self.date.0.format("%Y/%m/%d").to_string());
-        hasher.input("\0");
-        hasher.input(&self.description);
-        hasher.input("\0");
-        hasher.input(&self.balance.0.to_string());
-        hasher.input("\0");
+impl Fingerprintable for DeTransaction {
+    fn fingerprint(&self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+        fpb.with_str(&self.type_)
+            .with_naive_date(&self.date.0)
+            .with_str(&self.description)
+            .with_amount(&self.balance.0)
     }
 }
 
