@@ -36,9 +36,9 @@ use structopt::StructOpt;
 mod testutil;
 
 mod accounts;
-mod bank;
 mod comment;
 mod fingerprint;
+mod importers;
 mod merge;
 mod rule;
 mod tags;
@@ -100,7 +100,7 @@ struct Import {
 }
 
 fn do_import(import: &Import) -> Result<(), Error> {
-    let transactions = bank::nationwide_csv::transactions_from_path(&import.input)?;
+    let transactions = importers::nationwide_csv::transactions_from_path(&import.input)?;
     let ledger = ledger_parser::Ledger {
         transactions: transactions,
         commodity_prices: Default::default(),
