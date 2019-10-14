@@ -92,11 +92,26 @@ fn read_transactions<R: std::io::Read>(
         .build_with_prefix(FINGERPRINT_TAG_PREFIX);
 
     let mut transactions = Vec::new();
+
+    let mut prev_date: Option<NaiveDate> = None;
+    let mut date_counter: i32 = 0;
+
     for result in csv_records {
         let str_record = result?;
         let record: DeTransaction = str_record.deserialize(None)?;
 
-        let record_fpb = FingerprintBuilder::new().with_fingerprintable(&record);
+        // Maintain the per-date counter. Include a sequence number to each
+        // transaction in a given day for use in the fingerprint.
+        if Some(record.date.0) != prev_date {
+            prev_date = Some(record.date.0.clone());
+            date_counter = 0;
+        } else {
+            date_counter += 1;
+        }
+
+        let record_fpb = FingerprintBuilder::new()
+            .with_fingerprintable(&record)
+            .with_i32(date_counter);
 
         let self_account = "assets:unknown".to_string();
         let (peer_account, self_amt, peer_amt) = match (record.paid_in, record.paid_out) {

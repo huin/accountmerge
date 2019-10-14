@@ -51,6 +51,10 @@ impl FingerprintBuilder {
         v.fingerprint(self)
     }
 
+    pub fn with_i32(self, v: i32) -> Self {
+        self.acc.with_usize(4).with_i32(v).as_fingerprint_builder()
+    }
+
     pub fn with_naive_date(self, v: &NaiveDate) -> Self {
         self.acc
             .with_usize(3 * 4)
