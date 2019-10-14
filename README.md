@@ -1,9 +1,3 @@
-## Fingerprint ideas:
-
-*   For basic CSV sources that only include the date, include a counter of the
-    transaction/posting within the day. Include this counter as part of the
-    hash material.
-
 ## Matching algorithm
 
 For each transaction in the source, scan over each of its postings in turn to
