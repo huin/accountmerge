@@ -100,7 +100,7 @@ struct Import {
 }
 
 fn do_import(import: &Import) -> Result<(), Error> {
-    let transactions = bank::nationwide::transactions_from_path(&import.input)?;
+    let transactions = bank::nationwide_csv::transactions_from_path(&import.input)?;
     let ledger = ledger_parser::Ledger {
         transactions: transactions,
         commodity_prices: Default::default(),
