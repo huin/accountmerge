@@ -70,7 +70,7 @@ fn main() -> Result<(), Error> {
     use SubCommand::*;
     match cmd.subcmd {
         ApplyRules(apply_rules) => do_apply_rules(&apply_rules),
-        Import(import) => do_import(&import),
+        Import(import) => import.run(),
         Merge(merge) => do_merge(&merge),
     }
 }
@@ -95,18 +95,16 @@ fn do_apply_rules(apply_rules: &ApplyRules) -> Result<(), Error> {
 
 #[derive(Debug, StructOpt)]
 struct Import {
-    #[structopt(parse(from_os_str))]
-    input: PathBuf,
+    #[structopt(subcommand)]
+    importer: importers::Importer,
 }
 
-fn do_import(import: &Import) -> Result<(), Error> {
-    let transactions = importers::nationwide_csv::transactions_from_path(&import.input)?;
-    let ledger = ledger_parser::Ledger {
-        transactions: transactions,
-        commodity_prices: Default::default(),
-    };
-    println!("{}", ledger);
-    Ok(())
+impl Import {
+    fn run(&self) -> Result<(), Error> {
+        let ledger = self.importer.do_import()?;
+        println!("{}", ledger);
+        Ok(())
+    }
 }
 
 #[derive(Debug, StructOpt)]
