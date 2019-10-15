@@ -1,38 +1,26 @@
 use std::fmt;
 use std::fs::File;
 use std::path::Path;
-use std::str::FromStr;
 
 use chrono::NaiveDate;
 use failure::Error;
 use ledger_parser::{Amount, Balance, Commodity, CommodityPosition, Posting, Transaction};
 use regex::Regex;
 use rust_decimal::Decimal;
-use serde::{de, de::DeserializeOwned, Deserialize, Deserializer};
+use serde::{de, Deserialize, Deserializer};
 
 use crate::accounts::{EXPENSES_UNKNOWN, INCOME_UNKNOWN};
 use crate::comment::Comment;
 use crate::fingerprint::{FingerprintBuilder, Fingerprintable};
+use crate::importers::util::csv::{
+    check_header, deserialize_captured_number, deserialize_required_record, ReadError,
+};
 use crate::tags::{ACCOUNT_TAG, BANK_TAG, FINGERPRINT_TAG_PREFIX, UNKNOWN_ACCOUNT_TAG};
 
 /// Transaction type field, provided by the bank.
 pub const TRANSACTION_TYPE_TAG: &str = "trn_type";
 
 const BANK_NAME: &str = "Nationwide";
-
-#[derive(Debug, Fail)]
-enum ReadError {
-    #[fail(display = "bad file format: {}", reason)]
-    BadFileFormat { reason: &'static str },
-    #[fail(display = "bad header record, want {:?}, got {:?}", want, got)]
-    BadHeaderRecord { want: &'static str, got: String },
-}
-
-impl ReadError {
-    fn bad_file_format(reason: &'static str) -> ReadError {
-        ReadError::BadFileFormat { reason }
-    }
-}
 
 #[derive(Debug, Deserialize)]
 struct AccountName {
@@ -271,43 +259,4 @@ impl<'de> de::Visitor<'de> for DeGbpValueVisitor {
             quantity: Decimal::new(pounds * 100 + pence, 2),
         }))
     }
-}
-
-fn check_header(want: &'static str, got: &str) -> Result<(), ReadError> {
-    if want != got {
-        Err(ReadError::BadHeaderRecord {
-            want,
-            got: got.to_string(),
-        }
-        .into())
-    } else {
-        Ok(())
-    }
-}
-
-fn deserialize_required_record<T, R>(
-    csv_records: &mut csv::StringRecordsIter<R>,
-) -> Result<Option<T>, Error>
-where
-    T: DeserializeOwned,
-    R: std::io::Read,
-{
-    match csv_records.next() {
-        Some(Ok(str_record)) => Ok(Some(str_record.deserialize(None)?)),
-        Some(Err(e)) => Err(e.into()),
-        None => Ok(None),
-    }
-}
-
-fn deserialize_captured_number<T, E>(c: &regex::Captures, i: usize) -> Result<T, E>
-where
-    T: FromStr,
-    E: de::Error,
-    <T as FromStr>::Err: fmt::Display,
-{
-    c.get(i)
-        .unwrap()
-        .as_str()
-        .parse()
-        .map_err(de::Error::custom)
 }

@@ -5,11 +5,15 @@ use ledger_parser::{Ledger, Transaction};
 use structopt::StructOpt;
 
 mod nationwide_csv;
+mod paypal_csv;
+mod util;
 
 #[derive(Debug, StructOpt)]
 pub enum Importer {
     #[structopt(name = "nationwide-csv")]
     NationwideCsv(NationwideCsv),
+    #[structopt(name = "paypal-csv")]
+    PaypalCsv(PaypalCsv),
 }
 
 impl Importer {
@@ -24,6 +28,7 @@ impl Importer {
         use Importer::*;
         match self {
             NationwideCsv(imp) => imp.get_transactions(),
+            PaypalCsv(imp) => imp.get_transactions(),
         }
     }
 }
@@ -37,5 +42,17 @@ pub struct NationwideCsv {
 impl NationwideCsv {
     fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
         nationwide_csv::transactions_from_path(&self.input)
+    }
+}
+
+#[derive(Debug, StructOpt)]
+pub struct PaypalCsv {
+    #[structopt(parse(from_os_str))]
+    input: PathBuf,
+}
+
+impl PaypalCsv {
+    fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
+        paypal_csv::transactions_from_path(&self.input)
     }
 }
