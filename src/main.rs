@@ -1,6 +1,7 @@
 extern crate base64;
 extern crate byteorder;
 extern crate chrono;
+extern crate chrono_tz;
 extern crate csv;
 extern crate encoding_rs;
 extern crate encoding_rs_io;
