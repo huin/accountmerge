@@ -5,12 +5,13 @@ use std::path::Path;
 use chrono::{DateTime, NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
 use failure::Error;
+use itertools::Itertools;
 use ledger_parser::{Amount, Commodity, CommodityPosition, Transaction};
 
 #[derive(Debug, Fail)]
 pub enum ReadError {
     #[fail(
-        display = "ambiguous combination of date time {} and timezone: {:?}",
+        display = "ambiguous combination of date time {} and timezone: {}",
         datetime, timezone
     )]
     AmbiguousTime {
@@ -18,13 +19,18 @@ pub enum ReadError {
         timezone: TzDisplay,
     },
     #[fail(
-        display = "nonexistant combination of date time {} and timezone: {:?}",
+        display = "nonexistant combination of date time {} and timezone: {}",
         datetime, timezone
     )]
     NonexistantTime {
         datetime: NaiveDateTime,
         timezone: TzDisplay,
     },
+    #[fail(
+        display = "no record has at name for transactions at date time {}",
+        datetime
+    )]
+    NoNameForGroup { datetime: DateTime<Tz> },
 }
 
 #[derive(Debug)]
@@ -48,16 +54,38 @@ pub fn transactions_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<Transaction
     read_transactions(&headers, &mut csv_records)
 }
 
+// TODO: Pass in timezone as a Tz that transactions should be output in.
 fn read_transactions<R: std::io::Read>(
     headers: &csv::StringRecord,
     csv_records: &mut csv::StringRecordsIter<R>,
 ) -> Result<Vec<Transaction>, Error> {
-    for result in csv_records {
-        let str_record = result?;
-        let de_record: de::Record = str_record.deserialize(Some(headers))?;
-        let _record: Record = de_record.try_into()?;
-        unimplemented!()
-    }
+    let records: Vec<Record> = csv_records
+        .map(|row| deserialize_row(row, headers))
+        .collect::<Result<Vec<Record>, Error>>()?;
+
+    let record_groups = records.into_iter().group_by(|record| record.datetime);
+
+    record_groups
+        .into_iter()
+        .map(|(dt, group)| (dt, group.collect::<Vec<Record>>()))
+        .map(form_transaction)
+        .collect::<Result<Vec<Transaction>, Error>>()
+}
+
+fn deserialize_row(
+    sr: csv::Result<csv::StringRecord>,
+    headers: &csv::StringRecord,
+) -> Result<Record, Error> {
+    let de_record: de::Record = sr?.deserialize(Some(headers))?;
+    de_record.try_into()
+}
+
+fn form_transaction(record_group: (DateTime<Tz>, Vec<Record>)) -> Result<Transaction, Error> {
+    let (dt, records) = record_group;
+    let trn_record = records
+        .iter()
+        .find(|record| !record.name.is_empty())
+        .ok_or_else(|| ReadError::NoNameForGroup { datetime: dt })?;
 
     unimplemented!()
 }

@@ -13,6 +13,7 @@ encoding_rs = "0.8"
 encoding_rs_io = "0.1"
 failure = "0.1"
 failure_derive = "0.1"
+itertools = "0.8"
 lazy_static = "1"
 ledger-parser = {git = "https://github.com/marek-g/rust-ledger-parser.git"}
 regex = "1"

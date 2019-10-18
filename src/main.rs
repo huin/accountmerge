@@ -8,6 +8,7 @@ extern crate encoding_rs_io;
 extern crate failure;
 #[macro_use]
 extern crate failure_derive;
+extern crate itertools;
 #[macro_use]
 extern crate lazy_static;
 extern crate ledger_parser;
