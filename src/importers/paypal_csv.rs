@@ -67,8 +67,7 @@ fn read_transactions<R: std::io::Read>(
 
     record_groups
         .into_iter()
-        .map(|(dt, group)| (dt, group.collect::<Vec<Record>>()))
-        .map(form_transaction)
+        .map(|(dt, group)| form_transaction(dt, group.collect::<Vec<Record>>()))
         .collect::<Result<Vec<Transaction>, Error>>()
 }
 
@@ -80,8 +79,7 @@ fn deserialize_row(
     de_record.try_into()
 }
 
-fn form_transaction(record_group: (DateTime<Tz>, Vec<Record>)) -> Result<Transaction, Error> {
-    let (dt, records) = record_group;
+fn form_transaction(dt: DateTime<Tz>, records: Vec<Record>) -> Result<Transaction, Error> {
     let trn_record = records
         .iter()
         .find(|record| !record.name.is_empty())
