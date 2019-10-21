@@ -2,11 +2,11 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 use std::path::Path;
 
-use chrono::{DateTime, NaiveDateTime, TimeZone};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
 use failure::Error;
 use itertools::Itertools;
-use ledger_parser::{Amount, Commodity, CommodityPosition, Transaction};
+use ledger_parser::{Amount, Commodity, CommodityPosition, Posting, Transaction};
 
 #[derive(Debug, Fail)]
 pub enum ReadError {
@@ -27,7 +27,7 @@ pub enum ReadError {
         timezone: TzDisplay,
     },
     #[fail(
-        display = "no record has at name for transactions at date time {}",
+        display = "no record has a name for transactions at date time {}",
         datetime
     )]
     NoNameForGroup { datetime: DateTime<Tz> },
@@ -42,7 +42,10 @@ impl Display for TzDisplay {
     }
 }
 
-pub fn transactions_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<Transaction>, Error> {
+pub fn transactions_from_path<P: AsRef<Path>>(
+    path: P,
+    output_timezone: &Tz,
+) -> Result<Vec<Transaction>, Error> {
     let mut csv_rdr = csv::ReaderBuilder::new()
         .has_headers(true)
         .flexible(false)
@@ -51,13 +54,14 @@ pub fn transactions_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<Transaction
     let headers = csv_rdr.headers()?.clone();
     let mut csv_records = csv_rdr.records();
 
-    read_transactions(&headers, &mut csv_records)
+    read_transactions(&headers, &mut csv_records, output_timezone)
 }
 
 // TODO: Pass in timezone as a Tz that transactions should be output in.
 fn read_transactions<R: std::io::Read>(
     headers: &csv::StringRecord,
     csv_records: &mut csv::StringRecordsIter<R>,
+    output_timezone: &Tz,
 ) -> Result<Vec<Transaction>, Error> {
     let records: Vec<Record> = csv_records
         .map(|row| deserialize_row(row, headers))
@@ -67,7 +71,7 @@ fn read_transactions<R: std::io::Read>(
 
     record_groups
         .into_iter()
-        .map(|(dt, group)| form_transaction(dt, group.collect::<Vec<Record>>()))
+        .map(|(dt, group)| form_transaction(dt, group.collect::<Vec<Record>>(), output_timezone))
         .collect::<Result<Vec<Transaction>, Error>>()
 }
 
@@ -79,12 +83,39 @@ fn deserialize_row(
     de_record.try_into()
 }
 
-fn form_transaction(dt: DateTime<Tz>, records: Vec<Record>) -> Result<Transaction, Error> {
-    let trn_record = records
+fn form_transaction(
+    dt: DateTime<Tz>,
+    records: Vec<Record>,
+    output_timezone: &Tz,
+) -> Result<Transaction, Error> {
+    let date = dt.with_timezone(output_timezone).naive_local().date();
+
+    let description = records
         .iter()
-        .find(|record| !record.name.is_empty())
+        .find_map(|record| {
+            if !record.name.is_empty() {
+                Some(record.name.clone())
+            } else {
+                None
+            }
+        })
         .ok_or_else(|| ReadError::NoNameForGroup { datetime: dt })?;
 
+    Ok(Transaction {
+        description,
+        code: None,
+        comment: None,
+        date,
+        effective_date: None,
+        status: None,
+        postings: records
+            .into_iter()
+            .map(|record| form_posting(record, &date))
+            .collect::<Result<Vec<Posting>, Error>>()?,
+    })
+}
+
+fn form_posting(post: Record, date: &NaiveDate) -> Result<Posting, Error> {
     unimplemented!()
 }
 

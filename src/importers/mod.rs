@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use chrono_tz::Tz;
 use failure::Error;
 use ledger_parser::{Ledger, Transaction};
 use structopt::StructOpt;
@@ -49,10 +50,11 @@ impl NationwideCsv {
 pub struct PaypalCsv {
     #[structopt(parse(from_os_str))]
     input: PathBuf,
+    output_timezone: Tz,
 }
 
 impl PaypalCsv {
     fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
-        paypal_csv::transactions_from_path(&self.input)
+        paypal_csv::transactions_from_path(&self.input, &self.output_timezone)
     }
 }
