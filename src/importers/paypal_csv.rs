@@ -2,7 +2,7 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 use std::path::Path;
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone};
+use chrono::{DateTime, NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
 use failure::Error;
 use itertools::Itertools;
@@ -113,8 +113,8 @@ fn form_transaction(
     let mut postings = Vec::new();
     for record in records.into_iter() {
         let (p1, p2) = form_postings(record);
-        postings.insert(p1);
-        postings.insert(p2);
+        postings.push(p1);
+        postings.push(p2);
     }
 
     Ok(Transaction {
@@ -129,11 +129,12 @@ fn form_transaction(
 }
 
 fn form_postings(record: Record) -> (Posting, Posting) {
-    let mut comment = Comment::builder()
+    let self_comment = Comment::builder().build();
+    let mut peer_comment = Comment::builder()
         .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
         .build();
     if !record.name.is_empty() {
-        comment
+        peer_comment
             .value_tags
             .insert(TRANSACTION_NAME_TAG.to_string(), record.name);
     }
@@ -161,14 +162,14 @@ fn form_postings(record: Record) -> (Posting, Posting) {
             account: self_account.to_string(),
             amount: self_amount,
             balance: Some(Balance::Amount(record.balance)),
-            comment: comment.to_opt_comment(),
+            comment: self_comment.to_opt_comment(),
             status: status.clone(),
         },
         Posting {
             account: peer_account.to_string(),
             amount: peer_amount,
-            balance: Some(Balance::Amount(record.balance)),
-            comment: comment.to_opt_comment(),
+            balance: None,
+            comment: peer_comment.to_opt_comment(),
             status: status,
         },
     )
