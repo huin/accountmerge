@@ -6,7 +6,16 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
 use failure::Error;
 use itertools::Itertools;
-use ledger_parser::{Amount, Commodity, CommodityPosition, Posting, Transaction};
+use ledger_parser::{
+    Amount, Balance, Commodity, CommodityPosition, Posting, Transaction, TransactionStatus,
+};
+
+use crate::comment::Comment;
+
+/// Transaction name field, provided by PayPal.
+pub const TRANSACTION_NAME_TAG: &str = "trn_name";
+/// Transaction type field, provided by PayPal.
+pub const TRANSACTION_TYPE_TAG: &str = "trn_type";
 
 #[derive(Debug, Fail)]
 pub enum ReadError {
@@ -101,6 +110,13 @@ fn form_transaction(
         })
         .ok_or_else(|| ReadError::NoNameForGroup { datetime: dt })?;
 
+    let mut postings = Vec::new();
+    for record in records.into_iter() {
+        let (p1, p2) = form_postings(record);
+        postings.insert(p1);
+        postings.insert(p2);
+    }
+
     Ok(Transaction {
         description,
         code: None,
@@ -108,15 +124,54 @@ fn form_transaction(
         date,
         effective_date: None,
         status: None,
-        postings: records
-            .into_iter()
-            .map(|record| form_posting(record, &date))
-            .collect::<Result<Vec<Posting>, Error>>()?,
+        postings,
     })
 }
 
-fn form_posting(post: Record, date: &NaiveDate) -> Result<Posting, Error> {
-    unimplemented!()
+fn form_postings(record: Record) -> (Posting, Posting) {
+    let mut comment = Comment::builder()
+        .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
+        .build();
+    if !record.name.is_empty() {
+        comment
+            .value_tags
+            .insert(TRANSACTION_NAME_TAG.to_string(), record.name);
+    }
+
+    let self_account = "assets:paypal";
+    let peer_account = if record.amount.quantity.is_sign_negative() {
+        "expenses:unknown"
+    } else {
+        "income:unknown"
+    };
+
+    let self_amount = record.amount.clone();
+    let peer_amount = Amount {
+        commodity: record.amount.commodity.clone(),
+        quantity: -record.amount.quantity,
+    };
+
+    let status = Some(match record.status {
+        Status::Completed => TransactionStatus::Cleared,
+        Status::Pending => TransactionStatus::Pending,
+    });
+
+    (
+        Posting {
+            account: self_account.to_string(),
+            amount: self_amount,
+            balance: Some(Balance::Amount(record.balance)),
+            comment: comment.to_opt_comment(),
+            status: status.clone(),
+        },
+        Posting {
+            account: peer_account.to_string(),
+            amount: peer_amount,
+            balance: Some(Balance::Amount(record.balance)),
+            comment: comment.to_opt_comment(),
+            status: status,
+        },
+    )
 }
 
 struct Record {
