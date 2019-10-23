@@ -1,6 +1,5 @@
 use std::fmt;
 use std::fs::File;
-use std::path::Path;
 use std::path::PathBuf;
 
 use chrono::NaiveDate;
@@ -45,32 +44,28 @@ pub struct NationwideCsv {
 
 impl TransactionImporter for NationwideCsv {
     fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
-        transactions_from_path(&self.input)
+        let reader = encoding_rs_io::DecodeReaderBytesBuilder::new()
+            .encoding(Some(encoding_rs::WINDOWS_1252))
+            .build(File::open(&self.input)?);
+        let mut csv_rdr = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .flexible(true)
+            .trim(csv::Trim::All)
+            .from_reader(reader);
+        let mut csv_records = csv_rdr.records();
+
+        let acct_name: AccountName = deserialize_required_record(&mut csv_records)?
+            .ok_or(ReadError::bad_file_format("missing account name"))?;
+        check_header("Account Name:", &acct_name.header)?;
+        let balance: AccountQuantity = deserialize_required_record(&mut csv_records)?
+            .ok_or(ReadError::bad_file_format("missing account balance"))?;
+        check_header("Account Balance:", &balance.header)?;
+        let available: AccountQuantity = deserialize_required_record(&mut csv_records)?
+            .ok_or(ReadError::bad_file_format("missing available balance"))?;
+        check_header("Available Balance:", &available.header)?;
+
+        read_transactions(&acct_name.account_name, &mut csv_records)
     }
-}
-
-fn transactions_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<Transaction>, Error> {
-    let reader = encoding_rs_io::DecodeReaderBytesBuilder::new()
-        .encoding(Some(encoding_rs::WINDOWS_1252))
-        .build(File::open(path)?);
-    let mut csv_rdr = csv::ReaderBuilder::new()
-        .has_headers(false)
-        .flexible(true)
-        .trim(csv::Trim::All)
-        .from_reader(reader);
-    let mut csv_records = csv_rdr.records();
-
-    let acct_name: AccountName = deserialize_required_record(&mut csv_records)?
-        .ok_or(ReadError::bad_file_format("missing account name"))?;
-    check_header("Account Name:", &acct_name.header)?;
-    let balance: AccountQuantity = deserialize_required_record(&mut csv_records)?
-        .ok_or(ReadError::bad_file_format("missing account balance"))?;
-    check_header("Account Balance:", &balance.header)?;
-    let available: AccountQuantity = deserialize_required_record(&mut csv_records)?
-        .ok_or(ReadError::bad_file_format("missing available balance"))?;
-    check_header("Available Balance:", &available.header)?;
-
-    read_transactions(&acct_name.account_name, &mut csv_records)
 }
 
 fn read_transactions<R: std::io::Read>(
