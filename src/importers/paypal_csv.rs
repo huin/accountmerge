@@ -1,6 +1,6 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
-use std::path::Path;
+
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -8,9 +8,7 @@ use chrono::{DateTime, NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
 use failure::Error;
 use itertools::Itertools;
-use ledger_parser::{
-    Amount, Balance, Commodity, CommodityPosition, Posting, Transaction, TransactionStatus,
-};
+use ledger_parser::{Amount, Balance, Commodity, CommodityPosition, Posting, Transaction};
 use structopt::StructOpt;
 
 use crate::comment::Comment;
@@ -20,19 +18,6 @@ use crate::importers::importer::TransactionImporter;
 const TRANSACTION_NAME_TAG: &str = "trn_name";
 /// Transaction type field, provided by PayPal.
 const TRANSACTION_TYPE_TAG: &str = "trn_type";
-
-#[derive(Debug, StructOpt)]
-pub struct PaypalCsv {
-    #[structopt(parse(from_os_str))]
-    input: PathBuf,
-    output_timezone: Tz,
-}
-
-impl TransactionImporter for PaypalCsv {
-    fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
-        transactions_from_path(&self.input, &self.output_timezone)
-    }
-}
 
 #[derive(Debug, Fail)]
 enum ReadError {
@@ -68,81 +53,80 @@ impl Display for TzDisplay {
     }
 }
 
-fn transactions_from_path<P: AsRef<Path>>(
-    path: P,
-    output_timezone: &Tz,
-) -> Result<Vec<Transaction>, Error> {
-    let mut csv_rdr = csv::ReaderBuilder::new()
-        .has_headers(true)
-        .flexible(false)
-        .trim(csv::Trim::All)
-        .from_path(path)?;
-    let headers = csv_rdr.headers()?.clone();
-    let mut csv_records = csv_rdr.records();
-
-    read_transactions(&headers, &mut csv_records, output_timezone)
+#[derive(Debug, StructOpt)]
+pub struct PaypalCsv {
+    #[structopt(parse(from_os_str))]
+    input: PathBuf,
+    output_timezone: Tz,
 }
 
-// TODO: Pass in timezone as a Tz that transactions should be output in.
-fn read_transactions<R: std::io::Read>(
-    headers: &csv::StringRecord,
-    csv_records: &mut csv::StringRecordsIter<R>,
-    output_timezone: &Tz,
-) -> Result<Vec<Transaction>, Error> {
-    let records: Vec<Record> = csv_records
-        .map(|row| deserialize_row(row, headers))
-        .collect::<Result<Vec<Record>, Error>>()?;
+impl TransactionImporter for PaypalCsv {
+    fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
+        let mut csv_rdr = csv::ReaderBuilder::new()
+            .has_headers(true)
+            .flexible(false)
+            .trim(csv::Trim::All)
+            .from_path(&self.input)?;
+        let headers = csv_rdr.headers()?.clone();
+        let mut csv_records = csv_rdr.records();
 
-    let record_groups = records.into_iter().group_by(|record| record.datetime);
-
-    record_groups
-        .into_iter()
-        .map(|(dt, group)| form_transaction(dt, group.collect::<Vec<Record>>(), output_timezone))
-        .collect::<Result<Vec<Transaction>, Error>>()
+        self.read_transactions(&headers, &mut csv_records)
+    }
 }
 
-fn deserialize_row(
-    sr: csv::Result<csv::StringRecord>,
-    headers: &csv::StringRecord,
-) -> Result<Record, Error> {
-    let de_record: de::Record = sr?.deserialize(Some(headers))?;
-    de_record.try_into()
-}
+impl PaypalCsv {
+    fn read_transactions<R: std::io::Read>(
+        &self,
+        headers: &csv::StringRecord,
+        csv_records: &mut csv::StringRecordsIter<R>,
+    ) -> Result<Vec<Transaction>, Error> {
+        let records: Vec<Record> = csv_records
+            .map(|row| deserialize_row(row, headers))
+            .collect::<Result<Vec<Record>, Error>>()?;
 
-fn form_transaction(
-    dt: DateTime<Tz>,
-    records: Vec<Record>,
-    output_timezone: &Tz,
-) -> Result<Transaction, Error> {
-    let date = dt.with_timezone(output_timezone).naive_local().date();
+        let record_groups = records.into_iter().group_by(|record| record.datetime);
 
-    let description = records
-        .iter()
-        .find_map(|record| {
-            if !record.name.is_empty() {
-                Some(record.name.clone())
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| ReadError::NoNameForGroup { datetime: dt })?;
-
-    let mut postings = Vec::new();
-    for record in records.into_iter() {
-        let (p1, p2) = form_postings(record);
-        postings.push(p1);
-        postings.push(p2);
+        record_groups
+            .into_iter()
+            .map(|(dt, group)| self.form_transaction(dt, group.collect::<Vec<Record>>()))
+            .collect::<Result<Vec<Transaction>, Error>>()
     }
 
-    Ok(Transaction {
-        description,
-        code: None,
-        comment: None,
-        date,
-        effective_date: None,
-        status: None,
-        postings,
-    })
+    fn form_transaction(
+        &self,
+        dt: DateTime<Tz>,
+        records: Vec<Record>,
+    ) -> Result<Transaction, Error> {
+        let date = dt.with_timezone(&self.output_timezone).naive_local().date();
+
+        let description = records
+            .iter()
+            .find_map(|record| {
+                if !record.name.is_empty() {
+                    Some(record.name.clone())
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| ReadError::NoNameForGroup { datetime: dt })?;
+
+        let mut postings = Vec::new();
+        for record in records.into_iter() {
+            let (p1, p2) = form_postings(record);
+            postings.push(p1);
+            postings.push(p2);
+        }
+
+        Ok(Transaction {
+            description,
+            code: None,
+            comment: None,
+            date,
+            effective_date: None,
+            status: None,
+            postings,
+        })
+    }
 }
 
 fn form_postings(record: Record) -> (Posting, Posting) {
@@ -169,10 +153,7 @@ fn form_postings(record: Record) -> (Posting, Posting) {
         quantity: -record.amount.quantity,
     };
 
-    let status = Some(match record.status {
-        Status::Completed => TransactionStatus::Cleared,
-        Status::Pending => TransactionStatus::Pending,
-    });
+    let status = Some(record.status.into());
 
     (
         Posting {
@@ -196,7 +177,7 @@ struct Record {
     datetime: DateTime<Tz>,
     name: String,
     type_: String,
-    status: Status,
+    status: de::Status,
     amount: Amount,
     balance: Amount,
 }
@@ -238,10 +219,12 @@ impl TryFrom<de::Record> for Record {
     }
 }
 
-#[derive(Debug, Deserialize)]
-enum Status {
-    Completed,
-    Pending,
+fn deserialize_row(
+    sr: csv::Result<csv::StringRecord>,
+    headers: &csv::StringRecord,
+) -> Result<Record, Error> {
+    let de_record: de::Record = sr?.deserialize(Some(headers))?;
+    de_record.try_into()
 }
 
 mod de {
@@ -249,10 +232,9 @@ mod de {
 
     use chrono::{NaiveDate, NaiveTime};
     use chrono_tz::Tz;
+    use ledger_parser::TransactionStatus;
     use rust_decimal::Decimal;
     use serde::{de, Deserialize, Deserializer};
-
-    use super::Status;
 
     #[derive(Deserialize)]
     pub struct Record {
@@ -299,6 +281,22 @@ mod de {
             NaiveDate::parse_from_str(s, "%d/%m/%Y")
                 .map(Date)
                 .map_err(de::Error::custom)
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Deserialize)]
+    pub enum Status {
+        Completed,
+        Pending,
+    }
+
+    impl Into<TransactionStatus> for Status {
+        fn into(self) -> TransactionStatus {
+            use Status::*;
+            match self {
+                Completed => TransactionStatus::Cleared,
+                Pending => TransactionStatus::Pending,
+            }
         }
     }
 
