@@ -1,6 +1,7 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 use std::path::Path;
+use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
@@ -189,14 +190,14 @@ impl TryFrom<de::Record> for Record {
     fn try_from(v: de::Record) -> Result<Self, Error> {
         use chrono::LocalResult;
         let naive_datetime = chrono::NaiveDateTime::new(v.date.0, v.time.0);
-        let datetime: DateTime<Tz> = match v.time_zone.from_local_datetime(&naive_datetime) {
+        let datetime: DateTime<Tz> = match v.time_zone.0.from_local_datetime(&naive_datetime) {
             LocalResult::None => Err(ReadError::NonexistantTime {
                 datetime: naive_datetime,
-                timezone: TzDisplay(v.time_zone),
+                timezone: TzDisplay(v.time_zone.0),
             }),
             LocalResult::Ambiguous(_, _) => Err(ReadError::AmbiguousTime {
                 datetime: naive_datetime,
-                timezone: TzDisplay(v.time_zone),
+                timezone: TzDisplay(v.time_zone.0),
             }),
             LocalResult::Single(dt) => Ok(dt),
         }?;
@@ -231,6 +232,7 @@ mod de {
     use std::fmt;
 
     use chrono::{NaiveDate, NaiveTime};
+    use chrono_tz::Tz;
     use rust_decimal::Decimal;
     use serde::{de, Deserialize, Deserializer};
 
@@ -243,7 +245,7 @@ mod de {
         #[serde(rename = "Time")]
         pub time: Time,
         #[serde(rename = "Time zone")]
-        pub time_zone: chrono_tz::Tz,
+        pub time_zone: TimeZone,
         #[serde(rename = "Name")]
         pub name: String,
         #[serde(rename = "Type")]
@@ -306,5 +308,45 @@ mod de {
                 .map(Time)
                 .map_err(de::Error::custom)
         }
+    }
+
+    #[derive(Debug)]
+    pub struct TimeZone(pub Tz);
+
+    impl<'de> Deserialize<'de> for TimeZone {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            d.deserialize_str(TimeZoneVisitor)
+        }
+    }
+
+    struct TimeZoneVisitor;
+    impl<'de> de::Visitor<'de> for TimeZoneVisitor {
+        type Value = TimeZone;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a timezone name")
+        }
+
+        fn visit_str<E: de::Error>(self, s: &str) -> Result<Self::Value, E> {
+            super::parse_timezone(s)
+                .map(TimeZone)
+                .map_err(de::Error::custom)
+        }
+    }
+}
+
+pub fn parse_timezone(s: &str) -> Result<Tz, String> {
+    if let Some(tz) = parse_timezone_abbr(s) {
+        return Ok(tz);
+    }
+    <Tz as FromStr>::from_str(s)
+}
+
+fn parse_timezone_abbr(s: &str) -> Option<Tz> {
+    use Tz::*;
+    // TODO: Need a better database of timezone abbreviations.
+    match s {
+        "BST" => Some(Etc__GMTPlus1),
+        _ => None,
     }
 }
