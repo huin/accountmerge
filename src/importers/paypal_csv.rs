@@ -1,6 +1,7 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 use std::path::Path;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDateTime, TimeZone};
@@ -10,16 +11,31 @@ use itertools::Itertools;
 use ledger_parser::{
     Amount, Balance, Commodity, CommodityPosition, Posting, Transaction, TransactionStatus,
 };
+use structopt::StructOpt;
 
 use crate::comment::Comment;
+use crate::importers::importer::TransactionImporter;
 
 /// Transaction name field, provided by PayPal.
-pub const TRANSACTION_NAME_TAG: &str = "trn_name";
+const TRANSACTION_NAME_TAG: &str = "trn_name";
 /// Transaction type field, provided by PayPal.
-pub const TRANSACTION_TYPE_TAG: &str = "trn_type";
+const TRANSACTION_TYPE_TAG: &str = "trn_type";
+
+#[derive(Debug, StructOpt)]
+pub struct PaypalCsv {
+    #[structopt(parse(from_os_str))]
+    input: PathBuf,
+    output_timezone: Tz,
+}
+
+impl TransactionImporter for PaypalCsv {
+    fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
+        transactions_from_path(&self.input, &self.output_timezone)
+    }
+}
 
 #[derive(Debug, Fail)]
-pub enum ReadError {
+enum ReadError {
     #[fail(
         display = "ambiguous combination of date time {} and timezone: {}",
         datetime, timezone
@@ -44,7 +60,7 @@ pub enum ReadError {
 }
 
 #[derive(Debug)]
-pub struct TzDisplay(pub Tz);
+struct TzDisplay(pub Tz);
 
 impl Display for TzDisplay {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
@@ -52,7 +68,7 @@ impl Display for TzDisplay {
     }
 }
 
-pub fn transactions_from_path<P: AsRef<Path>>(
+fn transactions_from_path<P: AsRef<Path>>(
     path: P,
     output_timezone: &Tz,
 ) -> Result<Vec<Transaction>, Error> {
@@ -223,7 +239,7 @@ impl TryFrom<de::Record> for Record {
 }
 
 #[derive(Debug, Deserialize)]
-pub enum Status {
+enum Status {
     Completed,
     Pending,
 }
@@ -335,7 +351,7 @@ mod de {
     }
 }
 
-pub fn parse_timezone(s: &str) -> Result<Tz, String> {
+fn parse_timezone(s: &str) -> Result<Tz, String> {
     if let Some(tz) = parse_timezone_abbr(s) {
         return Ok(tz);
     }

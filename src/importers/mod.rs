@@ -1,8 +1,5 @@
-use std::path::PathBuf;
-
-use chrono_tz::Tz;
 use failure::Error;
-use ledger_parser::{Ledger, Transaction};
+use ledger_parser::Ledger;
 use structopt::StructOpt;
 
 mod importer;
@@ -15,9 +12,9 @@ use importer::TransactionImporter;
 #[derive(Debug, StructOpt)]
 pub enum Importer {
     #[structopt(name = "nationwide-csv")]
-    NationwideCsv(NationwideCsv),
+    NationwideCsv(nationwide_csv::NationwideCsv),
     #[structopt(name = "paypal-csv")]
-    PaypalCsv(PaypalCsv),
+    PaypalCsv(paypal_csv::PaypalCsv),
 }
 
 impl Importer {
@@ -35,30 +32,5 @@ impl Importer {
             NationwideCsv(imp) => imp,
             PaypalCsv(imp) => imp,
         }
-    }
-}
-
-#[derive(Debug, StructOpt)]
-pub struct NationwideCsv {
-    #[structopt(parse(from_os_str))]
-    input: PathBuf,
-}
-
-impl TransactionImporter for NationwideCsv {
-    fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
-        nationwide_csv::transactions_from_path(&self.input)
-    }
-}
-
-#[derive(Debug, StructOpt)]
-pub struct PaypalCsv {
-    #[structopt(parse(from_os_str))]
-    input: PathBuf,
-    output_timezone: Tz,
-}
-
-impl TransactionImporter for PaypalCsv {
-    fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
-        paypal_csv::transactions_from_path(&self.input, &self.output_timezone)
     }
 }

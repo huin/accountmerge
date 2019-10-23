@@ -1,6 +1,7 @@
 use std::fmt;
 use std::fs::File;
 use std::path::Path;
+use std::path::PathBuf;
 
 use chrono::NaiveDate;
 use failure::Error;
@@ -8,10 +9,12 @@ use ledger_parser::{Amount, Balance, Commodity, CommodityPosition, Posting, Tran
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::{de, Deserialize, Deserializer};
+use structopt::StructOpt;
 
 use crate::accounts::{EXPENSES_UNKNOWN, INCOME_UNKNOWN};
 use crate::comment::Comment;
 use crate::fingerprint::{FingerprintBuilder, Fingerprintable};
+use crate::importers::importer::TransactionImporter;
 use crate::importers::util::csv::{
     check_header, deserialize_captured_number, deserialize_required_record, ReadError,
 };
@@ -34,7 +37,19 @@ struct AccountQuantity {
     amount: DeGbpValue,
 }
 
-pub fn transactions_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<Transaction>, Error> {
+#[derive(Debug, StructOpt)]
+pub struct NationwideCsv {
+    #[structopt(parse(from_os_str))]
+    input: PathBuf,
+}
+
+impl TransactionImporter for NationwideCsv {
+    fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
+        transactions_from_path(&self.input)
+    }
+}
+
+fn transactions_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<Transaction>, Error> {
     let reader = encoding_rs_io::DecodeReaderBytesBuilder::new()
         .encoding(Some(encoding_rs::WINDOWS_1252))
         .build(File::open(path)?);
