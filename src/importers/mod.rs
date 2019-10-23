@@ -5,9 +5,12 @@ use failure::Error;
 use ledger_parser::{Ledger, Transaction};
 use structopt::StructOpt;
 
+mod importer;
 mod nationwide_csv;
 mod paypal_csv;
 mod util;
+
+use importer::TransactionImporter;
 
 #[derive(Debug, StructOpt)]
 pub enum Importer {
@@ -19,17 +22,18 @@ pub enum Importer {
 
 impl Importer {
     pub fn do_import(&self) -> Result<Ledger, Error> {
+        let transactions = self.get_importer().get_transactions()?;
         Ok(Ledger {
-            transactions: self.get_transactions()?,
+            transactions,
             commodity_prices: Default::default(),
         })
     }
 
-    fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
+    fn get_importer(&self) -> &dyn TransactionImporter {
         use Importer::*;
         match self {
-            NationwideCsv(imp) => imp.get_transactions(),
-            PaypalCsv(imp) => imp.get_transactions(),
+            NationwideCsv(imp) => imp,
+            PaypalCsv(imp) => imp,
         }
     }
 }
@@ -40,7 +44,7 @@ pub struct NationwideCsv {
     input: PathBuf,
 }
 
-impl NationwideCsv {
+impl TransactionImporter for NationwideCsv {
     fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
         nationwide_csv::transactions_from_path(&self.input)
     }
@@ -53,7 +57,7 @@ pub struct PaypalCsv {
     output_timezone: Tz,
 }
 
-impl PaypalCsv {
+impl TransactionImporter for PaypalCsv {
     fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
         paypal_csv::transactions_from_path(&self.input, &self.output_timezone)
     }
