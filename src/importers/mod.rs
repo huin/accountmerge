@@ -12,8 +12,11 @@ use importer::TransactionImporter;
 #[derive(Debug, StructOpt)]
 pub enum Importer {
     #[structopt(name = "nationwide-csv")]
+    /// Converts from Nationwide (nationwide.co.uk) CSV format to Ledger
+    /// transactions.
     NationwideCsv(nationwide_csv::NationwideCsv),
     #[structopt(name = "paypal-csv")]
+    /// Converts from PayPal CSV format to Ledger transactions.
     PaypalCsv(paypal_csv::PaypalCsv),
 }
 

@@ -52,6 +52,7 @@ enum CommandError {
 }
 
 #[derive(Debug, StructOpt)]
+/// Utilities for working with Ledger journals.
 struct Command {
     #[structopt(subcommand)]
     subcmd: SubCommand,
@@ -60,10 +61,14 @@ struct Command {
 #[derive(Debug, StructOpt)]
 enum SubCommand {
     #[structopt(name = "apply-rules")]
+    /// Applies a rules file to an input file and dumps the results to stdout,
     ApplyRules(ApplyRules),
     #[structopt(name = "import")]
+    /// Reads financial transaction data from a given source, converts them to
+    /// Ledger transactions, and dumps them to stdout.
     Import(Import),
     #[structopt(name = "merge")]
+    /// Merges multiple Ledger journals together.
     Merge(Merge),
 }
 
@@ -80,8 +85,10 @@ fn main() -> Result<(), Error> {
 #[derive(Debug, StructOpt)]
 struct ApplyRules {
     #[structopt(short = "r", long = "rules")]
+    /// The file to read the rules from.
     rules: PathBuf,
     #[structopt(parse(from_os_str))]
+    /// The Ledger journal to read.
     input_journal: PathBuf,
 }
 
@@ -98,6 +105,7 @@ fn do_apply_rules(apply_rules: &ApplyRules) -> Result<(), Error> {
 #[derive(Debug, StructOpt)]
 struct Import {
     #[structopt(subcommand)]
+    /// The importer type to use to read transactions.
     importer: importers::Importer,
 }
 
@@ -112,6 +120,7 @@ impl Import {
 #[derive(Debug, StructOpt)]
 struct Merge {
     #[structopt(parse(from_os_str))]
+    /// The Ledger journals to read from.
     inputs: Vec<PathBuf>,
 }
 

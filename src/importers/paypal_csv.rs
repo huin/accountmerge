@@ -56,11 +56,16 @@ impl Display for TzDisplay {
 }
 
 #[derive(Debug, StructOpt)]
+/// Converts from PayPal CSV format to Ledger transactions.
 pub struct PaypalCsv {
     #[structopt(parse(from_os_str))]
+    /// PayPal CSV file to read from.
     input: PathBuf,
+    /// Timezone of the output Ledger transactions.
+    #[structopt(long = "output-timezone")]
     output_timezone: Tz,
     #[structopt(long = "fingerprint-key", default_value = "paypal")]
+    /// The key portion of the fingerprints to generate.
     fingerprint_key: String,
 }
 

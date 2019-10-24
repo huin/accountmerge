@@ -37,8 +37,11 @@ struct AccountQuantity {
 }
 
 #[derive(Debug, StructOpt)]
+/// Converts from Nationwide (nationwide.co.uk) CSV format to Ledger
+/// transactions.
 pub struct NationwideCsv {
     #[structopt(parse(from_os_str))]
+    /// Nationwide CSV file to read from.
     input: PathBuf,
 }
 
