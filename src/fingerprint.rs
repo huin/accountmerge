@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 
 use byteorder::{BigEndian, ByteOrder};
-use chrono::{Datelike, NaiveDate};
+use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 use ledger_parser::Amount;
 use sha1::{Digest, Sha1};
 
@@ -61,6 +61,16 @@ impl FingerprintBuilder {
             .with_i32(v.year())
             .with_u32(v.month() as u32)
             .with_u32(v.day() as u32)
+            .as_fingerprint_builder()
+    }
+
+    pub fn with_naive_time(self, v: &NaiveTime) -> Self {
+        self.acc
+            .with_usize(4 * 4)
+            .with_u32(v.hour())
+            .with_u32(v.minute())
+            .with_u32(v.second())
+            .with_u32(v.nanosecond())
             .as_fingerprint_builder()
     }
 

@@ -1,6 +1,5 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
-
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -12,6 +11,7 @@ use ledger_parser::{Amount, Balance, Commodity, CommodityPosition, Posting, Tran
 use structopt::StructOpt;
 
 use crate::comment::Comment;
+use crate::fingerprint::FingerprintBuilder;
 use crate::importers::importer::TransactionImporter;
 
 /// Transaction name field, provided by PayPal.
@@ -42,6 +42,8 @@ enum ReadError {
         datetime
     )]
     NoNameForGroup { datetime: DateTime<Tz> },
+    #[fail(display = "unknown timezone {:?}", timezone)]
+    UnknownTimezone { timezone: String },
 }
 
 #[derive(Debug)]
@@ -58,6 +60,8 @@ pub struct PaypalCsv {
     #[structopt(parse(from_os_str))]
     input: PathBuf,
     output_timezone: Tz,
+    #[structopt(long = "fingerprint-key", default_value = "paypal")]
+    fingerprint_key: String,
 }
 
 impl TransactionImporter for PaypalCsv {
@@ -86,9 +90,15 @@ impl PaypalCsv {
 
         let record_groups = records.into_iter().group_by(|record| record.datetime);
 
+        let fp_key = format!(
+            "{}{}",
+            crate::tags::FINGERPRINT_TAG_PREFIX,
+            self.fingerprint_key
+        );
+
         record_groups
             .into_iter()
-            .map(|(dt, group)| self.form_transaction(dt, group.collect::<Vec<Record>>()))
+            .map(|(dt, group)| self.form_transaction(dt, group.collect::<Vec<Record>>(), &fp_key))
             .collect::<Result<Vec<Transaction>, Error>>()
     }
 
@@ -96,6 +106,7 @@ impl PaypalCsv {
         &self,
         dt: DateTime<Tz>,
         records: Vec<Record>,
+        fp_key: &str,
     ) -> Result<Transaction, Error> {
         let date = dt.with_timezone(&self.output_timezone).naive_local().date();
 
@@ -112,7 +123,7 @@ impl PaypalCsv {
 
         let mut postings = Vec::new();
         for record in records.into_iter() {
-            let (p1, p2) = form_postings(record);
+            let (p1, p2) = form_postings(record, fp_key);
             postings.push(p1);
             postings.push(p2);
         }
@@ -129,9 +140,12 @@ impl PaypalCsv {
     }
 }
 
-fn form_postings(record: Record) -> (Posting, Posting) {
-    let self_comment = Comment::builder().build();
+fn form_postings(record: Record, fp_key: &str) -> (Posting, Posting) {
+    let self_comment = Comment::builder()
+        .with_value_tag(fp_key, record.partial_fp.clone().with_str("self").build())
+        .build();
     let mut peer_comment = Comment::builder()
+        .with_value_tag(fp_key, record.partial_fp.with_str("peer").build())
         .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
         .build();
     if !record.name.is_empty() {
@@ -180,41 +194,59 @@ struct Record {
     status: de::Status,
     amount: Amount,
     balance: Amount,
+    partial_fp: FingerprintBuilder,
 }
 
 impl TryFrom<de::Record> for Record {
     type Error = Error;
     fn try_from(v: de::Record) -> Result<Self, Error> {
-        use chrono::LocalResult;
-        let naive_datetime = chrono::NaiveDateTime::new(v.date.0, v.time.0);
-        let datetime: DateTime<Tz> = match v.time_zone.0.from_local_datetime(&naive_datetime) {
-            LocalResult::None => Err(ReadError::NonexistantTime {
-                datetime: naive_datetime,
-                timezone: TzDisplay(v.time_zone.0),
-            }),
-            LocalResult::Ambiguous(_, _) => Err(ReadError::AmbiguousTime {
-                datetime: naive_datetime,
-                timezone: TzDisplay(v.time_zone.0),
-            }),
-            LocalResult::Single(dt) => Ok(dt),
-        }?;
         let commodity = Commodity {
             name: v.currency,
             position: CommodityPosition::Left,
         };
+        let amount = Amount {
+            quantity: v.amount,
+            commodity: commodity.clone(),
+        };
+        let balance = Amount {
+            quantity: v.balance,
+            commodity: commodity,
+        };
+        let partial_fp = FingerprintBuilder::new()
+            .with_naive_date(&v.date.0)
+            .with_naive_time(&v.time.0)
+            .with_str(&v.time_zone)
+            .with_str(&v.name)
+            .with_str(&v.type_)
+            // Deliberately not including `v.status`, as this may change on a
+            // future import.
+            .with_amount(&amount)
+            .with_amount(&balance);
+
+        let naive_datetime = chrono::NaiveDateTime::new(v.date.0, v.time.0);
+
+        let tz = parse_timezone(&v.time_zone)?;
+
+        use chrono::LocalResult;
+        let datetime: DateTime<Tz> = match tz.from_local_datetime(&naive_datetime) {
+            LocalResult::None => Err(ReadError::NonexistantTime {
+                datetime: naive_datetime,
+                timezone: TzDisplay(tz),
+            }),
+            LocalResult::Ambiguous(_, _) => Err(ReadError::AmbiguousTime {
+                datetime: naive_datetime,
+                timezone: TzDisplay(tz),
+            }),
+            LocalResult::Single(dt) => Ok(dt),
+        }?;
         Ok(Self {
             datetime,
             name: v.name,
             type_: v.type_,
             status: v.status,
-            amount: Amount {
-                quantity: v.amount,
-                commodity: commodity.clone(),
-            },
-            balance: Amount {
-                quantity: v.balance,
-                commodity,
-            },
+            amount,
+            balance,
+            partial_fp,
         })
     }
 }
@@ -231,7 +263,7 @@ mod de {
     use std::fmt;
 
     use chrono::{NaiveDate, NaiveTime};
-    use chrono_tz::Tz;
+
     use ledger_parser::TransactionStatus;
     use rust_decimal::Decimal;
     use serde::{de, Deserialize, Deserializer};
@@ -243,7 +275,7 @@ mod de {
         #[serde(rename = "Time")]
         pub time: Time,
         #[serde(rename = "Time zone")]
-        pub time_zone: TimeZone,
+        pub time_zone: String,
         #[serde(rename = "Name")]
         pub name: String,
         #[serde(rename = "Type")]
@@ -323,37 +355,18 @@ mod de {
                 .map_err(de::Error::custom)
         }
     }
-
-    #[derive(Debug)]
-    pub struct TimeZone(pub Tz);
-
-    impl<'de> Deserialize<'de> for TimeZone {
-        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-            d.deserialize_str(TimeZoneVisitor)
-        }
-    }
-
-    struct TimeZoneVisitor;
-    impl<'de> de::Visitor<'de> for TimeZoneVisitor {
-        type Value = TimeZone;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("a timezone name")
-        }
-
-        fn visit_str<E: de::Error>(self, s: &str) -> Result<Self::Value, E> {
-            super::parse_timezone(s)
-                .map(TimeZone)
-                .map_err(de::Error::custom)
-        }
-    }
 }
 
-fn parse_timezone(s: &str) -> Result<Tz, String> {
+fn parse_timezone(s: &str) -> Result<Tz, Error> {
     if let Some(tz) = parse_timezone_abbr(s) {
         return Ok(tz);
     }
-    <Tz as FromStr>::from_str(s)
+    <Tz as FromStr>::from_str(s).map_err(|_| {
+        ReadError::UnknownTimezone {
+            timezone: s.to_string(),
+        }
+        .into()
+    })
 }
 
 fn parse_timezone_abbr(s: &str) -> Option<Tz> {
