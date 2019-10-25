@@ -12,13 +12,13 @@ use structopt::StructOpt;
 
 use crate::accounts::ASSETS_UNKNOWN;
 use crate::comment::Comment;
-use crate::fingerprint::{FingerprintBuilder, Fingerprintable};
+use crate::fingerprint::{make_prefix, FingerprintBuilder, Fingerprintable};
 use crate::importers::importer::TransactionImporter;
 use crate::importers::util::csv::{
     check_header, deserialize_captured_number, deserialize_required_record, ReadError,
 };
 use crate::importers::util::{negate_amount, self_and_peer_account_amount};
-use crate::tags::{ACCOUNT_TAG, BANK_TAG, FINGERPRINT_TAG_PREFIX, UNKNOWN_ACCOUNT_TAG};
+use crate::tags::{ACCOUNT_TAG, BANK_TAG, UNKNOWN_ACCOUNT_TAG};
 
 /// Transaction type field, provided by the bank.
 pub const TRANSACTION_TYPE_TAG: &str = "trn_type";
@@ -88,10 +88,12 @@ fn read_transactions<R: std::io::Read>(
     check_header("Paid in", &headers[4])?;
     check_header("Balance", &headers[5])?;
 
-    let fp_key = FingerprintBuilder::new()
-        .with_str(BANK_NAME)
-        .with_str(&account_name)
-        .build_with_prefix(FINGERPRINT_TAG_PREFIX);
+    let fp_prefix = make_prefix(
+        &FingerprintBuilder::new()
+            .with_str(BANK_NAME)
+            .with_str(&account_name)
+            .build(),
+    );
 
     let mut transactions = Vec::new();
 
@@ -134,12 +136,12 @@ fn read_transactions<R: std::io::Read>(
             .clone()
             .with_str(&halves.self_.account)
             .with_amount(&halves.self_.amount)
-            .build();
+            .build_with_prefix(&fp_prefix);
 
         let peer_fingerprint = record_fpb
             .with_str(&halves.peer.account)
             .with_amount(&halves.peer.amount)
-            .build();
+            .build_with_prefix(&fp_prefix);
 
         let mut self_comment = Comment::builder()
             .with_tag(UNKNOWN_ACCOUNT_TAG)
@@ -150,13 +152,8 @@ fn read_transactions<R: std::io::Read>(
 
         let mut peer_comment = self_comment.clone();
 
-        self_comment
-            .value_tags
-            .insert(fp_key.clone(), self_fingerprint);
-
-        peer_comment
-            .value_tags
-            .insert(fp_key.clone(), peer_fingerprint);
+        self_comment.tags.insert(self_fingerprint);
+        peer_comment.tags.insert(peer_fingerprint);
 
         transactions.push(Transaction {
             date: record.date.0,

@@ -12,7 +12,7 @@ use structopt::StructOpt;
 
 use crate::accounts::ASSETS_UNKNOWN;
 use crate::comment::Comment;
-use crate::fingerprint::FingerprintBuilder;
+use crate::fingerprint::{make_prefix, FingerprintBuilder};
 use crate::importers::importer::TransactionImporter;
 use crate::importers::util::self_and_peer_account_amount;
 
@@ -66,9 +66,10 @@ pub struct PaypalCsv {
     /// Timezone of the output Ledger transactions.
     #[structopt(long = "output-timezone")]
     output_timezone: Tz,
-    #[structopt(long = "fingerprint-key", default_value = "paypal")]
-    /// The key portion of the fingerprints to generate.
-    fingerprint_key: String,
+    #[structopt(long = "fingerprint-prefix", default_value = "paypal")]
+    /// The prefix of the fingerprints to generate (without "fp-" that will be
+    /// prefixed to this value).
+    fp_prefix: String,
 }
 
 impl TransactionImporter for PaypalCsv {
@@ -97,15 +98,13 @@ impl PaypalCsv {
 
         let record_groups = records.into_iter().group_by(|record| record.datetime);
 
-        let fp_key = format!(
-            "{}{}",
-            crate::tags::FINGERPRINT_TAG_PREFIX,
-            self.fingerprint_key
-        );
+        let fp_prefix = make_prefix(&self.fp_prefix);
 
         record_groups
             .into_iter()
-            .map(|(dt, group)| self.form_transaction(dt, group.collect::<Vec<Record>>(), &fp_key))
+            .map(|(dt, group)| {
+                self.form_transaction(dt, group.collect::<Vec<Record>>(), &fp_prefix)
+            })
             .collect::<Result<Vec<Transaction>, Error>>()
     }
 
@@ -113,7 +112,7 @@ impl PaypalCsv {
         &self,
         dt: DateTime<Tz>,
         records: Vec<Record>,
-        fp_key: &str,
+        fp_prefix: &str,
     ) -> Result<Transaction, Error> {
         let date = dt.with_timezone(&self.output_timezone).naive_local().date();
 
@@ -130,7 +129,7 @@ impl PaypalCsv {
 
         let mut postings = Vec::new();
         for record in records.into_iter() {
-            let (p1, p2) = form_postings(record, fp_key);
+            let (p1, p2) = form_postings(record, fp_prefix);
             postings.push(p1);
             postings.push(p2);
         }
@@ -147,12 +146,23 @@ impl PaypalCsv {
     }
 }
 
-fn form_postings(record: Record, fp_key: &str) -> (Posting, Posting) {
+fn form_postings(record: Record, fp_prefix: &str) -> (Posting, Posting) {
     let self_comment = Comment::builder()
-        .with_value_tag(fp_key, record.partial_fp.clone().with_str("self").build())
+        .with_tag(
+            record
+                .partial_fp
+                .clone()
+                .with_str("self")
+                .build_with_prefix(fp_prefix),
+        )
         .build();
     let mut peer_comment = Comment::builder()
-        .with_value_tag(fp_key, record.partial_fp.with_str("peer").build())
+        .with_tag(
+            record
+                .partial_fp
+                .with_str("peer")
+                .build_with_prefix(fp_prefix),
+        )
         .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
         .build();
     if !record.name.is_empty() {

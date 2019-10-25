@@ -5,6 +5,12 @@ use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 use ledger_parser::Amount;
 use sha1::{Digest, Sha1};
 
+use crate::tags::FINGERPRINT_TAG_PREFIX;
+
+pub fn make_prefix(value: &str) -> String {
+    format!("{}{}-", FINGERPRINT_TAG_PREFIX, value)
+}
+
 pub trait Fingerprintable {
     fn fingerprint(&self, fpb: FingerprintBuilder) -> FingerprintBuilder;
 }
@@ -23,7 +29,7 @@ impl FingerprintBuilder {
     }
 
     pub fn build(self) -> String {
-        self.build_with_prefix("")
+        self.acc.build_with_prefix("")
     }
 
     pub fn build_with_prefix(self, prefix: &str) -> String {

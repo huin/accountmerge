@@ -235,8 +235,8 @@ impl Merger {
 /// `Ok(None)` if there are no fingerprint tags at all.
 fn fingerprint_key_from_comment(comment: &Comment) -> Result<Option<String>, Error> {
     let mut key: Option<String> = None;
-    for (n, v) in &comment.value_tags {
-        match (key.is_some(), fingerprint_key_from_tag(n, v)) {
+    for t in &comment.tags {
+        match (key.is_some(), fingerprint_key_from_tag(t)) {
             (true, Some(_)) => {
                 // Found a second key => error.
                 return Err(MergeError::InputPostingHasMultipleFingerprints {
@@ -254,13 +254,13 @@ fn fingerprint_key_from_comment(comment: &Comment) -> Result<Option<String>, Err
     Ok(key)
 }
 
-/// Creates a key for a `HashMap` given a fingerprint `name` and `value`.
-/// Returns `None` if `name` is not a fingerprint name.
-fn fingerprint_key_from_tag(name: &str, value: &str) -> Option<String> {
-    if !name.starts_with(FINGERPRINT_TAG_PREFIX) {
+/// Creates a key for a `HashMap` given a fingerprint `tag`.
+/// Returns `None` if `tag` is not a fingerprint tag.
+fn fingerprint_key_from_tag(tag: &str) -> Option<String> {
+    if !tag.starts_with(FINGERPRINT_TAG_PREFIX) {
         None
     } else {
-        Some(format!("{}:{}", name, value))
+        Some(tag.to_string())
     }
 }
 
