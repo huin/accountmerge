@@ -10,13 +10,14 @@ use rust_decimal::Decimal;
 use serde::{de, Deserialize, Deserializer};
 use structopt::StructOpt;
 
-use crate::accounts::{EXPENSES_UNKNOWN, INCOME_UNKNOWN};
+use crate::accounts::ASSETS_UNKNOWN;
 use crate::comment::Comment;
 use crate::fingerprint::{FingerprintBuilder, Fingerprintable};
 use crate::importers::importer::TransactionImporter;
 use crate::importers::util::csv::{
     check_header, deserialize_captured_number, deserialize_required_record, ReadError,
 };
+use crate::importers::util::{negate_amount, self_and_peer_account_amount};
 use crate::tags::{ACCOUNT_TAG, BANK_TAG, FINGERPRINT_TAG_PREFIX, UNKNOWN_ACCOUNT_TAG};
 
 /// Transaction type field, provided by the bank.
@@ -114,15 +115,11 @@ fn read_transactions<R: std::io::Read>(
             .with_fingerprintable(&record)
             .with_i32(date_counter);
 
-        let self_account = "assets:unknown".to_string();
-        let (peer_account, self_amt, peer_amt) = match (record.paid_in, record.paid_out) {
+        let self_amount: Amount = match (record.paid_in, record.paid_out) {
             // Paid in only.
-            (Some(DeGbpValue(amt)), None) => {
-                let peer_amt = neg_amount(&amt);
-                (INCOME_UNKNOWN, amt, peer_amt)
-            }
+            (Some(DeGbpValue(amt)), None) => amt,
             // Paid out only.
-            (None, Some(DeGbpValue(amt))) => (EXPENSES_UNKNOWN, neg_amount(&amt), amt),
+            (None, Some(DeGbpValue(amt))) => negate_amount(amt),
             // Paid in and out or neither - both are errors.
             _ => {
                 return Err(
@@ -131,15 +128,17 @@ fn read_transactions<R: std::io::Read>(
             }
         };
 
+        let halves = self_and_peer_account_amount(self_amount, ASSETS_UNKNOWN.to_string());
+
         let self_fingerprint = record_fpb
             .clone()
-            .with_str(&self_account)
-            .with_amount(&self_amt)
+            .with_str(&halves.self_.account)
+            .with_amount(&halves.self_.amount)
             .build();
 
         let peer_fingerprint = record_fpb
-            .with_str(&peer_account)
-            .with_amount(&peer_amt)
+            .with_str(&halves.peer.account)
+            .with_amount(&halves.peer.amount)
             .build();
 
         let mut self_comment = Comment::builder()
@@ -168,15 +167,15 @@ fn read_transactions<R: std::io::Read>(
             effective_date: None,
             postings: vec![
                 Posting {
-                    account: self_account,
-                    amount: self_amt,
+                    account: halves.self_.account,
+                    amount: halves.self_.amount,
                     balance: Some(Balance::Amount(record.balance.0)),
                     comment: self_comment.to_opt_comment(),
                     status: None,
                 },
                 Posting {
-                    account: peer_account.to_string(),
-                    amount: peer_amt,
+                    account: halves.peer.account,
+                    amount: halves.peer.amount,
                     balance: None,
                     comment: peer_comment.to_opt_comment(),
                     status: None,
@@ -186,13 +185,6 @@ fn read_transactions<R: std::io::Read>(
     }
 
     Ok(transactions)
-}
-
-fn neg_amount(amt: &Amount) -> Amount {
-    Amount {
-        quantity: -amt.quantity,
-        commodity: amt.commodity.clone(),
-    }
 }
 
 #[derive(Debug, Deserialize)]

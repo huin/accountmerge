@@ -10,9 +10,11 @@ use itertools::Itertools;
 use ledger_parser::{Amount, Balance, Commodity, CommodityPosition, Posting, Transaction};
 use structopt::StructOpt;
 
+use crate::accounts::ASSETS_UNKNOWN;
 use crate::comment::Comment;
 use crate::fingerprint::FingerprintBuilder;
 use crate::importers::importer::TransactionImporter;
+use crate::importers::util::self_and_peer_account_amount;
 
 /// Transaction name field, provided by PayPal.
 const TRANSACTION_NAME_TAG: &str = "trn_name";
@@ -159,32 +161,21 @@ fn form_postings(record: Record, fp_key: &str) -> (Posting, Posting) {
             .insert(TRANSACTION_NAME_TAG.to_string(), record.name);
     }
 
-    let self_account = "assets:paypal";
-    let peer_account = if record.amount.quantity.is_sign_negative() {
-        "expenses:unknown"
-    } else {
-        "income:unknown"
-    };
-
-    let self_amount = record.amount.clone();
-    let peer_amount = Amount {
-        commodity: record.amount.commodity.clone(),
-        quantity: -record.amount.quantity,
-    };
+    let halves = self_and_peer_account_amount(record.amount, ASSETS_UNKNOWN.to_string());
 
     let status = Some(record.status.into());
 
     (
         Posting {
-            account: self_account.to_string(),
-            amount: self_amount,
+            account: halves.self_.account,
+            amount: halves.self_.amount,
             balance: Some(Balance::Amount(record.balance)),
             comment: self_comment.to_opt_comment(),
             status: status.clone(),
         },
         Posting {
-            account: peer_account.to_string(),
-            amount: peer_amount,
+            account: halves.peer.account,
+            amount: halves.peer.amount,
             balance: None,
             comment: peer_comment.to_opt_comment(),
             status: status,
