@@ -10,6 +10,8 @@ pub enum ReadError {
     BadFileFormat { reason: &'static str },
     #[fail(display = "bad header record, want {:?}, got {:?}", want, got)]
     BadHeaderRecord { want: &'static str, got: String },
+    #[fail(display = "invalid value for flag {}: {:?}", flag, value)]
+    BadFlagValue { flag: &'static str, value: String },
 }
 
 impl ReadError {

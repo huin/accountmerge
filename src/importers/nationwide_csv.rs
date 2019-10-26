@@ -1,6 +1,7 @@
 use std::fmt;
 use std::fs::File;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use chrono::NaiveDate;
 use failure::Error;
@@ -44,6 +45,51 @@ pub struct NationwideCsv {
     #[structopt(parse(from_os_str))]
     /// Nationwide CSV file to read from.
     input: PathBuf,
+    #[structopt(long = "fingerprint-prefix", default_value = "generated")]
+    /// The prefix of the fingerprints to generate (without "fp-" that will be
+    /// prefixed to this value). "generated" generates a hashed value from the
+    /// account name in the CSV file. "fixed:<prefix>" uses the given fixed
+    /// prefix.
+    fp_prefix: FpPrefix,
+}
+
+#[derive(Debug)]
+enum FpPrefix {
+    Fixed(String),
+    Generated,
+}
+
+impl FpPrefix {
+    fn to_prefix(&self, account_name: &str) -> String {
+        use FpPrefix::*;
+
+        match self {
+            Fixed(s) => s.clone(),
+            Generated => FingerprintBuilder::new()
+                .with_str(BANK_NAME)
+                .with_str(account_name)
+                .build(),
+        }
+    }
+}
+
+const FIXED_PREFIX: &str = "fixed:";
+
+impl FromStr for FpPrefix {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Error> {
+        use FpPrefix::*;
+
+        match s {
+            "generated" => Ok(Generated),
+            s if s.starts_with(FIXED_PREFIX) => Ok(Fixed(s[FIXED_PREFIX.len()..].to_string())),
+            _ => Err(ReadError::BadFlagValue {
+                flag: "fingerprint-prefix",
+                value: s.to_string(),
+            }
+            .into()),
+        }
+    }
 }
 
 impl TransactionImporter for NationwideCsv {
@@ -68,13 +114,16 @@ impl TransactionImporter for NationwideCsv {
             .ok_or(ReadError::bad_file_format("missing available balance"))?;
         check_header("Available Balance:", &available.header)?;
 
-        read_transactions(&acct_name.account_name, &mut csv_records)
+        let fp_prefix = make_prefix(&self.fp_prefix.to_prefix(&acct_name.account_name));
+
+        read_transactions(&mut csv_records, &fp_prefix, &acct_name.account_name)
     }
 }
 
 fn read_transactions<R: std::io::Read>(
-    account_name: &str,
     csv_records: &mut csv::StringRecordsIter<R>,
+    fp_prefix: &str,
+    account_name: &str,
 ) -> Result<Vec<Transaction>, Error> {
     let headers: Vec<String> = deserialize_required_record(csv_records)?
         .ok_or(ReadError::bad_file_format("missing transaction headers"))?;
@@ -87,13 +136,6 @@ fn read_transactions<R: std::io::Read>(
     check_header("Paid out", &headers[3])?;
     check_header("Paid in", &headers[4])?;
     check_header("Balance", &headers[5])?;
-
-    let fp_prefix = make_prefix(
-        &FingerprintBuilder::new()
-            .with_str(BANK_NAME)
-            .with_str(&account_name)
-            .build(),
-    );
 
     let mut transactions = Vec::new();
 
