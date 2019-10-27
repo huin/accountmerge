@@ -42,14 +42,18 @@ pub struct NationwideCsv {
     input: PathBuf,
     #[structopt(long = "fingerprint-prefix", default_value = "generated")]
     /// The prefix of the fingerprints to generate (without "fp-" that will be
-    /// prefixed to this value). "generated" generates a hashed value from the
-    /// account name in the CSV file. "fixed:<prefix>" uses the given fixed
-    /// prefix.
+    /// prefixed to this value).
+    ///
+    /// * "account-name" uses the account name from the CSV file.
+    /// * "generated" generates a hashed value based on the account name in the
+    ///    CSV file.
+    /// * "fixed:<prefix>" uses the given fixed prefix.
     fp_prefix: FpPrefix,
 }
 
 #[derive(Debug)]
 enum FpPrefix {
+    AccountName,
     Fixed(String),
     Generated,
 }
@@ -59,6 +63,7 @@ impl FpPrefix {
         use FpPrefix::*;
 
         match self {
+            AccountName => account_name.to_string(),
             Fixed(s) => s.clone(),
             Generated => {
                 let mut s = FingerprintBuilder::new()
@@ -80,6 +85,7 @@ impl FromStr for FpPrefix {
         use FpPrefix::*;
 
         match s {
+            "account-name" => Ok(AccountName),
             "generated" => Ok(Generated),
             s if s.starts_with(FIXED_PREFIX) => Ok(Fixed(s[FIXED_PREFIX.len()..].to_string())),
             _ => Err(ReadError::BadFlagValue {
