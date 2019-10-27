@@ -55,12 +55,12 @@ impl Table {
             let pc =
                 Comment::from_opt_comment(trn.postings[i].comment.as_ref().map(|s| s.as_ref()));
             let mut ctx = PostingContext {
-                trn: trn,
+                trn,
                 posting_idx: i,
                 posting_comment: pc,
             };
             start.apply(self, &mut ctx)?;
-            trn.postings[i].comment = ctx.posting_comment.to_opt_comment();
+            trn.postings[i].comment = ctx.posting_comment.into_opt_comment();
         }
         Ok(())
     }
@@ -73,7 +73,7 @@ impl Table {
 
     fn validate(&self) -> Result<(), RuleError> {
         self.get_chain(START_CHAIN)?;
-        for (_, chain) in &self.0 {
+        for chain in self.0.values() {
             chain.validate(self)?;
         }
         Ok(())

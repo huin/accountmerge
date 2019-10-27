@@ -112,13 +112,13 @@ impl TransactionImporter for NationwideCsv {
         let mut csv_records = csv_rdr.records();
 
         let acct_name: AccountName = deserialize_required_record(&mut csv_records)?
-            .ok_or(ReadError::bad_file_format("missing account name"))?;
+            .ok_or_else(|| ReadError::bad_file_format("missing account name"))?;
         check_header("Account Name:", &acct_name.header)?;
         let balance: AccountQuantity = deserialize_required_record(&mut csv_records)?
-            .ok_or(ReadError::bad_file_format("missing account balance"))?;
+            .ok_or_else(|| ReadError::bad_file_format("missing account balance"))?;
         check_header("Account Balance:", &balance.header)?;
         let available: AccountQuantity = deserialize_required_record(&mut csv_records)?
-            .ok_or(ReadError::bad_file_format("missing available balance"))?;
+            .ok_or_else(|| ReadError::bad_file_format("missing available balance"))?;
         check_header("Available Balance:", &available.header)?;
 
         let fp_prefix = make_prefix(&self.fp_prefix.to_prefix(&acct_name.account_name));
@@ -133,7 +133,7 @@ fn read_transactions<R: std::io::Read>(
     account_name: &str,
 ) -> Result<Vec<Transaction>, Error> {
     let headers: Vec<String> = deserialize_required_record(csv_records)?
-        .ok_or(ReadError::bad_file_format("missing transaction headers"))?;
+        .ok_or_else(|| ReadError::bad_file_format("missing transaction headers"))?;
     if headers.len() != 6 {
         return Err(ReadError::bad_file_format("expected 6 headers for transactions").into());
     }
@@ -154,12 +154,12 @@ fn read_transactions<R: std::io::Read>(
         let mut record: Record = str_record.deserialize(None)?;
         let mut description = String::new();
         std::mem::swap(&mut description, &mut record.description);
-        let date = record.date.0.clone();
+        let date = record.date.0;
 
         // Maintain the per-date counter. Include a sequence number to each
         // transaction in a given day for use in the fingerprint.
         if Some(record.date.0) != prev_date {
-            prev_date = Some(record.date.0.clone());
+            prev_date = Some(record.date.0);
             date_counter = 0;
         } else {
             date_counter += 1;
@@ -168,8 +168,8 @@ fn read_transactions<R: std::io::Read>(
         let (post1, post2) = form_postings(record, fp_prefix, account_name, date_counter)?;
 
         transactions.push(Transaction {
-            date: date,
-            description: description,
+            date,
+            description,
             comment: None,
             status: None,
             code: None,
@@ -230,14 +230,14 @@ fn form_postings(
             account: halves.self_.account,
             amount: halves.self_.amount,
             balance: Some(Balance::Amount(record.balance.0)),
-            comment: self_comment.to_opt_comment(),
+            comment: self_comment.into_opt_comment(),
             status: None,
         },
         Posting {
             account: halves.peer.account,
             amount: halves.peer.amount,
             balance: None,
-            comment: peer_comment.to_opt_comment(),
+            comment: peer_comment.into_opt_comment(),
             status: None,
         },
     ))
@@ -268,7 +268,7 @@ mod de {
     impl Fingerprintable for Record {
         fn fingerprint(&self, fpb: FingerprintBuilder) -> FingerprintBuilder {
             fpb.with_str(&self.type_)
-                .with_naive_date(&self.date.0)
+                .with_naive_date(self.date.0)
                 .with_str(&self.description)
                 .with_amount(&self.balance.0)
         }

@@ -180,15 +180,15 @@ fn form_postings(record: Record, fp_prefix: &str) -> (Posting, Posting) {
             account: halves.self_.account,
             amount: halves.self_.amount,
             balance: Some(Balance::Amount(record.balance)),
-            comment: self_comment.to_opt_comment(),
+            comment: self_comment.into_opt_comment(),
             status: status.clone(),
         },
         Posting {
             account: halves.peer.account,
             amount: halves.peer.amount,
             balance: None,
-            comment: peer_comment.to_opt_comment(),
-            status: status,
+            comment: peer_comment.into_opt_comment(),
+            status,
         },
     )
 }
@@ -216,11 +216,11 @@ impl TryFrom<de::Record> for Record {
         };
         let balance = Amount {
             quantity: v.balance,
-            commodity: commodity,
+            commodity,
         };
         let partial_fp = FingerprintBuilder::new()
-            .with_naive_date(&v.date.0)
-            .with_naive_time(&v.time.0)
+            .with_naive_date(v.date.0)
+            .with_naive_time(v.time.0)
             .with_str(&v.time_zone)
             .with_str(&v.name)
             .with_str(&v.type_)

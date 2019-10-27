@@ -58,14 +58,14 @@ impl Merger {
             let src_posts: Vec<InputPosting> = src_trn
                 .postings
                 .drain(..)
-                .map(|post| InputPosting::from_posting(post))
+                .map(InputPosting::from_posting)
                 .collect::<Result<Vec<InputPosting>, Error>>()?;
             // dst_posts contains indices to the corresponding existing posts
             // for those in src_posts, or None where no existing matching post
             // was found.
             dest_posts.clear();
             for src_post in &src_posts {
-                dest_posts.push(self.find_matching_posting(src_post, src_trn.date.clone()));
+                dest_posts.push(self.find_matching_posting(src_post, src_trn.date));
             }
 
             // Determine default destination transaction.
@@ -118,7 +118,7 @@ impl Merger {
     fn get_default_dest_trn(
         &mut self,
         src_trn: Transaction,
-        dest_posts: &Vec<Option<PostingIndex>>,
+        dest_posts: &[Option<PostingIndex>],
     ) -> TransactionIndex {
         dest_posts
             .iter()
@@ -152,7 +152,7 @@ impl Merger {
         post.fingerprint_key
             .as_ref()
             .and_then(|key| self.post_by_fingerprint.get(key))
-            .map(|idx| *idx)
+            .copied()
     }
 
     fn add_posting(
@@ -217,10 +217,10 @@ impl Merger {
                             self.post_arena
                                 .remove(*post_idx)
                                 .expect(BAD_POSTING_INDEX)
-                                .to_posting()
+                                .into_posting()
                         })
                         .collect();
-                    let trn = trn_holder.to_transaction(posts);
+                    let trn = trn_holder.into_transaction(posts);
                     out.push(trn);
                 }
             }
@@ -282,7 +282,7 @@ impl TransactionHolder {
         }
     }
 
-    fn to_transaction(mut self, postings: Vec<Posting>) -> Transaction {
+    fn into_transaction(mut self, postings: Vec<Posting>) -> Transaction {
         self.trn.postings = postings;
         self.trn
     }
@@ -328,8 +328,8 @@ impl PostingHolder {
         )
     }
 
-    fn to_posting(mut self) -> Posting {
-        self.posting.comment = self.comment.to_opt_comment();
+    fn into_posting(mut self) -> Posting {
+        self.posting.comment = self.comment.into_opt_comment();
         self.posting
     }
 
@@ -527,7 +527,7 @@ mod tests {
             let src_posting = InputPosting::from_posting(parse_posting(src)).unwrap();
             let (mut dest_holder, _) = PostingHolder::from_input_posting(dest_posting, dummy_idx);
             dest_holder.merge_from_input_posting(src_posting);
-            dest_holder.to_posting()
+            dest_holder.into_posting()
         };
         assert_eq!(
             parse_merge_from("foo  GBP 10.00", "foo  GBP 10.00 =GBP 90.00"),

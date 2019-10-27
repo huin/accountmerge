@@ -47,7 +47,7 @@ impl FingerprintBuilder {
                 Right => 2,
             })
             .with_str(&v.commodity.name)
-            .as_fingerprint_builder()
+            .into_fingerprint_builder()
     }
 
     pub fn with_fingerprintable<T>(self, v: &T) -> Self
@@ -58,33 +58,36 @@ impl FingerprintBuilder {
     }
 
     pub fn with_i32(self, v: i32) -> Self {
-        self.acc.with_usize(4).with_i32(v).as_fingerprint_builder()
+        self.acc
+            .with_usize(4)
+            .with_i32(v)
+            .into_fingerprint_builder()
     }
 
-    pub fn with_naive_date(self, v: &NaiveDate) -> Self {
+    pub fn with_naive_date(self, v: NaiveDate) -> Self {
         self.acc
             .with_usize(3 * 4)
             .with_i32(v.year())
-            .with_u32(v.month() as u32)
-            .with_u32(v.day() as u32)
-            .as_fingerprint_builder()
+            .with_u32(v.month())
+            .with_u32(v.day())
+            .into_fingerprint_builder()
     }
 
-    pub fn with_naive_time(self, v: &NaiveTime) -> Self {
+    pub fn with_naive_time(self, v: NaiveTime) -> Self {
         self.acc
             .with_usize(4 * 4)
             .with_u32(v.hour())
             .with_u32(v.minute())
             .with_u32(v.second())
             .with_u32(v.nanosecond())
-            .as_fingerprint_builder()
+            .into_fingerprint_builder()
     }
 
     pub fn with_str(self, v: &str) -> Self {
         self.acc
             .with_usize(v.len())
             .with_str(v)
-            .as_fingerprint_builder()
+            .into_fingerprint_builder()
     }
 }
 
@@ -113,7 +116,7 @@ impl Accumulator {
         )
     }
 
-    fn as_fingerprint_builder(self) -> FingerprintBuilder {
+    fn into_fingerprint_builder(self) -> FingerprintBuilder {
         FingerprintBuilder { acc: self }
     }
 

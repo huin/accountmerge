@@ -89,7 +89,7 @@ impl Comment {
     }
 
     /// Formats this `Comment` into a string.
-    pub fn to_opt_comment(self) -> Option<String> {
+    pub fn into_opt_comment(self) -> Option<String> {
         let mut out_lines = Vec::<String>::new();
 
         if !self.tags.is_empty() {
@@ -234,14 +234,14 @@ mod tests {
 
     #[test]
     fn test_format_comment() {
-        assert_eq!(None, Comment::new().to_opt_comment());
+        assert_eq!(None, Comment::new().into_opt_comment());
         assert_eq!(
             Some("first line\nsecond line".to_string()),
             CommentBuilder::new()
                 .with_line("first line")
                 .with_line("second line")
                 .build()
-                .to_opt_comment(),
+                .into_opt_comment(),
         );
         assert_eq!(
             Some("first line\nsecond line\nname: value".to_string()),
@@ -250,7 +250,7 @@ mod tests {
                 .with_line("second line")
                 .with_value_tag("name", "value")
                 .build()
-                .to_opt_comment(),
+                .into_opt_comment(),
         );
         assert_eq!(
             Some(":tag1:tag2:tag3:tag4: text\nmore text".to_string()),
@@ -262,7 +262,7 @@ mod tests {
                 .with_tag("tag3")
                 .with_tag("tag4")
                 .build()
-                .to_opt_comment(),
+                .into_opt_comment(),
         );
         // Are newlines injected when needed, even if not specified?
         assert_eq!(
@@ -276,7 +276,7 @@ mod tests {
                 .with_tag("tag3")
                 .with_value_tag("name2", "value2")
                 .build()
-                .to_opt_comment(),
+                .into_opt_comment(),
         );
     }
 

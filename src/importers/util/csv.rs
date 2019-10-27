@@ -25,8 +25,7 @@ pub fn check_header(want: &'static str, got: &str) -> Result<(), ReadError> {
         Err(ReadError::BadHeaderRecord {
             want,
             got: got.to_string(),
-        }
-        .into())
+        })
     } else {
         Ok(())
     }
