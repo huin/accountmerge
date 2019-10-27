@@ -144,7 +144,10 @@ fn read_transactions<R: std::io::Read>(
 
     for result in csv_records {
         let str_record = result?;
-        let record: DeTransaction = str_record.deserialize(None)?;
+        let mut record: DeTransaction = str_record.deserialize(None)?;
+        let mut description = String::new();
+        std::mem::swap(&mut description, &mut record.description);
+        let date = record.date.0.clone();
 
         // Maintain the per-date counter. Include a sequence number to each
         // transaction in a given day for use in the fingerprint.
@@ -155,75 +158,82 @@ fn read_transactions<R: std::io::Read>(
             date_counter += 1;
         }
 
-        let record_fpb = FingerprintBuilder::new()
-            .with_fingerprintable(&record)
-            .with_i32(date_counter);
-
-        let self_amount: Amount = match (record.paid_in, record.paid_out) {
-            // Paid in only.
-            (Some(DeGbpValue(amt)), None) => amt,
-            // Paid out only.
-            (None, Some(DeGbpValue(amt))) => negate_amount(amt),
-            // Paid in and out or neither - both are errors.
-            _ => {
-                return Err(
-                    ReadError::bad_file_format("expected either paid in or paid out").into(),
-                )
-            }
-        };
-
-        let halves = self_and_peer_account_amount(self_amount, ASSETS_UNKNOWN.to_string());
-
-        let self_fingerprint = record_fpb
-            .clone()
-            .with_str(&halves.self_.account)
-            .with_amount(&halves.self_.amount)
-            .build_with_prefix(&fp_prefix);
-
-        let peer_fingerprint = record_fpb
-            .with_str(&halves.peer.account)
-            .with_amount(&halves.peer.amount)
-            .build_with_prefix(&fp_prefix);
-
-        let mut self_comment = Comment::builder()
-            .with_tag(UNKNOWN_ACCOUNT_TAG)
-            .with_value_tag(ACCOUNT_TAG, account_name)
-            .with_value_tag(BANK_TAG, BANK_NAME)
-            .with_value_tag(TRANSACTION_TYPE_TAG, record.type_.clone())
-            .build();
-
-        let mut peer_comment = self_comment.clone();
-
-        self_comment.tags.insert(self_fingerprint);
-        peer_comment.tags.insert(peer_fingerprint);
+        let (post1, post2) = form_postings(record, fp_prefix, account_name, date_counter)?;
 
         transactions.push(Transaction {
-            date: record.date.0,
-            description: record.description,
+            date: date,
+            description: description,
             comment: None,
             status: None,
             code: None,
             effective_date: None,
-            postings: vec![
-                Posting {
-                    account: halves.self_.account,
-                    amount: halves.self_.amount,
-                    balance: Some(Balance::Amount(record.balance.0)),
-                    comment: self_comment.to_opt_comment(),
-                    status: None,
-                },
-                Posting {
-                    account: halves.peer.account,
-                    amount: halves.peer.amount,
-                    balance: None,
-                    comment: peer_comment.to_opt_comment(),
-                    status: None,
-                },
-            ],
+            postings: vec![post1, post2],
         });
     }
 
     Ok(transactions)
+}
+
+fn form_postings(
+    record: DeTransaction,
+    fp_prefix: &str,
+    account_name: &str,
+    date_counter: i32,
+) -> Result<(Posting, Posting), Error> {
+    let record_fpb = FingerprintBuilder::new()
+        .with_fingerprintable(&record)
+        .with_i32(date_counter);
+
+    let self_amount: Amount = match (record.paid_in, record.paid_out) {
+        // Paid in only.
+        (Some(DeGbpValue(amt)), None) => amt,
+        // Paid out only.
+        (None, Some(DeGbpValue(amt))) => negate_amount(amt),
+        // Paid in and out or neither - both are errors.
+        _ => return Err(ReadError::bad_file_format("expected either paid in or paid out").into()),
+    };
+
+    let halves = self_and_peer_account_amount(self_amount, ASSETS_UNKNOWN.to_string());
+
+    let self_fingerprint = record_fpb
+        .clone()
+        .with_str(&halves.self_.account)
+        .with_amount(&halves.self_.amount)
+        .build_with_prefix(&fp_prefix);
+
+    let peer_fingerprint = record_fpb
+        .with_str(&halves.peer.account)
+        .with_amount(&halves.peer.amount)
+        .build_with_prefix(&fp_prefix);
+
+    let mut self_comment = Comment::builder()
+        .with_tag(UNKNOWN_ACCOUNT_TAG)
+        .with_value_tag(ACCOUNT_TAG, account_name)
+        .with_value_tag(BANK_TAG, BANK_NAME)
+        .with_value_tag(TRANSACTION_TYPE_TAG, record.type_.clone())
+        .build();
+
+    let mut peer_comment = self_comment.clone();
+
+    self_comment.tags.insert(self_fingerprint);
+    peer_comment.tags.insert(peer_fingerprint);
+
+    Ok((
+        Posting {
+            account: halves.self_.account,
+            amount: halves.self_.amount,
+            balance: Some(Balance::Amount(record.balance.0)),
+            comment: self_comment.to_opt_comment(),
+            status: None,
+        },
+        Posting {
+            account: halves.peer.account,
+            amount: halves.peer.amount,
+            balance: None,
+            comment: peer_comment.to_opt_comment(),
+            status: None,
+        },
+    ))
 }
 
 #[derive(Debug, Deserialize)]
