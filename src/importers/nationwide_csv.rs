@@ -44,10 +44,12 @@ pub struct NationwideCsv {
     /// The prefix of the fingerprints to generate (without "fp-" that will be
     /// prefixed to this value).
     ///
-    /// * "account-name" uses the account name from the CSV file.
-    /// * "generated" generates a hashed value based on the account name in the
-    ///    CSV file.
-    /// * "fixed:<prefix>" uses the given fixed prefix.
+    /// "account-name" uses the account name from the CSV file.
+    ///
+    /// "fixed:<prefix>" uses the given fixed prefix.
+    ///
+    /// "generated" generates a hashed value based on the account name in the
+    /// CSV file.
     fp_prefix: FpPrefix,
 }
 
