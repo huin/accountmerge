@@ -1,23 +1,18 @@
-use std::fmt;
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
 
 use chrono::NaiveDate;
 use failure::Error;
-use ledger_parser::{Amount, Balance, Commodity, CommodityPosition, Posting, Transaction};
-use regex::Regex;
-use rust_decimal::Decimal;
-use serde::{de, Deserialize, Deserializer};
+use ledger_parser::{Amount, Balance, Posting, Transaction};
 use structopt::StructOpt;
 
 use crate::accounts::ASSETS_UNKNOWN;
 use crate::comment::Comment;
-use crate::fingerprint::{make_prefix, FingerprintBuilder, Fingerprintable};
+use crate::fingerprint::{make_prefix, FingerprintBuilder};
 use crate::importers::importer::TransactionImporter;
-use crate::importers::util::csv::{
-    check_header, deserialize_captured_number, deserialize_required_record, ReadError,
-};
+use crate::importers::nationwide_csv::de::*;
+use crate::importers::util::csv::{check_header, deserialize_required_record, ReadError};
 use crate::importers::util::{negate_amount, self_and_peer_account_amount};
 use crate::tags::{ACCOUNT_TAG, BANK_TAG, UNKNOWN_ACCOUNT_TAG};
 
@@ -35,7 +30,7 @@ struct AccountName {
 #[derive(Debug, Deserialize)]
 struct AccountQuantity {
     header: String,
-    amount: DeGbpValue,
+    amount: GbpValue,
 }
 
 #[derive(Debug, StructOpt)]
@@ -144,7 +139,7 @@ fn read_transactions<R: std::io::Read>(
 
     for result in csv_records {
         let str_record = result?;
-        let mut record: DeTransaction = str_record.deserialize(None)?;
+        let mut record: Record = str_record.deserialize(None)?;
         let mut description = String::new();
         std::mem::swap(&mut description, &mut record.description);
         let date = record.date.0.clone();
@@ -175,7 +170,7 @@ fn read_transactions<R: std::io::Read>(
 }
 
 fn form_postings(
-    record: DeTransaction,
+    record: Record,
     fp_prefix: &str,
     account_name: &str,
     date_counter: i32,
@@ -186,9 +181,9 @@ fn form_postings(
 
     let self_amount: Amount = match (record.paid_in, record.paid_out) {
         // Paid in only.
-        (Some(DeGbpValue(amt)), None) => amt,
+        (Some(GbpValue(amt)), None) => amt,
         // Paid out only.
-        (None, Some(DeGbpValue(amt))) => negate_amount(amt),
+        (None, Some(GbpValue(amt))) => negate_amount(amt),
         // Paid in and out or neither - both are errors.
         _ => return Err(ReadError::bad_file_format("expected either paid in or paid out").into()),
     };
@@ -236,81 +231,94 @@ fn form_postings(
     ))
 }
 
-#[derive(Debug, Deserialize)]
-struct DeTransaction {
-    date: InputDate,
-    type_: String,
-    description: String,
-    paid_out: Option<DeGbpValue>,
-    paid_in: Option<DeGbpValue>,
-    balance: DeGbpValue,
-}
+mod de {
+    use std::fmt;
 
-impl Fingerprintable for DeTransaction {
-    fn fingerprint(&self, fpb: FingerprintBuilder) -> FingerprintBuilder {
-        fpb.with_str(&self.type_)
-            .with_naive_date(&self.date.0)
-            .with_str(&self.description)
-            .with_amount(&self.balance.0)
-    }
-}
+    use chrono::NaiveDate;
+    use ledger_parser::{Amount, Commodity, CommodityPosition};
+    use regex::Regex;
+    use rust_decimal::Decimal;
+    use serde::{de, Deserialize, Deserializer};
 
-#[derive(Debug)]
-struct InputDate(NaiveDate);
+    use crate::fingerprint::{FingerprintBuilder, Fingerprintable};
+    use crate::importers::util::csv::deserialize_captured_number;
 
-impl<'de> Deserialize<'de> for InputDate {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        d.deserialize_str(InputDateVisitor)
-    }
-}
-
-struct InputDateVisitor;
-impl<'de> de::Visitor<'de> for InputDateVisitor {
-    type Value = InputDate;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a date string in \"DD Jan YYYY\" format")
+    #[derive(Debug, Deserialize)]
+    pub struct Record {
+        pub date: Date,
+        pub type_: String,
+        pub description: String,
+        pub paid_out: Option<GbpValue>,
+        pub paid_in: Option<GbpValue>,
+        pub balance: GbpValue,
     }
 
-    fn visit_str<E: de::Error>(self, s: &str) -> Result<Self::Value, E> {
-        NaiveDate::parse_from_str(s, "%d %b %Y")
-            .map(InputDate)
-            .map_err(de::Error::custom)
-    }
-}
-
-#[derive(Debug)]
-struct DeGbpValue(Amount);
-
-impl<'de> Deserialize<'de> for DeGbpValue {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        d.deserialize_str(DeGbpValueVisitor)
-    }
-}
-
-struct DeGbpValueVisitor;
-impl<'de> de::Visitor<'de> for DeGbpValueVisitor {
-    type Value = DeGbpValue;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a monetary value string £NNN.NN format")
-    }
-
-    fn visit_str<E: de::Error>(self, s: &str) -> Result<Self::Value, E> {
-        lazy_static! {
-            static ref RE: Regex = Regex::new(r"£(\d+)\.(\d+)").unwrap();
+    impl Fingerprintable for Record {
+        fn fingerprint(&self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+            fpb.with_str(&self.type_)
+                .with_naive_date(&self.date.0)
+                .with_str(&self.description)
+                .with_amount(&self.balance.0)
         }
-        let captures = RE
-            .captures(s)
-            .ok_or_else(|| de::Error::custom("incorrect monetary format"))?;
-        let pounds: i64 = deserialize_captured_number(&captures, 1)?;
-        let pence: i64 = deserialize_captured_number(&captures, 2)?;
-        Ok(DeGbpValue(Amount {
-            commodity: Commodity {
-                name: "GBP".to_string(),
-                position: CommodityPosition::Left,
-            },
-            quantity: Decimal::new(pounds * 100 + pence, 2),
-        }))
+    }
+
+    #[derive(Debug)]
+    pub struct Date(pub NaiveDate);
+
+    impl<'de> Deserialize<'de> for Date {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            d.deserialize_str(DateVisitor)
+        }
+    }
+
+    struct DateVisitor;
+    impl<'de> de::Visitor<'de> for DateVisitor {
+        type Value = Date;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a date string in \"DD Jan YYYY\" format")
+        }
+
+        fn visit_str<E: de::Error>(self, s: &str) -> Result<Self::Value, E> {
+            NaiveDate::parse_from_str(s, "%d %b %Y")
+                .map(Date)
+                .map_err(de::Error::custom)
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct GbpValue(pub Amount);
+
+    impl<'de> Deserialize<'de> for GbpValue {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            d.deserialize_str(GbpValueVisitor)
+        }
+    }
+
+    struct GbpValueVisitor;
+    impl<'de> de::Visitor<'de> for GbpValueVisitor {
+        type Value = GbpValue;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a monetary value string £NNN.NN format")
+        }
+
+        fn visit_str<E: de::Error>(self, s: &str) -> Result<Self::Value, E> {
+            lazy_static! {
+                static ref RE: Regex = Regex::new(r"£(\d+)\.(\d+)").unwrap();
+            }
+            let captures = RE
+                .captures(s)
+                .ok_or_else(|| de::Error::custom("incorrect monetary format"))?;
+            let pounds: i64 = deserialize_captured_number(&captures, 1)?;
+            let pence: i64 = deserialize_captured_number(&captures, 2)?;
+            Ok(GbpValue(Amount {
+                commodity: Commodity {
+                    name: "GBP".to_string(),
+                    position: CommodityPosition::Left,
+                },
+                quantity: Decimal::new(pounds * 100 + pence, 2),
+            }))
+        }
     }
 }
