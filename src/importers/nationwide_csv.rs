@@ -60,10 +60,14 @@ impl FpPrefix {
 
         match self {
             Fixed(s) => s.clone(),
-            Generated => FingerprintBuilder::new()
-                .with_str(BANK_NAME)
-                .with_str(account_name)
-                .build(),
+            Generated => {
+                let mut s = FingerprintBuilder::new()
+                    .with_str(BANK_NAME)
+                    .with_str(account_name)
+                    .build();
+                s.truncate(8);
+                s
+            }
         }
     }
 }
