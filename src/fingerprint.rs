@@ -57,6 +57,10 @@ impl FingerprintBuilder {
         v.fingerprint(self)
     }
 
+    pub fn with_u8(self, v: u8) -> Self {
+        self.acc.with_u8(v).into_fingerprint_builder()
+    }
+
     pub fn with_i32(self, v: i32) -> Self {
         self.acc
             .with_usize(4)
@@ -154,5 +158,23 @@ impl Accumulator {
 
     fn with_usize(self, v: usize) -> Self {
         self.with_u64(v.try_into().expect("usize does not fit into u64"))
+    }
+}
+
+impl<T> Fingerprintable for Option<T>
+where
+    T: Fingerprintable,
+{
+    fn fingerprint(&self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+        match self {
+            Some(v) => fpb.with_u8(1).with_fingerprintable(v),
+            None => fpb.with_u8(0),
+        }
+    }
+}
+
+impl Fingerprintable for &String {
+    fn fingerprint(&self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+        fpb.with_str(self)
     }
 }

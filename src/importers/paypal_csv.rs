@@ -118,13 +118,7 @@ impl PaypalCsv {
 
         let description = records
             .iter()
-            .find_map(|record| {
-                if !record.name.is_empty() {
-                    Some(record.name.clone())
-                } else {
-                    None
-                }
-            })
+            .find_map(|record| record.name.clone())
             .ok_or_else(|| ReadError::NoNameForGroup { datetime: dt })?;
 
         let mut postings = Vec::new();
@@ -165,10 +159,10 @@ fn form_postings(record: Record, fp_prefix: &str) -> (Posting, Posting) {
         )
         .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
         .build();
-    if !record.name.is_empty() {
+    if let Some(name) = record.name {
         peer_comment
             .value_tags
-            .insert(TRANSACTION_NAME_TAG.to_string(), record.name);
+            .insert(TRANSACTION_NAME_TAG.to_string(), name);
     }
 
     let halves = self_and_peer_account_amount(record.amount, ASSETS_UNKNOWN.to_string());
@@ -195,7 +189,7 @@ fn form_postings(record: Record, fp_prefix: &str) -> (Posting, Posting) {
 
 struct Record {
     datetime: DateTime<Tz>,
-    name: String,
+    name: Option<String>,
     type_: String,
     status: de::Status,
     amount: Amount,
@@ -222,7 +216,7 @@ impl TryFrom<de::Record> for Record {
             .with_naive_date(v.date.0)
             .with_naive_time(v.time.0)
             .with_str(&v.time_zone)
-            .with_str(&v.name)
+            .with_fingerprintable(&v.name.as_ref())
             .with_str(&v.type_)
             // Deliberately not including `v.status`, as this may change on a
             // future import.
@@ -283,7 +277,7 @@ mod de {
         #[serde(rename = "Time zone")]
         pub time_zone: String,
         #[serde(rename = "Name")]
-        pub name: String,
+        pub name: Option<String>,
         #[serde(rename = "Type")]
         pub type_: String,
         #[serde(rename = "Status")]
@@ -293,7 +287,7 @@ mod de {
         #[serde(rename = "Amount")]
         pub amount: Decimal,
         #[serde(rename = "Receipt ID")]
-        pub receipt_id: String,
+        pub receipt_id: Option<String>,
         #[serde(rename = "Balance")]
         pub balance: Decimal,
     }
