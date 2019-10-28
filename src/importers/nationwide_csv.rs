@@ -69,8 +69,8 @@ impl FpPrefix {
             Fixed(s) => s.clone(),
             Generated => {
                 let mut s = FingerprintBuilder::new()
-                    .with_str(BANK_NAME)
-                    .with_str(account_name)
+                    .with(BANK_NAME)
+                    .with(account_name)
                     .build();
                 s.truncate(8);
                 s
@@ -187,9 +187,7 @@ fn form_postings(
     account_name: &str,
     date_counter: i32,
 ) -> Result<(Posting, Posting), Error> {
-    let record_fpb = FingerprintBuilder::new()
-        .with(&record)
-        .with_i32(date_counter);
+    let record_fpb = FingerprintBuilder::new().with(&record).with(date_counter);
 
     let self_amount: Amount = match (record.paid_in, record.paid_out) {
         // Paid in only.
@@ -204,13 +202,13 @@ fn form_postings(
 
     let self_fingerprint = record_fpb
         .clone()
-        .with_str(&halves.self_.account)
-        .with_amount(&halves.self_.amount)
+        .with(halves.self_.account.as_str())
+        .with(&halves.self_.amount)
         .build_with_prefix(&fp_prefix);
 
     let peer_fingerprint = record_fpb
-        .with_str(&halves.peer.account)
-        .with_amount(&halves.peer.amount)
+        .with(halves.peer.account.as_str())
+        .with(&halves.peer.amount)
         .build_with_prefix(&fp_prefix);
 
     let mut self_comment = Comment::builder()
@@ -265,12 +263,12 @@ mod de {
         pub balance: GbpValue,
     }
 
-    impl Fingerprintable for Record {
-        fn fingerprint(&self, fpb: FingerprintBuilder) -> FingerprintBuilder {
-            fpb.with_str(&self.type_)
-                .with_naive_date(self.date.0)
-                .with_str(&self.description)
-                .with_amount(&self.balance.0)
+    impl Fingerprintable for &Record {
+        fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+            fpb.with(self.type_.as_str())
+                .with(self.date.0)
+                .with(self.description.as_str())
+                .with(&self.balance.0)
         }
     }
 

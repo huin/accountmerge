@@ -146,17 +146,12 @@ fn form_postings(record: Record, fp_prefix: &str) -> (Posting, Posting) {
             record
                 .partial_fp
                 .clone()
-                .with_str("self")
+                .with("self")
                 .build_with_prefix(fp_prefix),
         )
         .build();
     let mut peer_comment = Comment::builder()
-        .with_tag(
-            record
-                .partial_fp
-                .with_str("peer")
-                .build_with_prefix(fp_prefix),
-        )
+        .with_tag(record.partial_fp.with("peer").build_with_prefix(fp_prefix))
         .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
         .build();
     if let Some(name) = record.name {
@@ -213,15 +208,15 @@ impl TryFrom<de::Record> for Record {
             commodity,
         };
         let partial_fp = FingerprintBuilder::new()
-            .with_naive_date(v.date.0)
-            .with_naive_time(v.time.0)
-            .with_str(&v.time_zone)
-            .with(&v.name.as_ref())
-            .with_str(&v.type_)
+            .with(v.date.0)
+            .with(v.time.0)
+            .with(v.time_zone.as_str())
+            .with(v.name.as_ref().map(String::as_str))
+            .with(v.type_.as_str())
             // Deliberately not including `v.status`, as this may change on a
             // future import.
-            .with_amount(&amount)
-            .with_amount(&balance);
+            .with(&amount)
+            .with(&balance);
 
         let naive_datetime = chrono::NaiveDateTime::new(v.date.0, v.time.0);
 

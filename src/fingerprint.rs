@@ -12,7 +12,7 @@ pub fn make_prefix(value: &str) -> String {
 }
 
 pub trait Fingerprintable {
-    fn fingerprint(&self, fpb: FingerprintBuilder) -> FingerprintBuilder;
+    fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder;
 }
 
 /// Builds a fingerprint based on length-prefixed values.
@@ -36,62 +36,11 @@ impl FingerprintBuilder {
         self.acc.build_with_prefix(prefix)
     }
 
-    pub fn with_amount(self, v: &Amount) -> Self {
-        let quantity: [u8; 16] = Default::default();
-        use ledger_parser::CommodityPosition::*;
-        self.acc
-            .with_usize(16 + 1 + v.commodity.name.len())
-            .with_bytes(&quantity)
-            .with_u8(match v.commodity.position {
-                Left => 1,
-                Right => 2,
-            })
-            .with_str(&v.commodity.name)
-            .into_fingerprint_builder()
-    }
-
-    pub fn with<T>(self, v: &T) -> Self
+    pub fn with<T>(self, v: T) -> Self
     where
         T: Fingerprintable,
     {
         v.fingerprint(self)
-    }
-
-    pub fn with_u8(self, v: u8) -> Self {
-        self.acc.with_u8(v).into_fingerprint_builder()
-    }
-
-    pub fn with_i32(self, v: i32) -> Self {
-        self.acc
-            .with_usize(4)
-            .with_i32(v)
-            .into_fingerprint_builder()
-    }
-
-    pub fn with_naive_date(self, v: NaiveDate) -> Self {
-        self.acc
-            .with_usize(3 * 4)
-            .with_i32(v.year())
-            .with_u32(v.month())
-            .with_u32(v.day())
-            .into_fingerprint_builder()
-    }
-
-    pub fn with_naive_time(self, v: NaiveTime) -> Self {
-        self.acc
-            .with_usize(4 * 4)
-            .with_u32(v.hour())
-            .with_u32(v.minute())
-            .with_u32(v.second())
-            .with_u32(v.nanosecond())
-            .into_fingerprint_builder()
-    }
-
-    pub fn with_str(self, v: &str) -> Self {
-        self.acc
-            .with_usize(v.len())
-            .with_str(v)
-            .into_fingerprint_builder()
     }
 }
 
@@ -120,44 +69,98 @@ impl Accumulator {
         )
     }
 
-    fn into_fingerprint_builder(self) -> FingerprintBuilder {
-        FingerprintBuilder { acc: self }
-    }
-
-    fn with_bytes(mut self, v: &[u8]) -> Self {
+    fn add_bytes(&mut self, v: &[u8]) {
         self.hasher.input(v);
-        self
     }
+}
 
-    fn with_i32(self, v: i32) -> Self {
+impl Fingerprintable for &[u8] {
+    fn fingerprint(self, mut fpb: FingerprintBuilder) -> FingerprintBuilder {
+        fpb.acc.add_bytes(self);
+        fpb
+    }
+}
+
+impl Fingerprintable for i8 {
+    fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+        let buf: [u8; 1] = [self as u8];
+        fpb.with(&buf[..])
+    }
+}
+
+impl Fingerprintable for i16 {
+    fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+        let mut buf: [u8; 2] = Default::default();
+        BigEndian::write_i16(&mut buf, self);
+        fpb.with(&buf[..])
+    }
+}
+
+impl Fingerprintable for i32 {
+    fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
         let mut buf: [u8; 4] = Default::default();
-        BigEndian::write_i32(&mut buf, v);
-        self.with_bytes(&buf)
+        BigEndian::write_i32(&mut buf, self);
+        fpb.with(&buf[..])
     }
+}
 
-    fn with_str(self, v: &str) -> Self {
-        self.with_bytes(v.as_bytes())
-    }
-
-    fn with_u32(self, v: u32) -> Self {
-        let mut buf: [u8; 4] = Default::default();
-        BigEndian::write_u32(&mut buf, v);
-        self.with_bytes(&buf)
-    }
-
-    fn with_u8(self, v: u8) -> Self {
-        let buf: [u8; 1] = [v];
-        self.with_bytes(&buf)
-    }
-
-    fn with_u64(self, v: u64) -> Self {
+impl Fingerprintable for i64 {
+    fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
         let mut buf: [u8; 8] = Default::default();
-        BigEndian::write_u64(&mut buf, v);
-        self.with_bytes(&buf)
+        BigEndian::write_i64(&mut buf, self);
+        fpb.with(&buf[..])
     }
+}
 
-    fn with_usize(self, v: usize) -> Self {
-        self.with_u64(v.try_into().expect("usize does not fit into u64"))
+impl Fingerprintable for u8 {
+    fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+        let buf: [u8; 1] = [self];
+        fpb.with(&buf[..])
+    }
+}
+
+impl Fingerprintable for u16 {
+    fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+        let mut buf: [u8; 2] = Default::default();
+        BigEndian::write_u16(&mut buf, self);
+        fpb.with(&buf[..])
+    }
+}
+
+impl Fingerprintable for u32 {
+    fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+        let mut buf: [u8; 4] = Default::default();
+        BigEndian::write_u32(&mut buf, self);
+        fpb.with(&buf[..])
+    }
+}
+
+impl Fingerprintable for u64 {
+    fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+        let mut buf: [u8; 8] = Default::default();
+        BigEndian::write_u64(&mut buf, self);
+        fpb.with(&buf[..])
+    }
+}
+
+impl Fingerprintable for usize {
+    fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+        let v: u64 = self.try_into().expect("usize does not fit into u64");
+        fpb.with(v)
+    }
+}
+
+impl Fingerprintable for &Amount {
+    fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+        let quantity: [u8; 16] = self.quantity.serialize();
+        use ledger_parser::CommodityPosition::*;
+        fpb.with(16 + 1 + self.commodity.name.len())
+            .with(&quantity[..])
+            .with(match self.commodity.position {
+                Left => 1 as u8,
+                Right => 2 as u8,
+            })
+            .with(self.commodity.name.as_str())
     }
 }
 
@@ -165,16 +168,35 @@ impl<T> Fingerprintable for Option<T>
 where
     T: Fingerprintable,
 {
-    fn fingerprint(&self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+    fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
         match self {
-            Some(v) => fpb.with_u8(1).with(v),
-            None => fpb.with_u8(0),
+            Some(v) => fpb.with(1u8).with(v),
+            None => fpb.with(0u8),
         }
     }
 }
 
-impl Fingerprintable for &String {
-    fn fingerprint(&self, fpb: FingerprintBuilder) -> FingerprintBuilder {
-        fpb.with_str(self)
+impl Fingerprintable for &str {
+    fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+        fpb.with(self.len()).with(self.as_bytes())
+    }
+}
+
+impl Fingerprintable for NaiveDate {
+    fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+        fpb.with(3 * 4 as usize)
+            .with(self.year())
+            .with(self.month())
+            .with(self.day())
+    }
+}
+
+impl Fingerprintable for NaiveTime {
+    fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
+        fpb.with(4 * 4 as usize)
+            .with(self.hour())
+            .with(self.minute())
+            .with(self.second())
+            .with(self.nanosecond())
     }
 }
