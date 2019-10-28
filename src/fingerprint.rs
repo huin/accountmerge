@@ -154,7 +154,7 @@ impl Fingerprintable for &Amount {
     fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
         let quantity: [u8; 16] = self.quantity.serialize();
         use ledger_parser::CommodityPosition::*;
-        fpb.with(16 + 1 + self.commodity.name.len())
+        fpb.with(16usize + 1usize + self.commodity.name.len())
             .with(&quantity[..])
             .with(match self.commodity.position {
                 Left => 1u8,
