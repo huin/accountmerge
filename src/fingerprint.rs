@@ -50,7 +50,7 @@ impl FingerprintBuilder {
             .into_fingerprint_builder()
     }
 
-    pub fn with_fingerprintable<T>(self, v: &T) -> Self
+    pub fn with<T>(self, v: &T) -> Self
     where
         T: Fingerprintable,
     {
@@ -167,7 +167,7 @@ where
 {
     fn fingerprint(&self, fpb: FingerprintBuilder) -> FingerprintBuilder {
         match self {
-            Some(v) => fpb.with_u8(1).with_fingerprintable(v),
+            Some(v) => fpb.with_u8(1).with(v),
             None => fpb.with_u8(0),
         }
     }

@@ -188,7 +188,7 @@ fn form_postings(
     date_counter: i32,
 ) -> Result<(Posting, Posting), Error> {
     let record_fpb = FingerprintBuilder::new()
-        .with_fingerprintable(&record)
+        .with(&record)
         .with_i32(date_counter);
 
     let self_amount: Amount = match (record.paid_in, record.paid_out) {

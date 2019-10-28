@@ -216,7 +216,7 @@ impl TryFrom<de::Record> for Record {
             .with_naive_date(v.date.0)
             .with_naive_time(v.time.0)
             .with_str(&v.time_zone)
-            .with_fingerprintable(&v.name.as_ref())
+            .with(&v.name.as_ref())
             .with_str(&v.type_)
             // Deliberately not including `v.status`, as this may change on a
             // future import.
