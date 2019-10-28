@@ -157,8 +157,8 @@ impl Fingerprintable for &Amount {
         fpb.with(16 + 1 + self.commodity.name.len())
             .with(&quantity[..])
             .with(match self.commodity.position {
-                Left => 1 as u8,
-                Right => 2 as u8,
+                Left => 1u8,
+                Right => 2u8,
             })
             .with(self.commodity.name.as_str())
     }
@@ -184,7 +184,7 @@ impl Fingerprintable for &str {
 
 impl Fingerprintable for NaiveDate {
     fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
-        fpb.with(3 * 4 as usize)
+        fpb.with(3 * 4usize)
             .with(self.year())
             .with(self.month())
             .with(self.day())
@@ -193,7 +193,7 @@ impl Fingerprintable for NaiveDate {
 
 impl Fingerprintable for NaiveTime {
     fn fingerprint(self, fpb: FingerprintBuilder) -> FingerprintBuilder {
-        fpb.with(4 * 4 as usize)
+        fpb.with(4 * 4usize)
             .with(self.hour())
             .with(self.minute())
             .with(self.second())
