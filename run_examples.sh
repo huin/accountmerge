@@ -16,3 +16,9 @@ cargo run -q -- merge \
     examples/initial.journal \
     example_output/statements*-ruled.journal \
     > example_output/merged.journal
+
+# Should be able to re-merge the merged result above with one of its inputs.
+cargo run -q -- merge \
+    example_output/merged.journal \
+    example_output/statements1-ruled.journal \
+    > example_output/merged2.journal

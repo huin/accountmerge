@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::NaiveDate;
 use failure::Error;
@@ -19,10 +19,23 @@ type TransactionIndex = StandardIndex<TransactionHolder>;
 #[derive(Debug, Fail)]
 enum MergeError {
     #[fail(
-        display = "input posting has multiple fingerprint tags:\n{:?}",
-        comment
+        display = "input posting matches multiple destination postings with fingerprints: {}",
+        fingerprints
     )]
-    InputPostingHasMultipleFingerprints { comment: Comment },
+    InputPostingMatchesMultiplePostings {
+        fingerprints: MultipleMatchingFingerprints,
+    },
+}
+
+#[derive(Debug)]
+struct MultipleMatchingFingerprints(Vec<String>);
+impl std::fmt::Display for MultipleMatchingFingerprints {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        f.write_str(&itertools::join(
+            self.0.iter().map(|f| format!("{:?}", f)),
+            ", ",
+        ))
+    }
 }
 
 pub struct Merger {
@@ -65,7 +78,7 @@ impl Merger {
             // was found.
             dest_posts.clear();
             for src_post in &src_posts {
-                dest_posts.push(self.find_matching_posting(src_post, src_trn.date));
+                dest_posts.push(self.find_matching_posting(src_post, src_trn.date)?);
             }
 
             // Determine default destination transaction.
@@ -79,7 +92,7 @@ impl Merger {
                         let opt_key = dest_post.merge_from_input_posting(src_post);
                         // The posting merged in might bring with it a new key
                         // to include in the index.
-                        self.register_fingerprint(opt_key, *dest_post_idx);
+                        self.register_fingerprints(opt_key, *dest_post_idx);
                     }
                     None => {
                         // Create new posting.
@@ -128,10 +141,14 @@ impl Merger {
             .unwrap_or_else(|| self.add_transaction(src_trn))
     }
 
-    fn find_matching_posting(&self, post: &InputPosting, date: NaiveDate) -> Option<PostingIndex> {
-        let fp_idx = self.find_posting_by_fingerprint(post);
+    fn find_matching_posting(
+        &self,
+        post: &InputPosting,
+        date: NaiveDate,
+    ) -> Result<Option<PostingIndex>, Error> {
+        let fp_idx = self.find_posting_by_fingerprints(post)?;
         if fp_idx.is_some() {
-            return fp_idx;
+            return Ok(fp_idx);
         }
 
         // Look for a match based on internal values.
@@ -140,19 +157,33 @@ impl Merger {
         for candidate_idx in iter_posts_for_date {
             let candidate_post = self.get_post(*candidate_idx);
             if candidate_post.matches(post) {
-                return Some(*candidate_idx);
+                return Ok(Some(*candidate_idx));
             }
         }
 
-        None
+        Ok(None)
     }
 
-    /// Look for match by existing fingerprint.
-    fn find_posting_by_fingerprint(&self, post: &InputPosting) -> Option<PostingIndex> {
-        post.fingerprint_key
-            .as_ref()
-            .and_then(|key| self.post_by_fingerprint.get(key))
+    /// Look for match by existing fingerprint(s). Matches zero or one postings
+    /// on success, multiple matches are an error.
+    fn find_posting_by_fingerprints(
+        &self,
+        post: &InputPosting,
+    ) -> Result<Option<PostingIndex>, Error> {
+        let posts: HashSet<HashablePostingIndex> = post
+            .fingerprints
+            .iter()
+            .filter_map(|fp| self.post_by_fingerprint.get(fp))
             .copied()
+            .map(HashablePostingIndex)
+            .collect();
+        match posts.len() {
+            n if n <= 1 => Ok(posts.iter().nth(0).map(|i| i.0)),
+            _ => Err(MergeError::InputPostingMatchesMultiplePostings {
+                fingerprints: MultipleMatchingFingerprints(post.fingerprints.clone()),
+            }
+            .into()),
+        }
     }
 
     fn add_posting(
@@ -160,9 +191,9 @@ impl Merger {
         proto_posting: InputPosting,
         parent_trn: TransactionIndex,
     ) -> PostingIndex {
-        let (posting, opt_key) = PostingHolder::from_input_posting(proto_posting, parent_trn);
+        let (posting, fingerprints) = PostingHolder::from_input_posting(proto_posting, parent_trn);
         let idx = self.post_arena.insert(posting);
-        self.register_fingerprint(opt_key, idx);
+        self.register_fingerprints(fingerprints, idx);
 
         self.posts_by_date
             .entry(self.get_trn(parent_trn).trn.date)
@@ -171,13 +202,9 @@ impl Merger {
         idx
     }
 
-    fn register_fingerprint(
-        &mut self,
-        opt_fingerprint_key: Option<String>,
-        dest_post_idx: PostingIndex,
-    ) {
-        if let Some(key) = opt_fingerprint_key {
-            self.post_by_fingerprint.insert(key, dest_post_idx);
+    fn register_fingerprints(&mut self, fingerprints: Vec<String>, post_idx: PostingIndex) {
+        for fp in fingerprints.into_iter() {
+            self.post_by_fingerprint.insert(fp, post_idx);
         }
     }
 
@@ -230,38 +257,14 @@ impl Merger {
     }
 }
 
-/// Creates a key for a `HashMap` from the only fingerprint tag in the given
-/// `Comment`. It is an error if there are multiple fingerprint tags, returns
-/// `Ok(None)` if there are no fingerprint tags at all.
-fn fingerprint_key_from_comment(comment: &Comment) -> Result<Option<String>, Error> {
-    let mut key: Option<String> = None;
-    for t in &comment.tags {
-        match (key.is_some(), fingerprint_key_from_tag(t)) {
-            (true, Some(_)) => {
-                // Found a second key => error.
-                return Err(MergeError::InputPostingHasMultipleFingerprints {
-                    comment: comment.clone(),
-                }
-                .into());
-            }
-            (false, Some(cur_key)) => {
-                // Found first key.
-                key = Some(cur_key);
-            }
-            _ => {}
-        };
-    }
-    Ok(key)
-}
-
-/// Creates a key for a `HashMap` given a fingerprint `tag`.
-/// Returns `None` if `tag` is not a fingerprint tag.
-fn fingerprint_key_from_tag(tag: &str) -> Option<String> {
-    if !tag.starts_with(FINGERPRINT_TAG_PREFIX) {
-        None
-    } else {
-        Some(tag.to_string())
-    }
+/// Extracts copies of the fingerprint tag(s) from `comment`.
+fn fingerprints_from_comment(comment: &Comment) -> Vec<String> {
+    comment
+        .tags
+        .iter()
+        .filter(|t| t.starts_with(FINGERPRINT_TAG_PREFIX))
+        .cloned()
+        .collect()
 }
 
 /// Contains a partially unpacked `Transaction`.
@@ -289,7 +292,7 @@ impl TransactionHolder {
 }
 
 struct InputPosting {
-    fingerprint_key: Option<String>,
+    fingerprints: Vec<String>,
     posting: Posting,
     comment: Comment,
 }
@@ -299,7 +302,7 @@ impl InputPosting {
         let comment = Comment::from_opt_comment(posting.comment.as_ref().map(String::as_str));
         posting.comment = None;
         Ok(Self {
-            fingerprint_key: fingerprint_key_from_comment(&comment)?,
+            fingerprints: fingerprints_from_comment(&comment),
             posting,
             comment,
         })
@@ -317,14 +320,14 @@ impl PostingHolder {
     fn from_input_posting(
         proto: InputPosting,
         parent_trn: TransactionIndex,
-    ) -> (Self, Option<String>) {
+    ) -> (Self, Vec<String>) {
         (
             Self {
                 parent_trn,
                 posting: proto.posting,
                 comment: proto.comment,
             },
-            proto.fingerprint_key,
+            proto.fingerprints,
         )
     }
 
@@ -342,7 +345,7 @@ impl PostingHolder {
             }
     }
 
-    fn merge_from_input_posting(&mut self, mut src: InputPosting) -> Option<String> {
+    fn merge_from_input_posting(&mut self, mut src: InputPosting) -> Vec<String> {
         // TODO: Merge/update status.
         if self.posting.balance.is_none() {
             self.posting.balance = src.posting.balance.clone()
@@ -356,7 +359,15 @@ impl PostingHolder {
         src.comment.tags.remove(UNKNOWN_ACCOUNT_TAG);
 
         self.comment.merge_from(src.comment);
-        src.fingerprint_key
+        src.fingerprints
+    }
+}
+
+#[derive(Eq, PartialEq)]
+struct HashablePostingIndex(PostingIndex);
+impl std::hash::Hash for HashablePostingIndex {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.arr_idx().hash(state);
     }
 }
 
@@ -438,6 +449,81 @@ mod tests {
                 2000/01/02 Lunch
                     assets:checking  GBP -5.00
                     expenses:dining  GBP 5.00
+                "#
+            ),
+        );
+    }
+
+    #[test]
+    fn fingerprint_matching() {
+        let mut merger = Merger::new();
+
+        merger
+            .merge(parse_transactions(
+                r#"
+                2000/01/01 Salary
+                    assets:checking  GBP 100.00   ; :fp-1:fp-2:fp-3:
+                "#,
+            ))
+            .unwrap();
+        merger
+            .merge(parse_transactions(
+                // Different date to avoid soft-matching if fingerprint matching fails.
+                r#"
+                2000/01/02 Salary
+                    assets:checking  GBP 100.00   ; :fp-1:fp-2:fp-4:
+                "#,
+            ))
+            .unwrap();
+        let result = merger.build();
+        assert_transactions_eq!(
+            &result,
+            parse_transactions(
+                r#"
+                2000/01/01 Salary
+                    assets:checking  GBP 100.00  ; :fp-1:fp-2:fp-3:fp-4:
+                "#
+            ),
+        );
+    }
+
+    // TODO: postings from a call to merge will currently match earlier postings
+    // from the same call to merge. Should instead discount them as candidates.
+
+    #[test]
+    fn fingerprint_many_match_failure() {
+        let mut merger = Merger::new();
+        merger
+            .merge(parse_transactions(
+                r#"
+                2000/01/01 Salary
+                    assets:checking  GBP 100.00   ; :fp-1:
+                2000/01/02 Transfer to savings
+                    assets:savings   GBP 100.00   ; :fp-2:
+                "#,
+            ))
+            .unwrap();
+        assert!(merger
+            .merge(parse_transactions(
+                // This posting has fingerprints matching two different postings
+                // and should cause an error when atttempting to merge.
+                r#"
+                2000/01/01 Salary
+                    assets:checking  GBP 100.00   ; :fp-1:fp-2:
+                "#,
+            ))
+            .is_err());
+
+        // The result should be the same as before attempting to merge.
+        let result = merger.build();
+        assert_transactions_eq!(
+            &result,
+            parse_transactions(
+                r#"
+                2000/01/01 Salary
+                    assets:checking  GBP 100.00   ; :fp-1:
+                2000/01/02 Transfer to savings
+                    assets:savings   GBP 100.00   ; :fp-2:
                 "#
             ),
         );

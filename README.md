@@ -31,11 +31,16 @@ in the following order:
 
 1.  Match based on fingerprint.
 
-    *   Only one fingerprint is allowed for the posting being merged in.
-    *   Look for an existing destination posting that has the same fingerprint
-        key and value.
+    *   Look for existing posting(s) that have the same fingerprint tag(s) from
+        the source posting:
+        *   If only one posting is found, then use that as the destination
+            posting.
+        *   If multiple postings are found, this is an error.
+        *   If no fingerprints match any existing postings, continue to step 2.
 
 2. Match based on the following non-fingerprint values:
 
     *   Same date on parent transaction.
     *   Same amount.
+    *   TODO: If both source and destination postings do *not* have the the
+        "unknown-account" tag, they must also match account names.
