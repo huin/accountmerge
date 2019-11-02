@@ -25,6 +25,11 @@ enum MergeError {
     InputPostingMatchesMultiplePostings {
         fingerprints: MultipleMatchingFingerprints,
     },
+    #[fail(
+        display = "multiple postings with same fingerprint ({:?}) found within a single input transaction set",
+        fingerprint
+    )]
+    DuplicateFingerprint { fingerprint: String },
 }
 
 #[derive(Debug)]
@@ -60,52 +65,117 @@ impl Merger {
     /// This merging algorithm is described in README.md under "Matching
     /// algorithm".
     pub fn merge(&mut self, src_trns: Vec<Transaction>) -> Result<(), Error> {
-        // dest_posts' allocation is reused each iteration.
-        let mut dest_posts = Vec::<Option<PostingIndex>>::new();
+        let pending = self.make_pending(src_trns)?;
+        self.apply_pending(pending);
+        Ok(())
+    }
 
-        for mut src_trn in src_trns.into_iter() {
-            if src_trn.postings.is_empty() {
+    fn make_pending(&self, orig_trns: Vec<Transaction>) -> Result<PendingMerges, Error> {
+        let mut pending = PendingMerges::new();
+
+        // Set of fingerprints found in `pending.posts` so far.
+        // This is used to check if duplicate fingerprints exist in the input.
+        let mut fingerprints = HashSet::<String>::new();
+
+        for orig_trn in orig_trns.into_iter() {
+            let (src_trn, orig_posts) = TransactionHolder::from_transaction(orig_trn);
+
+            if orig_posts.is_empty() {
                 continue;
             }
 
-            let src_posts: Vec<InputPosting> = src_trn
-                .postings
-                .drain(..)
-                .map(InputPosting::from_posting)
-                .collect::<Result<Vec<InputPosting>, Error>>()?;
-            // dst_posts contains indices to the corresponding existing posts
-            // for those in src_posts, or None where no existing matching post
-            // was found.
-            dest_posts.clear();
-            for src_post in &src_posts {
-                dest_posts.push(self.find_matching_posting(src_post, src_trn.date)?);
+            let src_posts_matched: Vec<(InputPosting, Option<PostingIndex>)> = orig_posts
+                .into_iter()
+                .map(|orig_post| {
+                    let src_post = InputPosting::from_posting(orig_post)?;
+                    let dest_post: Option<PostingIndex> =
+                        self.find_matching_posting(&src_post, src_trn.trn.date)?;
+                    Ok((src_post, dest_post))
+                })
+                .collect::<Result<Vec<(InputPosting, Option<PostingIndex>)>, Error>>()?;
+
+            for (src_post, _) in &src_posts_matched {
+                for fp in src_post.fingerprints.iter().cloned() {
+                    if fingerprints.contains(&fp) {
+                        return Err(MergeError::DuplicateFingerprint { fingerprint: fp }.into());
+                    }
+                    fingerprints.insert(fp);
+                }
             }
 
             // Determine default destination transaction.
-            let default_dest_trn_idx = self.get_default_dest_trn(src_trn, &dest_posts);
+            let default_dest_trn: DestinationTransaction = src_posts_matched
+                .iter()
+                // TODO: Consider checking that only one destination transaction
+                // matches.
+                .find_map(|(_, opt_dest_post)| {
+                    opt_dest_post
+                        .map(|dest_post| self.get_post(dest_post).parent_trn)
+                        .map(DestinationTransaction::Existing)
+                })
+                .unwrap_or_else(|| DestinationTransaction::New(pending.new_trns.insert(src_trn)));
 
-            for (src_post, opt_dest_post_idx) in src_posts.into_iter().zip(&dest_posts) {
-                match opt_dest_post_idx {
-                    Some(dest_post_idx) => {
-                        // Merge into existing posting.
-                        let dest_post = self.get_post_mut(*dest_post_idx);
-                        let opt_key = dest_post.merge_from_input_posting(src_post);
-                        // The posting merged in might bring with it a new key
-                        // to include in the index.
-                        self.register_fingerprints(opt_key, *dest_post_idx);
-                    }
-                    None => {
-                        // Create new posting.
-                        let src_post_idx = self.add_posting(src_post, default_dest_trn_idx);
-                        self.get_trn_mut(default_dest_trn_idx)
-                            .postings
-                            .push(src_post_idx);
-                    }
+            pending.posts.extend(
+                src_posts_matched
+                    .into_iter()
+                    .map(|(src_post, opt_dest_post)| {
+                        let destination = match opt_dest_post {
+                            // Merge into existing posting.
+                            Some(dest_post) => PostingDestination::MergeIntoExisting(dest_post),
+                            // Create new posting, added to the default destination
+                            // transaction.
+                            None => PostingDestination::AddToTransaction(default_dest_trn),
+                        };
+
+                        PendingPosting {
+                            post: src_post,
+                            destination,
+                        }
+                    }),
+            );
+        }
+        Ok(pending)
+    }
+
+    fn apply_pending(&mut self, mut pending: PendingMerges) {
+        // Maps from index in pending.new_trns to index in self.trn_arena.
+        let new_trn_idxs: HashMap<HashableTransactionIndex, HashableTransactionIndex> = pending
+            .new_trns
+            .drain()
+            .map(|(pending_trn_idx, trn)| {
+                (
+                    HashableTransactionIndex(pending_trn_idx),
+                    HashableTransactionIndex(self.add_transaction_holder(trn)),
+                )
+            })
+            .collect();
+
+        for post in pending.posts.drain(..) {
+            use DestinationTransaction::*;
+            use PostingDestination::*;
+
+            match post.destination {
+                MergeIntoExisting(post_idx) => {
+                    let dest_post = self.get_post_mut(post_idx);
+                    let post_fingerprints = dest_post.merge_from_input_posting(post.post);
+                    self.register_fingerprints(post_fingerprints, post_idx);
+                }
+                AddToTransaction(trn_type) => {
+                    let dest_trn_idx = match trn_type {
+                        New(pending_trn_idx) => {
+                            new_trn_idxs
+                                .get(&HashableTransactionIndex(pending_trn_idx))
+                                .expect("new transaction index not found in new transaction arena")
+                                .0
+                        }
+                        Existing(trn_idx) => trn_idx,
+                    };
+                    let post_idx = self.add_posting(post.post, dest_trn_idx);
+                    let dest_trn = self.get_trn_mut(dest_trn_idx);
+                    dest_trn.postings.push(post_idx);
                 }
             }
         }
-
-        Ok(())
     }
 
     // TODO: Replace expect calls with returned internal errors.
@@ -126,19 +196,6 @@ impl Merger {
         self.trn_arena
             .get_mut(trn_idx)
             .expect(BAD_TRANSACTION_INDEX)
-    }
-
-    fn get_default_dest_trn(
-        &mut self,
-        src_trn: Transaction,
-        dest_posts: &[Option<PostingIndex>],
-    ) -> TransactionIndex {
-        dest_posts
-            .iter()
-            .find_map(|opt_dest_post| {
-                opt_dest_post.map(|dest_post| self.get_post(dest_post).parent_trn)
-            })
-            .unwrap_or_else(|| self.add_transaction(src_trn))
     }
 
     fn find_matching_posting(
@@ -208,11 +265,9 @@ impl Merger {
         }
     }
 
-    fn add_transaction(&mut self, trn: Transaction) -> TransactionIndex {
-        let date = trn.date;
-        let idx = self
-            .trn_arena
-            .insert(TransactionHolder::from_transaction(trn));
+    fn add_transaction_holder(&mut self, trn: TransactionHolder) -> TransactionIndex {
+        let date = trn.trn.date;
+        let idx = self.trn_arena.insert(trn);
         self.trns_by_date
             .entry(date)
             .or_insert_with(Vec::new)
@@ -257,6 +312,38 @@ impl Merger {
     }
 }
 
+struct PendingMerges {
+    /// Posts to merge so far.
+    posts: Vec<PendingPosting>,
+    /// New transactions to create.
+    new_trns: TransactionArena,
+}
+
+impl PendingMerges {
+    fn new() -> Self {
+        PendingMerges {
+            posts: Vec::new(),
+            new_trns: TransactionArena::new(),
+        }
+    }
+}
+
+struct PendingPosting {
+    post: InputPosting,
+    destination: PostingDestination,
+}
+
+enum PostingDestination {
+    MergeIntoExisting(PostingIndex),
+    AddToTransaction(DestinationTransaction),
+}
+
+#[derive(Clone, Copy)]
+enum DestinationTransaction {
+    Existing(TransactionIndex),
+    New(TransactionIndex),
+}
+
 /// Extracts copies of the fingerprint tag(s) from `comment`.
 fn fingerprints_from_comment(comment: &Comment) -> Vec<String> {
     comment
@@ -275,14 +362,18 @@ struct TransactionHolder {
 }
 
 impl TransactionHolder {
-    /// Moves trn into a new `TransactionHolder`, discarding any Postings
+    /// Moves trn into a new `TransactionHolder`, moving out any Postings
     /// inside.
-    fn from_transaction(mut trn: Transaction) -> Self {
-        trn.postings.clear();
-        TransactionHolder {
-            trn,
-            postings: Vec::new(),
-        }
+    fn from_transaction(mut trn: Transaction) -> (Self, Vec<Posting>) {
+        let mut posts: Vec<Posting> = Vec::new();
+        std::mem::swap(&mut posts, &mut trn.postings);
+        (
+            TransactionHolder {
+                trn,
+                postings: Vec::new(),
+            },
+            posts,
+        )
     }
 
     fn into_transaction(mut self, postings: Vec<Posting>) -> Transaction {
@@ -363,9 +454,27 @@ impl PostingHolder {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq)]
 struct HashablePostingIndex(PostingIndex);
+impl PartialEq for HashablePostingIndex {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.arr_idx() == other.0.arr_idx() && self.0.gen() == other.0.gen()
+    }
+}
 impl std::hash::Hash for HashablePostingIndex {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.arr_idx().hash(state);
+    }
+}
+
+#[derive(Eq)]
+struct HashableTransactionIndex(TransactionIndex);
+impl PartialEq for HashableTransactionIndex {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.arr_idx() == other.0.arr_idx() && self.0.gen() == other.0.gen()
+    }
+}
+impl std::hash::Hash for HashableTransactionIndex {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.0.arr_idx().hash(state);
     }
@@ -487,8 +596,47 @@ mod tests {
         );
     }
 
-    // TODO: postings from a call to merge will currently match earlier postings
-    // from the same call to merge. Should instead discount them as candidates.
+    // Postings from a call to merge should not match earlier postings from the
+    // same call to merge.
+    #[test]
+    fn postings_do_not_match_from_same_merge() {
+        let mut merger = Merger::new();
+
+        // The tags in the transactions aren't significant for the test, but
+        // their merging makes it more obvious what's wrong if there's a
+        // failure.
+        merger
+            .merge(parse_transactions(
+                r#"
+                2000/01/01 Foo
+                    assets:foo  GBP 10.00  ; :foo-1:
+                2000/01/01 Foo
+                    assets:foo  GBP 10.00  ; :foo-2:
+                2000/01/01 Foo
+                    assets:foo  GBP 10.00  ; :foo-3:
+                2000/01/01 Foo
+                    assets:foo  GBP 10.00  ; :foo-4:
+                "#,
+            ))
+            .unwrap();
+
+        let result = merger.build();
+        assert_transactions_eq!(
+            &result,
+            parse_transactions(
+                r#"
+                2000/01/01 Foo
+                    assets:foo  GBP 10.00  ; :foo-1:
+                2000/01/01 Foo
+                    assets:foo  GBP 10.00  ; :foo-2:
+                2000/01/01 Foo
+                    assets:foo  GBP 10.00  ; :foo-3:
+                2000/01/01 Foo
+                    assets:foo  GBP 10.00  ; :foo-4:
+                "#
+            ),
+        );
+    }
 
     #[test]
     fn fingerprint_many_match_failure() {
