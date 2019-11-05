@@ -27,9 +27,6 @@ extern crate text_diff;
 #[cfg(test)]
 extern crate textwrap;
 
-use std::io::Read;
-use std::path::PathBuf;
-
 use failure::Error;
 use structopt::StructOpt;
 
@@ -39,17 +36,14 @@ mod testutil;
 
 mod accounts;
 mod comment;
+mod filespec;
 mod fingerprint;
 mod importers;
 mod merge;
 mod rule;
 mod tags;
 
-#[derive(Debug, Fail)]
-enum CommandError {
-    #[fail(display = "parse error: {}", reason)]
-    ParseError { reason: String },
-}
+use filespec::FileSpec;
 
 #[derive(Debug, StructOpt)]
 /// Utilities for working with Ledger journals.
@@ -86,24 +80,30 @@ fn main() -> Result<(), Error> {
 struct ApplyRules {
     #[structopt(short = "r", long = "rules")]
     /// The file to read the rules from.
-    rules: PathBuf,
-    #[structopt(parse(from_os_str))]
+    rules: FileSpec,
     /// The Ledger journal to read.
-    input_journal: PathBuf,
+    input_journal: FileSpec,
+    /// The ledger file to write to (overwrites any existing file). "-" writes
+    /// to stdout.
+    #[structopt(short = "o", long = "output", default_value = "-")]
+    output: FileSpec,
 }
 
 fn do_apply_rules(apply_rules: &ApplyRules) -> Result<(), Error> {
-    let mut ledger = read_from_file(&apply_rules.input_journal)?;
-    let rules = rule::Table::from_path(&apply_rules.rules)?;
+    let mut ledger = filespec::read_ledger_file(&apply_rules.input_journal)?;
+    let rules = rule::Table::from_filespec(&apply_rules.rules)?;
     for trn in &mut ledger.transactions {
         rules.update_transaction(trn)?;
     }
-    println!("{}", ledger);
-    Ok(())
+    filespec::write_ledger_file(&apply_rules.output, &ledger)
 }
 
 #[derive(Debug, StructOpt)]
 struct Import {
+    /// The ledger file to write to (overwrites any existing file). "-" writes
+    /// to stdout.
+    #[structopt(short = "o", long = "output", default_value = "-")]
+    output: FileSpec,
     #[structopt(subcommand)]
     /// The importer type to use to read transactions.
     importer: importers::Importer,
@@ -112,23 +112,25 @@ struct Import {
 impl Import {
     fn run(&self) -> Result<(), Error> {
         let ledger = self.importer.do_import()?;
-        println!("{}", ledger);
-        Ok(())
+        filespec::write_ledger_file(&self.output, &ledger)
     }
 }
 
 #[derive(Debug, StructOpt)]
 struct Merge {
-    #[structopt(parse(from_os_str))]
     /// The Ledger journals to read from.
-    inputs: Vec<PathBuf>,
+    inputs: Vec<FileSpec>,
+
+    /// The file to write the merged ledger to.
+    #[structopt(short = "o", long = "output", default_value = "-")]
+    output: FileSpec,
 }
 
 fn do_merge(merge: &Merge) -> Result<(), Error> {
     let mut merger = merge::Merger::new();
 
-    for path in &merge.inputs {
-        let ledger = read_from_file(&path)?;
+    for ledger_file in &merge.inputs {
+        let ledger = filespec::read_ledger_file(ledger_file)?;
         merger.merge(ledger.transactions)?;
     }
 
@@ -138,15 +140,6 @@ fn do_merge(merge: &Merge) -> Result<(), Error> {
         transactions,
         commodity_prices: Default::default(),
     };
-    println!("{}", ledger);
 
-    Ok(())
-}
-
-fn read_from_file(path: &std::path::Path) -> Result<ledger_parser::Ledger, Error> {
-    let mut content = String::new();
-    let mut f = std::fs::File::open(path)?;
-    f.read_to_string(&mut content)?;
-
-    ledger_parser::parse(&content).map_err(|e| CommandError::ParseError { reason: e }.into())
+    filespec::write_ledger_file(&merge.output, &ledger)
 }

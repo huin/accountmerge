@@ -1,11 +1,10 @@
 use std::collections::HashMap;
-use std::fs::File;
-use std::path::Path;
 
 use failure::Error;
 use ledger_parser::{Posting, Transaction};
 
 use crate::comment::Comment;
+use crate::filespec::FileSpec;
 
 const START_CHAIN: &str = "start";
 
@@ -42,8 +41,8 @@ impl Table {
         Ok(table)
     }
 
-    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        let reader = File::open(path)?;
+    pub fn from_filespec(file_spec: &FileSpec) -> Result<Self, Error> {
+        let reader = file_spec.reader()?;
         let table: Table = ron::de::from_reader(reader)?;
         table.validate()?;
         Ok(table)

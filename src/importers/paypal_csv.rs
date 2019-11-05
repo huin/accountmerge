@@ -1,6 +1,6 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
-use std::path::PathBuf;
+
 use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDateTime, TimeZone};
@@ -12,6 +12,7 @@ use structopt::StructOpt;
 
 use crate::accounts::ASSETS_UNKNOWN;
 use crate::comment::Comment;
+use crate::filespec::FileSpec;
 use crate::fingerprint::{make_prefix, FingerprintBuilder};
 use crate::importers::importer::TransactionImporter;
 use crate::importers::util::self_and_peer_account_amount;
@@ -60,9 +61,8 @@ impl Display for TzDisplay {
 #[derive(Debug, StructOpt)]
 /// Converts from PayPal CSV format to Ledger transactions.
 pub struct PaypalCsv {
-    #[structopt(parse(from_os_str))]
-    /// PayPal CSV file to read from.
-    input: PathBuf,
+    /// PayPal CSV file to read from. "-" reads from stdin.
+    input: FileSpec,
     /// Timezone of the output Ledger transactions.
     #[structopt(long = "output-timezone")]
     output_timezone: Tz,
@@ -78,7 +78,7 @@ impl TransactionImporter for PaypalCsv {
             .has_headers(true)
             .flexible(false)
             .trim(csv::Trim::All)
-            .from_path(&self.input)?;
+            .from_reader(self.input.reader()?);
         let headers = csv_rdr.headers()?.clone();
         let mut csv_records = csv_rdr.records();
 

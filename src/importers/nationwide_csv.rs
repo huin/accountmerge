@@ -1,5 +1,3 @@
-use std::fs::File;
-use std::path::PathBuf;
 use std::str::FromStr;
 
 use chrono::NaiveDate;
@@ -9,6 +7,7 @@ use structopt::StructOpt;
 
 use crate::accounts::ASSETS_UNKNOWN;
 use crate::comment::Comment;
+use crate::filespec::FileSpec;
 use crate::fingerprint::{make_prefix, FingerprintBuilder};
 use crate::importers::importer::TransactionImporter;
 use crate::importers::nationwide_csv::de::*;
@@ -37,9 +36,8 @@ struct AccountQuantity {
 /// Converts from Nationwide (nationwide.co.uk) CSV format to Ledger
 /// transactions.
 pub struct NationwideCsv {
-    #[structopt(parse(from_os_str))]
-    /// Nationwide CSV file to read from.
-    input: PathBuf,
+    /// Nationwide CSV file to read from. "-" reads from stdin.
+    input: FileSpec,
     #[structopt(long = "fingerprint-prefix", default_value = "generated")]
     /// The prefix of the fingerprints to generate (without "fp-" that will be
     /// prefixed to this value).
@@ -103,7 +101,7 @@ impl TransactionImporter for NationwideCsv {
     fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
         let reader = encoding_rs_io::DecodeReaderBytesBuilder::new()
             .encoding(Some(encoding_rs::WINDOWS_1252))
-            .build(File::open(&self.input)?);
+            .build(self.input.reader()?);
         let mut csv_rdr = csv::ReaderBuilder::new()
             .has_headers(false)
             .flexible(true)
