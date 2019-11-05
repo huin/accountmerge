@@ -428,12 +428,25 @@ impl PostingHolder {
     }
 
     fn matches(&self, input: &InputPosting) -> bool {
+        let a = &self.posting;
         let b = &input.posting;
-        self.posting.amount == b.amount
-            && match (&self.posting.balance, &b.balance) {
-                (Some(a_bal), Some(b_bal)) => a_bal == b_bal,
-                _ => true,
-            }
+
+        let accounts_match = if !self.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
+            && !input.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
+        {
+            a.account == b.account
+        } else {
+            true
+        };
+
+        let amounts_match = a.amount == b.amount;
+
+        let balances_match = match (&a.balance, &b.balance) {
+            (Some(a_bal), Some(b_bal)) => a_bal == b_bal,
+            _ => true,
+        };
+
+        accounts_match && amounts_match && balances_match
     }
 
     fn merge_from_input_posting(&mut self, mut src: InputPosting) -> Vec<String> {
@@ -841,9 +854,27 @@ mod tests {
             "Differing amount.",
         );
         assert_eq!(
-            parse_match("foo  GBP 10.00", "bar  GBP 10.00"),
+            parse_match("foo  GBP 10.00", "bar  GBP 10.00  ; :unknown-account:"),
             true,
-            "Differing account.",
+            "Differing unknown source account.",
+        );
+        assert_eq!(
+            parse_match("foo  GBP 10.00  ; :unknown-account:", "bar  GBP 10.00"),
+            true,
+            "Differing unknown dest account.",
+        );
+        assert_eq!(
+            parse_match(
+                "foo  GBP 10.00  ; :unknown-account:",
+                "bar  GBP 10.00  ; :unknown-account:"
+            ),
+            true,
+            "Differing unknown accounts match.",
+        );
+        assert_eq!(
+            parse_match("foo  GBP 10.00", "bar  GBP 10.00"),
+            false,
+            "Differing known accounts do not match.",
         );
     }
 }

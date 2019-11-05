@@ -42,5 +42,7 @@ in the following order:
 
     *   Same date on parent transaction.
     *   Same amount.
-    *   TODO: If both source and destination postings do *not* have the the
+    *   If *both* source and destinations postings have a balance value, they
+        must have the same balance.
+    *   If *both* source and destination postings do *not* have the
         "unknown-account" tag, they must also match account names.
