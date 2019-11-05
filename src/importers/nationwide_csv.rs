@@ -11,7 +11,6 @@ use crate::filespec::FileSpec;
 use crate::fingerprint::{make_prefix, FingerprintBuilder};
 use crate::importers::importer::TransactionImporter;
 use crate::importers::nationwide_csv::de::*;
-use crate::importers::util::csv::{check_header, deserialize_required_record, ReadError};
 use crate::importers::util::{negate_amount, self_and_peer_account_amount};
 use crate::tags::{ACCOUNT_TAG, BANK_TAG, UNKNOWN_ACCOUNT_TAG};
 
@@ -19,6 +18,22 @@ use crate::tags::{ACCOUNT_TAG, BANK_TAG, UNKNOWN_ACCOUNT_TAG};
 pub const TRANSACTION_TYPE_TAG: &str = "trn_type";
 
 const BANK_NAME: &str = "Nationwide";
+
+#[derive(Debug, Fail)]
+enum ReadError {
+    #[fail(display = "bad file format: {}", reason)]
+    BadFileFormat { reason: &'static str },
+    #[fail(display = "bad header record, want {:?}, got {:?}", want, got)]
+    BadHeaderRecord { want: &'static str, got: String },
+    #[fail(display = "invalid value for flag {}: {:?}", flag, value)]
+    BadFlagValue { flag: &'static str, value: String },
+}
+
+impl ReadError {
+    fn bad_file_format(reason: &'static str) -> ReadError {
+        ReadError::BadFileFormat { reason }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 struct AccountName {
@@ -241,15 +256,18 @@ fn form_postings(
 
 mod de {
     use std::fmt;
+    use std::str::FromStr;
 
     use chrono::NaiveDate;
+    use failure::Error;
     use ledger_parser::{Amount, Commodity, CommodityPosition};
     use regex::Regex;
     use rust_decimal::Decimal;
+    use serde::de::DeserializeOwned;
     use serde::{de, Deserialize, Deserializer};
 
+    use super::ReadError;
     use crate::fingerprint::{FingerprintBuilder, Fingerprintable};
-    use crate::importers::util::csv::deserialize_captured_number;
 
     #[derive(Debug, Deserialize)]
     pub struct Record {
@@ -327,6 +345,45 @@ mod de {
                 },
                 quantity: Decimal::new(pounds * 100 + pence, 2),
             }))
+        }
+    }
+
+    pub fn check_header(want: &'static str, got: &str) -> Result<(), Error> {
+        if want != got {
+            Err(ReadError::BadHeaderRecord {
+                want,
+                got: got.to_string(),
+            }
+            .into())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn deserialize_captured_number<T, E>(c: &regex::Captures, i: usize) -> Result<T, E>
+    where
+        T: FromStr,
+        E: de::Error,
+        <T as FromStr>::Err: fmt::Display,
+    {
+        c.get(i)
+            .unwrap()
+            .as_str()
+            .parse()
+            .map_err(de::Error::custom)
+    }
+
+    pub fn deserialize_required_record<T, R>(
+        csv_records: &mut csv::StringRecordsIter<R>,
+    ) -> Result<Option<T>, Error>
+    where
+        T: DeserializeOwned,
+        R: std::io::Read,
+    {
+        match csv_records.next() {
+            Some(Ok(str_record)) => Ok(Some(str_record.deserialize(None)?)),
+            Some(Err(e)) => Err(e.into()),
+            None => Ok(None),
         }
     }
 }
