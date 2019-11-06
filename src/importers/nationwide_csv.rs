@@ -22,16 +22,16 @@ const BANK_NAME: &str = "Nationwide";
 #[derive(Debug, Fail)]
 enum ReadError {
     #[fail(display = "bad file format: {}", reason)]
-    BadFileFormat { reason: &'static str },
+    FileFormat { reason: &'static str },
     #[fail(display = "bad header record, want {:?}, got {:?}", want, got)]
-    BadHeaderRecord { want: &'static str, got: String },
+    HeaderRecord { want: &'static str, got: String },
     #[fail(display = "invalid value for flag {}: {:?}", flag, value)]
-    BadFlagValue { flag: &'static str, value: String },
+    FlagValue { flag: &'static str, value: String },
 }
 
 impl ReadError {
     fn bad_file_format(reason: &'static str) -> ReadError {
-        ReadError::BadFileFormat { reason }
+        ReadError::FileFormat { reason }
     }
 }
 
@@ -103,7 +103,7 @@ impl FromStr for FpPrefix {
             "account-name" => Ok(AccountName),
             "generated" => Ok(Generated),
             s if s.starts_with(FIXED_PREFIX) => Ok(Fixed(s[FIXED_PREFIX.len()..].to_string())),
-            _ => Err(ReadError::BadFlagValue {
+            _ => Err(ReadError::FlagValue {
                 flag: "fingerprint-prefix",
                 value: s.to_string(),
             }
@@ -350,7 +350,7 @@ mod de {
 
     pub fn check_header(want: &'static str, got: &str) -> Result<(), Error> {
         if want != got {
-            Err(ReadError::BadHeaderRecord {
+            Err(ReadError::HeaderRecord {
                 want,
                 got: got.to_string(),
             }

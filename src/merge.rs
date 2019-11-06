@@ -273,7 +273,7 @@ impl Merger {
     fn find_existing_dest_trn(
         &self,
         src_trn: &TransactionHolder,
-        src_posts_matched: &Vec<(InputPosting, Option<PostingIndex>)>,
+        src_posts_matched: &[(InputPosting, Option<PostingIndex>)],
     ) -> Result<Option<TransactionIndex>, Error> {
         let candidate_trns: HashSet<HashableTransactionIndex> = src_posts_matched
             .iter()
