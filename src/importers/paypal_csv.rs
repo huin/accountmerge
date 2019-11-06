@@ -122,7 +122,8 @@ impl PaypalCsv {
             .ok_or_else(|| ReadError::NoNameForGroup { datetime: dt })?;
 
         let mut postings = Vec::new();
-        for record in records.into_iter() {
+        for (i, mut record) in records.into_iter().enumerate() {
+            record.partial_fp = record.partial_fp.with(i);
             let (p1, p2) = form_postings(record, fp_prefix);
             postings.push(p1);
             postings.push(p2);
