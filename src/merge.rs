@@ -22,8 +22,15 @@ enum MergeError {
         display = "input posting matches multiple destination postings with fingerprints: {}",
         fingerprints
     )]
-    InputPostingMatchesMultiplePostings {
-        fingerprints: MultipleMatchingFingerprints,
+    InputPostingMatchesMultiplePostings { fingerprints: DisplayStringList },
+    #[fail(
+        display = "input transaction on {} ({:?}) matches multiple existing transactions: {}",
+        in_trn_date, in_trn_desc, out_trn_descs
+    )]
+    InputTransactionMatchesMultipleTransactions {
+        in_trn_date: NaiveDate,
+        in_trn_desc: String,
+        out_trn_descs: DisplayStringList,
     },
     #[fail(
         display = "multiple postings with same fingerprint ({:?}) found within a single input transaction set",
@@ -33,8 +40,8 @@ enum MergeError {
 }
 
 #[derive(Debug)]
-struct MultipleMatchingFingerprints(Vec<String>);
-impl std::fmt::Display for MultipleMatchingFingerprints {
+struct DisplayStringList(Vec<String>);
+impl std::fmt::Display for DisplayStringList {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         f.write_str(&itertools::join(
             self.0.iter().map(|f| format!("{:?}", f)),
@@ -104,15 +111,9 @@ impl Merger {
             }
 
             // Determine default destination transaction.
-            let default_dest_trn: DestinationTransaction = src_posts_matched
-                .iter()
-                // TODO: Consider checking that only one destination transaction
-                // matches.
-                .find_map(|(_, opt_dest_post)| {
-                    opt_dest_post
-                        .map(|dest_post| self.get_post(dest_post).parent_trn)
-                        .map(DestinationTransaction::Existing)
-                })
+            let default_dest_trn: DestinationTransaction = self
+                .find_existing_dest_trn(&src_trn, &src_posts_matched)?
+                .map(DestinationTransaction::Existing)
                 .unwrap_or_else(|| DestinationTransaction::New(pending.new_trns.insert(src_trn)));
 
             pending.posts.extend(
@@ -237,7 +238,7 @@ impl Merger {
         match posts.len() {
             n if n <= 1 => Ok(posts.iter().nth(0).map(|i| i.0)),
             _ => Err(MergeError::InputPostingMatchesMultiplePostings {
-                fingerprints: MultipleMatchingFingerprints(post.fingerprints.clone()),
+                fingerprints: DisplayStringList(post.fingerprints.clone()),
             }
             .into()),
         }
@@ -262,6 +263,42 @@ impl Merger {
     fn register_fingerprints(&mut self, fingerprints: Vec<String>, post_idx: PostingIndex) {
         for fp in fingerprints.into_iter() {
             self.post_by_fingerprint.insert(fp, post_idx);
+        }
+    }
+
+    /// Gethers the existing transactions that are the parents of the
+    /// `src_posts_matched`. Returns None if `src_posts_matched` contains no
+    /// postings. Returns an error if multiple transactions are parents of the
+    /// `src_posts_matched`.
+    fn find_existing_dest_trn(
+        &self,
+        src_trn: &TransactionHolder,
+        src_posts_matched: &Vec<(InputPosting, Option<PostingIndex>)>,
+    ) -> Result<Option<TransactionIndex>, Error> {
+        let candidate_trns: HashSet<HashableTransactionIndex> = src_posts_matched
+            .iter()
+            .filter_map(|(_, opt_dest_post)| {
+                opt_dest_post
+                    .map(|dest_post| self.get_post(dest_post).parent_trn)
+                    .map(HashableTransactionIndex)
+            })
+            .collect();
+
+        // Check that only one destination transaction matches.
+        match candidate_trns.len() {
+            n if n <= 1 => Ok(candidate_trns.iter().nth(0).map(|i| i.0)),
+            _ => Err(MergeError::InputTransactionMatchesMultipleTransactions {
+                in_trn_date: src_trn.trn.date,
+                in_trn_desc: src_trn.trn.description.clone(),
+                out_trn_descs: DisplayStringList(
+                    candidate_trns
+                        .iter()
+                        .map(|trn_idx| &self.get_trn(trn_idx.0).trn.description)
+                        .cloned()
+                        .collect(),
+                ),
+            }
+            .into()),
         }
     }
 
@@ -688,6 +725,32 @@ mod tests {
                 "#
             ),
         );
+    }
+
+    #[test]
+    fn many_matched_transactions_failure() {
+        let mut merger = Merger::new();
+        merger
+            .merge(parse_transactions(
+                r#"
+                2000/01/01 Transfer to checking
+                    assets:checking  GBP 100.00
+                2000/01/01 Transfer to savings
+                    assets:savings   GBP 100.00
+                "#,
+            ))
+            .unwrap();
+        assert!(merger
+            .merge(parse_transactions(
+                // The existing transactions have postings that match both the
+                // postings from the single input transaction.
+                r#"
+                2000/01/01 Mixed
+                    assets:checking  GBP 100.00
+                    assets:savings   GBP 100.00
+                "#,
+            ))
+            .is_err());
     }
 
     #[test]
