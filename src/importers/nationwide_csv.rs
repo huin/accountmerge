@@ -263,8 +263,7 @@ mod de {
     use ledger_parser::{Amount, Commodity, CommodityPosition};
     use regex::Regex;
     use rust_decimal::Decimal;
-    use serde::de::DeserializeOwned;
-    use serde::{de, Deserialize, Deserializer};
+    use serde::de::{self, Deserialize, DeserializeOwned, Deserializer};
 
     use super::ReadError;
     use crate::fingerprint::{FingerprintBuilder, Fingerprintable};
