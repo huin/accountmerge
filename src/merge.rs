@@ -541,16 +541,16 @@ mod tests {
         merger
             .merge(parse_transactions(
                 r#"
-            2000/02/01 Salary
-                assets:checking  GBP 100.00
-                income:salary    GBP -100.00
-            2000/01/01 Salary
-                assets:checking  GBP 100.00
-                income:salary    GBP -100.00
-            2000/02/01 Lunch
-                assets:checking  GBP -5.00
-                expenses:dining  GBP 5.00
-            "#,
+                2000/02/01 Salary
+                    assets:checking  GBP 100.00
+                    income:salary    GBP -100.00
+                2000/01/01 Salary
+                    assets:checking  GBP 100.00
+                    income:salary    GBP -100.00
+                2000/02/01 Lunch
+                    assets:checking  GBP -5.00
+                    expenses:dining  GBP 5.00
+                "#,
             ))
             .unwrap();
         let result = merger.build();
@@ -760,10 +760,10 @@ mod tests {
         merger
             .merge(parse_transactions(
                 r#"
-            2000/01/01 Salary
-                assets:checking  GBP 100.00
-                income:salary    GBP -100.00
-            "#,
+                2000/01/01 Salary
+                    assets:checking  GBP 100.00
+                    income:salary    GBP -100.00
+                "#,
             ))
             .unwrap();
         merger
