@@ -1,4 +1,4 @@
-use ledger_parser::Transaction;
+use ledger_parser::{Posting, Transaction};
 
 pub fn parse_transactions(s: &str) -> Vec<Transaction> {
     ledger_parser::parse(textwrap::dedent(s).as_ref())
@@ -31,4 +31,10 @@ macro_rules! assert_transactions_eq {
             text_diff::assert_diff(&want_str, &got_str, "\n", 0);
         }
     };
+}
+
+pub fn parse_posting(p: &str) -> Posting {
+    let t = "2000/01/01 Dummy Transaction\n  ".to_string() + p + "\n";
+    let mut trn = ledger_parser::parse(&t).unwrap();
+    trn.transactions.remove(0).postings.remove(0)
 }
