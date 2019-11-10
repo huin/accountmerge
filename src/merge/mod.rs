@@ -173,7 +173,7 @@ impl Merger {
 
         // Look for a match based on internal values.
         for candidate_idx in self.posts.date_to_indices(date) {
-            let candidate_post = self.posts.get_post(candidate_idx);
+            let candidate_post = self.posts.get(candidate_idx);
             if candidate_post.matches(post) {
                 return Ok(Some(candidate_idx));
             }
@@ -216,7 +216,7 @@ impl Merger {
             .iter()
             .filter_map(|(_, opt_dest_post)| {
                 opt_dest_post
-                    .map(|dest_post| self.posts.get_post(dest_post).get_parent_trn())
+                    .map(|dest_post| self.posts.get(dest_post).get_parent_trn())
                     .map(HashableTransactionIndex)
             })
             .collect();
@@ -230,7 +230,7 @@ impl Merger {
                 out_trn_descs: DisplayStringList(
                     candidate_trns
                         .iter()
-                        .map(|trn_idx| &self.trns.get_trn(trn_idx.0).trn.description)
+                        .map(|trn_idx| &self.trns.get(trn_idx.0).trn.description)
                         .cloned()
                         .collect(),
                 ),

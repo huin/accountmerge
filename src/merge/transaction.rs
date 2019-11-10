@@ -49,11 +49,11 @@ impl IndexedTransactions {
 
     // TODO: Replace expect calls with returned internal errors.
 
-    pub fn get_trn(&self, trn_idx: Index) -> &Holder {
+    pub fn get(&self, trn_idx: Index) -> &Holder {
         self.trn_arena.get(trn_idx).expect(BAD_TRANSACTION_INDEX)
     }
 
-    fn get_trn_mut(&mut self, trn_idx: Index) -> &mut Holder {
+    fn get_mut(&mut self, trn_idx: Index) -> &mut Holder {
         self.trn_arena
             .get_mut(trn_idx)
             .expect(BAD_TRANSACTION_INDEX)
@@ -70,7 +70,7 @@ impl IndexedTransactions {
     }
 
     pub fn add_post_to_trn(&mut self, trn_idx: Index, post_idx: posting::Index) {
-        let dest_trn = self.get_trn_mut(trn_idx);
+        let dest_trn = self.get_mut(trn_idx);
         dest_trn.postings.push(post_idx);
     }
 }

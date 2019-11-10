@@ -52,11 +52,11 @@ impl IndexedPostings {
 
     // TODO: Replace expect calls with returned internal errors.
 
-    pub fn get_post(&self, post_idx: Index) -> &Holder {
+    pub fn get(&self, post_idx: Index) -> &Holder {
         self.post_arena.get(post_idx).expect(BAD_POSTING_INDEX)
     }
 
-    fn get_post_mut(&mut self, post_idx: Index) -> &mut Holder {
+    fn get_mut(&mut self, post_idx: Index) -> &mut Holder {
         self.post_arena.get_mut(post_idx).expect(BAD_POSTING_INDEX)
     }
 
@@ -67,7 +67,7 @@ impl IndexedPostings {
 
     /// Updates an existing posting, updating the fingerprint index.
     pub fn merge_into(&mut self, existing_post_idx: Index, input_posting: Input) {
-        let dest_post = self.get_post_mut(existing_post_idx);
+        let dest_post = self.get_mut(existing_post_idx);
         let post_fingerprints = dest_post.merge_from_input_posting(input_posting);
         self.register_fingerprints(post_fingerprints, existing_post_idx);
     }
