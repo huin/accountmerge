@@ -9,21 +9,21 @@ use crate::comment::Comment;
 use crate::merge::transaction;
 use crate::tags::{FINGERPRINT_TAG_PREFIX, UNKNOWN_ACCOUNT_TAG};
 
-const BAD_POSTING_INDEX: &str = "internal error: used invalid posting::PostingIndex";
+const BAD_POSTING_INDEX: &str = "internal error: used invalid posting::Index";
 
-pub type PostingArena = StandardArena<PostingHolder>;
-pub type PostingIndex = StandardIndex<PostingHolder>;
+pub type Arena = StandardArena<Holder>;
+pub type Index = StandardIndex<Holder>;
 
-pub struct Postings {
-    post_arena: PostingArena,
-    posts_by_date: HashMap<NaiveDate, Vec<PostingIndex>>,
-    post_by_fingerprint: HashMap<String, PostingIndex>,
+pub struct IndexedPostings {
+    post_arena: Arena,
+    posts_by_date: HashMap<NaiveDate, Vec<Index>>,
+    post_by_fingerprint: HashMap<String, Index>,
 }
 
-impl Postings {
+impl IndexedPostings {
     pub fn new() -> Self {
         Self {
-            post_arena: PostingArena::new(),
+            post_arena: Arena::new(),
             posts_by_date: HashMap::new(),
             post_by_fingerprint: HashMap::new(),
         }
@@ -34,13 +34,8 @@ impl Postings {
     }
 
     /// Adds a new posting, updating the fingerprint index.
-    pub fn add(
-        &mut self,
-        input_posting: InputPosting,
-        parent_trn: transaction::TransactionIndex,
-    ) -> PostingIndex {
-        let (posting, trn_date, fingerprints) =
-            PostingHolder::from_input_posting(input_posting, parent_trn);
+    pub fn add(&mut self, input_posting: Input, parent_trn: transaction::Index) -> Index {
+        let (posting, trn_date, fingerprints) = Holder::from_input(input_posting, parent_trn);
         let idx = self.post_arena.insert(posting);
         self.register_fingerprints(fingerprints, idx);
 
@@ -51,45 +46,42 @@ impl Postings {
         idx
     }
 
-    pub fn fingerprint_to_index(&self, fingerprint: &str) -> Option<PostingIndex> {
+    pub fn fingerprint_to_index(&self, fingerprint: &str) -> Option<Index> {
         self.post_by_fingerprint.get(fingerprint).copied()
     }
 
-    pub fn get_post(&self, post_idx: PostingIndex) -> &PostingHolder {
+    pub fn get_post(&self, post_idx: Index) -> &Holder {
         self.post_arena.get(post_idx).expect(BAD_POSTING_INDEX)
     }
 
-    fn get_post_mut(&mut self, post_idx: PostingIndex) -> &mut PostingHolder {
+    fn get_post_mut(&mut self, post_idx: Index) -> &mut Holder {
         self.post_arena.get_mut(post_idx).expect(BAD_POSTING_INDEX)
     }
 
-    pub fn date_to_indices<'a>(
-        &'a self,
-        date: NaiveDate,
-    ) -> impl Iterator<Item = PostingIndex> + 'a {
+    pub fn date_to_indices<'a>(&'a self, date: NaiveDate) -> impl Iterator<Item = Index> + 'a {
         let opt_vec = self.posts_by_date.get(&date);
         opt_vec.into_iter().flat_map(|vec| vec.iter()).copied()
     }
 
     /// Updates an existing posting, updating the fingerprint index.
-    pub fn merge_into(&mut self, existing_post_idx: PostingIndex, input_posting: InputPosting) {
+    pub fn merge_into(&mut self, existing_post_idx: Index, input_posting: Input) {
         let dest_post = self.get_post_mut(existing_post_idx);
         let post_fingerprints = dest_post.merge_from_input_posting(input_posting);
         self.register_fingerprints(post_fingerprints, existing_post_idx);
     }
 
     /// Adds to posting fingerprints index.
-    fn register_fingerprints(&mut self, fingerprints: Vec<String>, post_idx: PostingIndex) {
+    fn register_fingerprints(&mut self, fingerprints: Vec<String>, post_idx: Index) {
         for fp in fingerprints.into_iter() {
             self.post_by_fingerprint.insert(fp, post_idx);
         }
     }
 }
 
-pub struct ConsumePostings(PostingArena);
+pub struct ConsumePostings(Arena);
 
 impl ConsumePostings {
-    pub fn take(&mut self, post_idx: PostingIndex) -> Posting {
+    pub fn take(&mut self, post_idx: Index) -> Posting {
         self.0
             .remove(post_idx)
             .expect(BAD_POSTING_INDEX)
@@ -97,14 +89,14 @@ impl ConsumePostings {
     }
 }
 
-pub struct InputPosting {
+pub struct Input {
     pub fingerprints: Vec<String>,
     trn_date: NaiveDate,
     posting: Posting,
     comment: Comment,
 }
 
-impl InputPosting {
+impl Input {
     pub fn from_posting(mut posting: Posting, trn_date: NaiveDate) -> Result<Self, Error> {
         let comment = Comment::from_opt_comment(posting.comment.as_ref().map(String::as_str));
         posting.comment = None;
@@ -118,17 +110,14 @@ impl InputPosting {
 }
 
 /// Contains a partially unpacked `Posting`.
-pub struct PostingHolder {
-    parent_trn: transaction::TransactionIndex,
+pub struct Holder {
+    parent_trn: transaction::Index,
     posting: Posting,
     comment: Comment,
 }
 
-impl PostingHolder {
-    fn from_input_posting(
-        proto: InputPosting,
-        parent_trn: transaction::TransactionIndex,
-    ) -> (Self, NaiveDate, Vec<String>) {
+impl Holder {
+    fn from_input(proto: Input, parent_trn: transaction::Index) -> (Self, NaiveDate, Vec<String>) {
         (
             Self {
                 parent_trn,
@@ -145,11 +134,11 @@ impl PostingHolder {
         self.posting
     }
 
-    pub fn get_parent_trn(&self) -> transaction::TransactionIndex {
+    pub fn get_parent_trn(&self) -> transaction::Index {
         self.parent_trn
     }
 
-    pub fn matches(&self, input: &InputPosting) -> bool {
+    pub fn matches(&self, input: &Input) -> bool {
         let a = &self.posting;
         let b = &input.posting;
 
@@ -171,7 +160,7 @@ impl PostingHolder {
         accounts_match && amounts_match && balances_match
     }
 
-    fn merge_from_input_posting(&mut self, mut src: InputPosting) -> Vec<String> {
+    fn merge_from_input_posting(&mut self, mut src: Input) -> Vec<String> {
         // TODO: Merge/update status.
         if self.posting.balance.is_none() {
             self.posting.balance = src.posting.balance.clone()
@@ -209,10 +198,9 @@ mod tests {
         let dummy_date = NaiveDate::from_ymd(2000, 1, 1);
         let dummy_idx = StandardIndex::from_idx_first_gen(0);
         let parse_merge_from = |dest: &str, src: &str| {
-            let dest_posting = InputPosting::from_posting(parse_posting(dest), dummy_date).unwrap();
-            let src_posting = InputPosting::from_posting(parse_posting(src), dummy_date).unwrap();
-            let (mut dest_holder, _, _) =
-                PostingHolder::from_input_posting(dest_posting, dummy_idx);
+            let dest_posting = Input::from_posting(parse_posting(dest), dummy_date).unwrap();
+            let src_posting = Input::from_posting(parse_posting(src), dummy_date).unwrap();
+            let (mut dest_holder, _, _) = Holder::from_input(dest_posting, dummy_idx);
             dest_holder.merge_from_input_posting(src_posting);
             dest_holder.into_posting()
         };
@@ -259,9 +247,9 @@ mod tests {
         let dummy_date = NaiveDate::from_ymd(2000, 1, 1);
         let dummy_idx = StandardIndex::from_idx_first_gen(0);
         let parse_match = |dest: &str, src: &str| {
-            let dest_posting = InputPosting::from_posting(parse_posting(dest), dummy_date).unwrap();
-            let src_posting = InputPosting::from_posting(parse_posting(src), dummy_date).unwrap();
-            let (dest_holder, _, _) = PostingHolder::from_input_posting(dest_posting, dummy_idx);
+            let dest_posting = Input::from_posting(parse_posting(dest), dummy_date).unwrap();
+            let src_posting = Input::from_posting(parse_posting(src), dummy_date).unwrap();
+            let (dest_holder, _, _) = Holder::from_input(dest_posting, dummy_idx);
             dest_holder.matches(&src_posting)
         };
         assert_eq!(

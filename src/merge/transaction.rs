@@ -3,24 +3,24 @@ use typed_generational_arena::{StandardArena, StandardIndex};
 
 use crate::merge::posting;
 
-pub type TransactionArena = StandardArena<TransactionHolder>;
-pub type TransactionIndex = StandardIndex<TransactionHolder>;
+pub type Arena = StandardArena<Holder>;
+pub type Index = StandardIndex<Holder>;
 
 /// Contains a partially unpacked `Transaction`.
-pub struct TransactionHolder {
+pub struct Holder {
     pub trn: Transaction,
 
-    pub postings: Vec<posting::PostingIndex>,
+    pub postings: Vec<posting::Index>,
 }
 
-impl TransactionHolder {
-    /// Moves trn into a new `TransactionHolder`, moving out any Postings
+impl Holder {
+    /// Moves trn into a new `Holder`, moving out any Postings
     /// inside.
     pub fn from_transaction(mut trn: Transaction) -> (Self, Vec<Posting>) {
         let mut posts: Vec<Posting> = Vec::new();
         std::mem::swap(&mut posts, &mut trn.postings);
         (
-            TransactionHolder {
+            Holder {
                 trn,
                 postings: Vec::new(),
             },

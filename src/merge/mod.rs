@@ -8,7 +8,7 @@ use typed_generational_arena::StandardArena;
 mod posting;
 mod transaction;
 
-const BAD_TRANSACTION_INDEX: &str = "internal error: used invalid TransactionIndex";
+const BAD_TRANSACTION_INDEX: &str = "internal error: used invalid transaction::Index";
 
 #[derive(Debug, Fail)]
 enum MergeError {
@@ -45,15 +45,15 @@ impl std::fmt::Display for DisplayStringList {
 }
 
 pub struct Merger {
-    posts: posting::Postings,
-    trn_arena: transaction::TransactionArena,
-    trns_by_date: HashMap<NaiveDate, Vec<transaction::TransactionIndex>>,
+    posts: posting::IndexedPostings,
+    trn_arena: transaction::Arena,
+    trns_by_date: HashMap<NaiveDate, Vec<transaction::Index>>,
 }
 
 impl Merger {
     pub fn new() -> Self {
         Merger {
-            posts: posting::Postings::new(),
+            posts: posting::IndexedPostings::new(),
             trn_arena: StandardArena::new(),
             trns_by_date: HashMap::new(),
         }
@@ -75,21 +75,21 @@ impl Merger {
         let mut fingerprints = HashSet::<String>::new();
 
         for orig_trn in orig_trns.into_iter() {
-            let (src_trn, orig_posts) = transaction::TransactionHolder::from_transaction(orig_trn);
+            let (src_trn, orig_posts) = transaction::Holder::from_transaction(orig_trn);
 
             if orig_posts.is_empty() {
                 continue;
             }
 
-            let src_posts_matched: Vec<(posting::InputPosting, Option<posting::PostingIndex>)> = orig_posts
+            let src_posts_matched: Vec<(posting::Input, Option<posting::Index>)> = orig_posts
                 .into_iter()
                 .map(|orig_post| {
-                    let src_post = posting::InputPosting::from_posting(orig_post, src_trn.trn.date)?;
-                    let dest_post: Option<posting::PostingIndex> =
+                    let src_post = posting::Input::from_posting(orig_post, src_trn.trn.date)?;
+                    let dest_post: Option<posting::Index> =
                         self.find_matching_posting(&src_post, src_trn.trn.date)?;
                     Ok((src_post, dest_post))
                 })
-                .collect::<Result<Vec<(posting::InputPosting, Option<posting::PostingIndex>)>, Error>>()?;
+                .collect::<Result<Vec<(posting::Input, Option<posting::Index>)>, Error>>()?;
 
             for (src_post, _) in &src_posts_matched {
                 for fp in src_post.fingerprints.iter().cloned() {
@@ -169,14 +169,11 @@ impl Merger {
 
     // TODO: Replace expect calls with returned internal errors.
 
-    fn get_trn(&self, trn_idx: transaction::TransactionIndex) -> &transaction::TransactionHolder {
+    fn get_trn(&self, trn_idx: transaction::Index) -> &transaction::Holder {
         self.trn_arena.get(trn_idx).expect(BAD_TRANSACTION_INDEX)
     }
 
-    fn get_trn_mut(
-        &mut self,
-        trn_idx: transaction::TransactionIndex,
-    ) -> &mut transaction::TransactionHolder {
+    fn get_trn_mut(&mut self, trn_idx: transaction::Index) -> &mut transaction::Holder {
         self.trn_arena
             .get_mut(trn_idx)
             .expect(BAD_TRANSACTION_INDEX)
@@ -184,9 +181,9 @@ impl Merger {
 
     fn find_matching_posting(
         &self,
-        post: &posting::InputPosting,
+        post: &posting::Input,
         date: NaiveDate,
-    ) -> Result<Option<posting::PostingIndex>, Error> {
+    ) -> Result<Option<posting::Index>, Error> {
         let fp_idx = self.find_posting_by_fingerprints(post)?;
         if fp_idx.is_some() {
             return Ok(fp_idx);
@@ -207,8 +204,8 @@ impl Merger {
     /// on success, multiple matches are an error.
     fn find_posting_by_fingerprints(
         &self,
-        post: &posting::InputPosting,
-    ) -> Result<Option<posting::PostingIndex>, Error> {
+        post: &posting::Input,
+    ) -> Result<Option<posting::Index>, Error> {
         let posts: HashSet<HashablePostingIndex> = post
             .fingerprints
             .iter()
@@ -230,9 +227,9 @@ impl Merger {
     /// `src_posts_matched`.
     fn find_existing_dest_trn(
         &self,
-        src_trn: &transaction::TransactionHolder,
-        src_posts_matched: &[(posting::InputPosting, Option<posting::PostingIndex>)],
-    ) -> Result<Option<transaction::TransactionIndex>, Error> {
+        src_trn: &transaction::Holder,
+        src_posts_matched: &[(posting::Input, Option<posting::Index>)],
+    ) -> Result<Option<transaction::Index>, Error> {
         let candidate_trns: HashSet<HashableTransactionIndex> = src_posts_matched
             .iter()
             .filter_map(|(_, opt_dest_post)| {
@@ -260,10 +257,7 @@ impl Merger {
         }
     }
 
-    fn add_transaction_holder(
-        &mut self,
-        trn: transaction::TransactionHolder,
-    ) -> transaction::TransactionIndex {
+    fn add_transaction_holder(&mut self, trn: transaction::Holder) -> transaction::Index {
         let date = trn.trn.date;
         let idx = self.trn_arena.insert(trn);
         self.trns_by_date
@@ -278,7 +272,7 @@ impl Merger {
         dates.sort();
         // Avoid mutably borrowing self twice.
         let (mut trn_arena, mut trns_by_date) = {
-            let mut trn_arena = transaction::TransactionArena::new();
+            let mut trn_arena = transaction::Arena::new();
             std::mem::swap(&mut trn_arena, &mut self.trn_arena);
             let mut trns_by_date = HashMap::new();
             std::mem::swap(&mut trns_by_date, &mut self.trns_by_date);
@@ -310,36 +304,36 @@ struct PendingMerges {
     /// Posts to merge so far.
     posts: Vec<PendingPosting>,
     /// New transactions to create.
-    new_trns: transaction::TransactionArena,
+    new_trns: transaction::Arena,
 }
 
 impl PendingMerges {
     fn new() -> Self {
         PendingMerges {
             posts: Vec::new(),
-            new_trns: transaction::TransactionArena::new(),
+            new_trns: transaction::Arena::new(),
         }
     }
 }
 
 struct PendingPosting {
-    post: posting::InputPosting,
+    post: posting::Input,
     destination: PostingDestination,
 }
 
 enum PostingDestination {
-    MergeIntoExisting(posting::PostingIndex),
+    MergeIntoExisting(posting::Index),
     AddToTransaction(DestinationTransaction),
 }
 
 #[derive(Clone, Copy)]
 enum DestinationTransaction {
-    Existing(transaction::TransactionIndex),
-    New(transaction::TransactionIndex),
+    Existing(transaction::Index),
+    New(transaction::Index),
 }
 
 #[derive(Eq)]
-struct HashablePostingIndex(posting::PostingIndex);
+struct HashablePostingIndex(posting::Index);
 impl PartialEq for HashablePostingIndex {
     fn eq(&self, other: &Self) -> bool {
         self.0.arr_idx() == other.0.arr_idx() && self.0.gen() == other.0.gen()
@@ -352,7 +346,7 @@ impl std::hash::Hash for HashablePostingIndex {
 }
 
 #[derive(Eq)]
-struct HashableTransactionIndex(transaction::TransactionIndex);
+struct HashableTransactionIndex(transaction::Index);
 impl PartialEq for HashableTransactionIndex {
     fn eq(&self, other: &Self) -> bool {
         self.0.arr_idx() == other.0.arr_idx() && self.0.gen() == other.0.gen()
