@@ -50,6 +50,8 @@ impl IndexedPostings {
         self.post_by_fingerprint.get(fingerprint).copied()
     }
 
+    // TODO: Replace expect calls with returned internal errors.
+
     pub fn get_post(&self, post_idx: Index) -> &Holder {
         self.post_arena.get(post_idx).expect(BAD_POSTING_INDEX)
     }

@@ -3,12 +3,9 @@ use std::collections::{HashMap, HashSet};
 use chrono::NaiveDate;
 use failure::Error;
 use ledger_parser::Transaction;
-use typed_generational_arena::StandardArena;
 
 mod posting;
 mod transaction;
-
-const BAD_TRANSACTION_INDEX: &str = "internal error: used invalid transaction::Index";
 
 #[derive(Debug, Fail)]
 enum MergeError {
@@ -46,16 +43,14 @@ impl std::fmt::Display for DisplayStringList {
 
 pub struct Merger {
     posts: posting::IndexedPostings,
-    trn_arena: transaction::Arena,
-    trns_by_date: HashMap<NaiveDate, Vec<transaction::Index>>,
+    trns: transaction::IndexedTransactions,
 }
 
 impl Merger {
     pub fn new() -> Self {
         Merger {
             posts: posting::IndexedPostings::new(),
-            trn_arena: StandardArena::new(),
-            trns_by_date: HashMap::new(),
+            trns: transaction::IndexedTransactions::new(),
         }
     }
 
@@ -136,7 +131,7 @@ impl Merger {
             .map(|(pending_trn_idx, trn)| {
                 (
                     HashableTransactionIndex(pending_trn_idx),
-                    HashableTransactionIndex(self.add_transaction_holder(trn)),
+                    HashableTransactionIndex(self.trns.add(trn)),
                 )
             })
             .collect();
@@ -160,23 +155,10 @@ impl Merger {
                         Existing(trn_idx) => trn_idx,
                     };
                     let post_idx = self.posts.add(post.post, dest_trn_idx);
-                    let dest_trn = self.get_trn_mut(dest_trn_idx);
-                    dest_trn.postings.push(post_idx);
+                    self.trns.add_post_to_trn(dest_trn_idx, post_idx);
                 }
             }
         }
-    }
-
-    // TODO: Replace expect calls with returned internal errors.
-
-    fn get_trn(&self, trn_idx: transaction::Index) -> &transaction::Holder {
-        self.trn_arena.get(trn_idx).expect(BAD_TRANSACTION_INDEX)
-    }
-
-    fn get_trn_mut(&mut self, trn_idx: transaction::Index) -> &mut transaction::Holder {
-        self.trn_arena
-            .get_mut(trn_idx)
-            .expect(BAD_TRANSACTION_INDEX)
     }
 
     fn find_matching_posting(
@@ -248,7 +230,7 @@ impl Merger {
                 out_trn_descs: DisplayStringList(
                     candidate_trns
                         .iter()
-                        .map(|trn_idx| &self.get_trn(trn_idx.0).trn.description)
+                        .map(|trn_idx| &self.trns.get_trn(trn_idx.0).trn.description)
                         .cloned()
                         .collect(),
                 ),
@@ -257,43 +239,18 @@ impl Merger {
         }
     }
 
-    fn add_transaction_holder(&mut self, trn: transaction::Holder) -> transaction::Index {
-        let date = trn.trn.date;
-        let idx = self.trn_arena.insert(trn);
-        self.trns_by_date
-            .entry(date)
-            .or_insert_with(Vec::new)
-            .push(idx);
-        idx
-    }
-
-    pub fn build(mut self) -> Vec<Transaction> {
-        let mut dates: Vec<NaiveDate> = self.trns_by_date.keys().cloned().collect();
-        dates.sort();
-        // Avoid mutably borrowing self twice.
-        let (mut trn_arena, mut trns_by_date) = {
-            let mut trn_arena = transaction::Arena::new();
-            std::mem::swap(&mut trn_arena, &mut self.trn_arena);
-            let mut trns_by_date = HashMap::new();
-            std::mem::swap(&mut trns_by_date, &mut self.trns_by_date);
-            (trn_arena, trns_by_date)
-        };
-        let mut out = Vec::<Transaction>::new();
+    pub fn build(self) -> Vec<Transaction> {
         let mut posts = self.posts.into_consume();
 
-        for date in &dates {
-            if let Some(date_trn_indices) = trns_by_date.remove(date) {
-                for trn_index in date_trn_indices {
-                    let trn_holder = trn_arena.remove(trn_index).expect(BAD_TRANSACTION_INDEX);
-                    let posts = trn_holder
-                        .postings
-                        .iter()
-                        .map(|post_idx| posts.take(*post_idx))
-                        .collect();
-                    let trn = trn_holder.into_transaction(posts);
-                    out.push(trn);
-                }
-            }
+        let mut out = Vec::<Transaction>::new();
+        for trn_holder in self.trns.into_iter() {
+            let posts = trn_holder
+                .postings
+                .iter()
+                .map(|post_idx| posts.take(*post_idx))
+                .collect();
+            let trn = trn_holder.into_transaction(posts);
+            out.push(trn);
         }
 
         out
