@@ -92,7 +92,7 @@ impl ConsumePostings {
 }
 
 pub struct Input {
-    pub fingerprints: Vec<String>,
+    fingerprints: Vec<String>,
     trn_date: NaiveDate,
     posting: Posting,
     comment: Comment,
@@ -108,6 +108,10 @@ impl Input {
             posting,
             comment,
         })
+    }
+
+    pub fn iter_fingerprints<'a>(&'a self) -> impl Iterator<Item = &str> + 'a {
+        self.fingerprints.iter().map(String::as_str)
     }
 }
 

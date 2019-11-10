@@ -87,7 +87,7 @@ impl Merger {
                 .collect::<Result<Vec<(posting::Input, Option<posting::Index>)>, Error>>()?;
 
             for (src_post, _) in &src_posts_matched {
-                for fp in src_post.fingerprints.iter().cloned() {
+                for fp in src_post.iter_fingerprints().map(str::to_string) {
                     if fingerprints.contains(&fp) {
                         return Err(MergeError::DuplicateFingerprint { fingerprint: fp }.into());
                     }
@@ -189,15 +189,16 @@ impl Merger {
         post: &posting::Input,
     ) -> Result<Option<posting::Index>, Error> {
         let posts: HashSet<HashablePostingIndex> = post
-            .fingerprints
-            .iter()
+            .iter_fingerprints()
             .filter_map(|fp| self.posts.fingerprint_to_index(fp))
             .map(HashablePostingIndex)
             .collect();
         match posts.len() {
             n if n <= 1 => Ok(posts.iter().nth(0).map(|i| i.0)),
             _ => Err(MergeError::InputPostingMatchesMultiplePostings {
-                fingerprints: DisplayStringList(post.fingerprints.clone()),
+                fingerprints: DisplayStringList(
+                    post.iter_fingerprints().map(str::to_string).collect(),
+                ),
             }
             .into()),
         }
