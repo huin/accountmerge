@@ -79,9 +79,9 @@ impl Merger {
             let src_posts_matched: Vec<(posting::Input, Option<posting::Index>)> = orig_posts
                 .into_iter()
                 .map(|orig_post| {
-                    let src_post = posting::Input::from_posting(orig_post, src_trn.trn.date)?;
+                    let src_post = posting::Input::from_posting(orig_post, src_trn.get_date())?;
                     let dest_post: Option<posting::Index> =
-                        self.find_matching_posting(&src_post, src_trn.trn.date)?;
+                        self.find_matching_posting(&src_post, src_trn.get_date())?;
                     Ok((src_post, dest_post))
                 })
                 .collect::<Result<Vec<(posting::Input, Option<posting::Index>)>, Error>>()?;
@@ -225,13 +225,12 @@ impl Merger {
         match candidate_trns.len() {
             n if n <= 1 => Ok(candidate_trns.iter().nth(0).map(|i| i.0)),
             _ => Err(MergeError::InputTransactionMatchesMultipleTransactions {
-                in_trn_date: src_trn.trn.date,
-                in_trn_desc: src_trn.trn.description.clone(),
+                in_trn_date: src_trn.get_date(),
+                in_trn_desc: src_trn.get_description().to_string(),
                 out_trn_descs: DisplayStringList(
                     candidate_trns
                         .iter()
-                        .map(|trn_idx| &self.trns.get(trn_idx.0).trn.description)
-                        .cloned()
+                        .map(|trn_idx| self.trns.get(trn_idx.0).get_description().to_string())
                         .collect(),
                 ),
             }
@@ -245,9 +244,8 @@ impl Merger {
         let mut out = Vec::<Transaction>::new();
         for trn_holder in self.trns.into_iter() {
             let posts = trn_holder
-                .postings
-                .iter()
-                .map(|post_idx| posts.take(*post_idx))
+                .iter_posting_indices()
+                .map(|post_idx| posts.take(post_idx))
                 .collect();
             let trn = trn_holder.into_transaction(posts);
             out.push(trn);

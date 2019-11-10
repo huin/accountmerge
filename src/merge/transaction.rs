@@ -77,9 +77,9 @@ impl IndexedTransactions {
 
 /// Contains a partially unpacked `Transaction`.
 pub struct Holder {
-    pub trn: Transaction,
+    trn: Transaction,
 
-    pub postings: Vec<posting::Index>,
+    postings: Vec<posting::Index>,
 }
 
 impl Holder {
@@ -97,8 +97,20 @@ impl Holder {
         )
     }
 
+    pub fn get_date(&self) -> NaiveDate {
+        self.trn.date
+    }
+
+    pub fn get_description(&self) -> &str {
+        &self.trn.description
+    }
+
     pub fn into_transaction(mut self, postings: Vec<Posting>) -> Transaction {
         self.trn.postings = postings;
         self.trn
+    }
+
+    pub fn iter_posting_indices<'a>(&'a self) -> impl Iterator<Item = posting::Index> + 'a {
+        self.postings.iter().copied()
     }
 }
