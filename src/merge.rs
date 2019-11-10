@@ -156,10 +156,8 @@ impl Merger {
             use PostingDestination::*;
 
             match post.destination {
-                MergeIntoExisting(post_idx) => {
-                    let dest_post = self.get_post_mut(post_idx);
-                    let post_fingerprints = dest_post.merge_from_input_posting(post.post);
-                    self.register_fingerprints(post_fingerprints, post_idx);
+                MergeIntoExisting(existing_post_idx) => {
+                    self.merge_into_posting(existing_post_idx, post.post);
                 }
                 AddToTransaction(trn_type) => {
                     let dest_trn_idx = match trn_type {
@@ -244,12 +242,13 @@ impl Merger {
         }
     }
 
+    /// Adds a new posting, updating the fingerprint index.
     fn add_posting(
         &mut self,
-        proto_posting: InputPosting,
+        input_posting: InputPosting,
         parent_trn: TransactionIndex,
     ) -> PostingIndex {
-        let (posting, fingerprints) = PostingHolder::from_input_posting(proto_posting, parent_trn);
+        let (posting, fingerprints) = PostingHolder::from_input_posting(input_posting, parent_trn);
         let idx = self.post_arena.insert(posting);
         self.register_fingerprints(fingerprints, idx);
 
@@ -260,6 +259,14 @@ impl Merger {
         idx
     }
 
+    /// Updates an existing posting, updating the fingerprint index.
+    fn merge_into_posting(&mut self, existing_post_idx: PostingIndex, input_posting: InputPosting) {
+        let dest_post = self.get_post_mut(existing_post_idx);
+        let post_fingerprints = dest_post.merge_from_input_posting(input_posting);
+        self.register_fingerprints(post_fingerprints, existing_post_idx);
+    }
+
+    /// Adds to posting fingerprints index.
     fn register_fingerprints(&mut self, fingerprints: Vec<String>, post_idx: PostingIndex) {
         for fp in fingerprints.into_iter() {
             self.post_by_fingerprint.insert(fp, post_idx);
