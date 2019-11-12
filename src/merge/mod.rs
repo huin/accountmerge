@@ -4,6 +4,7 @@ use chrono::NaiveDate;
 use failure::Error;
 use ledger_parser::Transaction;
 
+mod matchset;
 mod posting;
 mod transaction;
 

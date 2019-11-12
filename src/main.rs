@@ -23,6 +23,8 @@ extern crate structopt;
 extern crate typed_generational_arena;
 
 #[cfg(test)]
+extern crate test_case;
+#[cfg(test)]
 extern crate text_diff;
 #[cfg(test)]
 extern crate textwrap;
