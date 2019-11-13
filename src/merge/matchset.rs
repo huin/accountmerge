@@ -33,6 +33,16 @@ where
 }
 
 impl<T> MatchSet<T> {
+    pub fn is_empty(&self) -> bool {
+        use MatchSetInner::*;
+        match &self.0 {
+            Zero => true,
+            One(_) => false,
+            // Should never be true:
+            Many(vs) => vs.is_empty(),
+        }
+    }
+
     pub fn into_single(self) -> Result<Option<T>, Vec<T>> {
         use MatchSetInner::*;
         match self.0 {
@@ -124,6 +134,15 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
+
+    #[test_case(vec![], true; "empty input to empty")]
+    #[test_case(vec![1, 1, 1, 1], false; "deduping 4x1 to non-empty")]
+    #[test_case(vec![1, 2, 1, 2], false; "deduping 1 2 to non-empty")]
+    #[test_case(vec![1, 2, 3, 4], false; "deduping uniques to non-empty")]
+    fn is_empty(input: Vec<i8>, want: bool) {
+        let m: MatchSet<_> = input.into_iter().collect();
+        assert_eq!(m.is_empty(), want);
+    }
 
     #[test_case(vec![], vec![]; "empty input to empty output")]
     #[test_case(vec![1, 1, 1, 1], vec![1]; "deduping to single")]
