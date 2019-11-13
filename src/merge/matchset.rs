@@ -18,6 +18,20 @@ impl<T> IntoIterator for MatchSet<T> {
     }
 }
 
+impl<A> std::iter::FromIterator<A> for MatchSet<A>
+where
+    A: PartialEq,
+{
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = A>,
+    {
+        let mut m = MatchSet::default();
+        iter.into_iter().for_each(|v| m.insert(v));
+        m
+    }
+}
+
 impl<T> MatchSet<T> {
     pub fn into_single(self) -> Result<Option<T>, Vec<T>> {
         use MatchSetInner::*;
@@ -116,8 +130,7 @@ mod tests {
     #[test_case(vec![1, 2, 1, 2], vec![1, 2]; "deduping to two")]
     #[test_case(vec![1, 2, 3, 4], vec![1, 2, 3, 4]; "same items")]
     fn add_dedupes(input: Vec<i8>, want: Vec<i8>) {
-        let mut m = MatchSet::default();
-        input.into_iter().for_each(|v| m.insert(v));
+        let m: MatchSet<_> = input.into_iter().collect();
         let got: Vec<i8> = m.into_iter().collect();
         assert_eq!(got, want);
     }
@@ -127,8 +140,7 @@ mod tests {
     #[test_case(vec![1, 2, 1, 2], Err(vec![1, 2]); "dedupe to Many 2")]
     #[test_case(vec![1, 2, 3, 4], Err(vec![1, 2, 3, 4]); "four items to Many 4")]
     fn into_single(input: Vec<i8>, want: Result<Option<i8>, Vec<i8>>) {
-        let mut m = MatchSet::default();
-        input.into_iter().for_each(|v| m.insert(v));
+        let m: MatchSet<_> = input.into_iter().collect();
         let got = m.into_single();
         assert_eq!(got, want);
     }
