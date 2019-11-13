@@ -18,6 +18,17 @@ impl<T> IntoIterator for MatchSet<T> {
     }
 }
 
+impl<T> MatchSet<T> {
+    pub fn into_single(self) -> Result<Option<T>, Vec<T>> {
+        use MatchSetInner::*;
+        match self.0 {
+            Zero => Ok(None),
+            One(v) => Ok(Some(v)),
+            Many(vs) => Err(vs),
+        }
+    }
+}
+
 impl<T> MatchSet<T>
 where
     T: PartialEq,
@@ -99,6 +110,7 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
+
     #[test_case(vec![], vec![]; "empty input to empty output")]
     #[test_case(vec![1, 1, 1, 1], vec![1]; "deduping to single")]
     #[test_case(vec![1, 2, 1, 2], vec![1, 2]; "deduping to two")]
@@ -107,6 +119,17 @@ mod tests {
         let mut m = MatchSet::default();
         input.into_iter().for_each(|v| m.insert(v));
         let got: Vec<i8> = m.into_iter().collect();
+        assert_eq!(got, want);
+    }
+
+    #[test_case(vec![], Ok(None); "empty input to None")]
+    #[test_case(vec![1, 1, 1, 1], Ok(Some(1)); "dedupe to Some")]
+    #[test_case(vec![1, 2, 1, 2], Err(vec![1, 2]); "dedupe to Many 2")]
+    #[test_case(vec![1, 2, 3, 4], Err(vec![1, 2, 3, 4]); "four items to Many 4")]
+    fn into_single(input: Vec<i8>, want: Result<Option<i8>, Vec<i8>>) {
+        let mut m = MatchSet::default();
+        input.into_iter().for_each(|v| m.insert(v));
+        let got = m.into_single();
         assert_eq!(got, want);
     }
 }
