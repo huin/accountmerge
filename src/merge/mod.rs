@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::NaiveDate;
 use failure::Error;
-use ledger_parser::Transaction;
+use ledger_parser::{Posting, Transaction};
+
+use crate::tags;
 
 mod matchset;
 mod posting;
@@ -11,7 +13,12 @@ mod transaction;
 #[derive(Debug, Fail)]
 enum MergeError {
     #[fail(
-        display = "input posting matches multiple destination postings with fingerprints: {}",
+        display = "posting {} has no fingerprints, required for candidate matching",
+        posting
+    )]
+    InputPostingHasNoFingerprint { posting: Posting },
+    #[fail(
+        display = "input posting with fingerprints {} matches multiple destination postings",
         fingerprints
     )]
     InputPostingMatchesMultiplePostings { fingerprints: DisplayStringList },
@@ -63,7 +70,7 @@ impl Merger {
         Ok(())
     }
 
-    fn make_pending(&self, orig_trns: Vec<Transaction>) -> Result<PendingMerges, Error> {
+    fn make_pending(&mut self, orig_trns: Vec<Transaction>) -> Result<PendingMerges, Error> {
         let mut pending = PendingMerges::new();
 
         // Set of fingerprints found in `pending.posts` so far.
@@ -77,23 +84,79 @@ impl Merger {
                 continue;
             }
 
-            let src_posts_matched: Vec<(posting::Input, Option<posting::Index>)> = orig_posts
-                .into_iter()
-                .map(|orig_post| {
-                    let src_post = posting::Input::from_posting(orig_post, src_trn.get_date())?;
-                    let dest_post: Option<posting::Index> =
-                        self.find_matching_posting(&src_post, src_trn.get_date())?;
-                    Ok((src_post, dest_post))
-                })
-                .collect::<Result<Vec<(posting::Input, Option<posting::Index>)>, Error>>()?;
+            let mut src_posts_matched =
+                Vec::<(posting::Input, Option<posting::Index>)>::with_capacity(orig_posts.len());
+            for orig_post in orig_posts.into_iter() {
+                let src_post = posting::Input::from_posting(orig_post, src_trn.get_date());
 
-            for (src_post, _) in &src_posts_matched {
                 for fp in src_post.iter_fingerprints().map(str::to_string) {
                     if fingerprints.contains(&fp) {
                         return Err(MergeError::DuplicateFingerprint { fingerprint: fp }.into());
                     }
                     fingerprints.insert(fp);
                 }
+
+                use posting::Match::*;
+                use posting::MatchedIndices::*;
+                match self.posts.find_matching_postings(&src_post) {
+                    Fingerprint(m) => match m {
+                        One(dest_idx) => {
+                            // Unambiguous match by fingerprint.
+                            src_posts_matched.push((src_post, Some(dest_idx)));
+                        }
+                        Many(_matched_idxs) => {
+                            // TODO: Use `_matched_idxs` to improve the error
+                            // message with fingerprints from the matches.
+                            // Multiple destinations postings matched the
+                            // fingerprint(s) of the input posting, this is a
+                            // fatal merge error.
+                            return Err(MergeError::InputPostingMatchesMultiplePostings {
+                                fingerprints: DisplayStringList(
+                                    src_post.iter_fingerprints().map(str::to_string).collect(),
+                                ),
+                            }
+                            .into());
+                        }
+                    },
+                    Soft(m) => match m {
+                        One(dest_idx) => {
+                            // Unambiguous single soft match.
+                            src_posts_matched.push((src_post, Some(dest_idx)));
+                        }
+                        Many(matched_idxs) => {
+                            // Ambiguous multiple possible soft matches.
+                            // Add candidate tags and don't use src_post any further.
+                            let fp = src_post.iter_fingerprints().nth(0).map(str::to_string);
+                            match fp {
+                                None => {
+                                    return Err(MergeError::InputPostingHasNoFingerprint {
+                                        posting: src_post.into_posting(),
+                                    }
+                                    .into());
+                                }
+                                Some(fp) => {
+                                    let candidate_tag =
+                                        format!("{}{}", tags::CANDIDATE_FP_TAG_PREFIX, fp);
+                                    for idx in matched_idxs.into_iter() {
+                                        self.posts
+                                            .get_mut(idx)
+                                            .comment
+                                            .tags
+                                            .insert(candidate_tag.clone());
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    Zero => {
+                        src_posts_matched.push((src_post, None));
+                    }
+                }
+            }
+
+            if src_posts_matched.is_empty() {
+                // No posts matched, so no further work to do.
+                continue;
             }
 
             // Determine default destination transaction.
@@ -159,49 +222,6 @@ impl Merger {
                     self.trns.add_post_to_trn(dest_trn_idx, post_idx);
                 }
             }
-        }
-    }
-
-    fn find_matching_posting(
-        &self,
-        post: &posting::Input,
-        date: NaiveDate,
-    ) -> Result<Option<posting::Index>, Error> {
-        let fp_idx = self.find_posting_by_fingerprints(post)?;
-        if fp_idx.is_some() {
-            return Ok(fp_idx);
-        }
-
-        // Look for a match based on internal values.
-        for candidate_idx in self.posts.date_to_indices(date) {
-            let candidate_post = self.posts.get(candidate_idx);
-            if candidate_post.matches(post) {
-                return Ok(Some(candidate_idx));
-            }
-        }
-
-        Ok(None)
-    }
-
-    /// Look for match by existing fingerprint(s). Matches zero or one postings
-    /// on success, multiple matches are an error.
-    fn find_posting_by_fingerprints(
-        &self,
-        post: &posting::Input,
-    ) -> Result<Option<posting::Index>, Error> {
-        let posts: HashSet<HashablePostingIndex> = post
-            .iter_fingerprints()
-            .filter_map(|fp| self.posts.fingerprint_to_index(fp))
-            .map(HashablePostingIndex)
-            .collect();
-        match posts.len() {
-            n if n <= 1 => Ok(posts.iter().nth(0).map(|i| i.0)),
-            _ => Err(MergeError::InputPostingMatchesMultiplePostings {
-                fingerprints: DisplayStringList(
-                    post.iter_fingerprints().map(str::to_string).collect(),
-                ),
-            }
-            .into()),
         }
     }
 
@@ -287,19 +307,6 @@ enum PostingDestination {
 enum DestinationTransaction {
     Existing(transaction::Index),
     New(transaction::Index),
-}
-
-#[derive(Eq)]
-struct HashablePostingIndex(posting::Index);
-impl PartialEq for HashablePostingIndex {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.arr_idx() == other.0.arr_idx() && self.0.gen() == other.0.gen()
-    }
-}
-impl std::hash::Hash for HashablePostingIndex {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.arr_idx().hash(state);
-    }
 }
 
 #[derive(Eq)]
@@ -507,6 +514,52 @@ mod tests {
                     assets:checking  GBP 100.00   ; :fp-1:
                 2000/01/02 Transfer to savings
                     assets:savings   GBP 100.00   ; :fp-2:
+                "#
+            ),
+        );
+    }
+
+    #[test]
+    fn soft_posting_match_adds_candidate_match_tags() {
+        let mut merger = Merger::new();
+        merger
+            .merge(parse_transactions(
+                r#"
+                2000/01/01 Salary
+                    assets:checking  GBP 100.00   ; :fp-orig1:
+                2000/01/01 Salary
+                    assets:checking  GBP 100.00   ; :fp-orig2:
+                2000/01/01 Salary
+                    assets:checking  GBP 100.00
+                "#,
+            ))
+            .unwrap();
+        merger
+            .merge(parse_transactions(
+                // These postings all soft-match against the postings above,
+                // but will *not* be merged in.
+                r#"
+                2000/01/01 Salary
+                    assets:checking  GBP 100.00   ; :fp-new1:foo:
+                2000/01/01 Salary
+                    assets:checking  GBP 100.00   ; :fp-new2:bar:
+                "#,
+            ))
+            .unwrap();
+
+        // Candidate match tags should be added, but not the :foo: and :bar:
+        // tags.
+        let result = merger.build();
+        assert_transactions_eq!(
+            &result,
+            parse_transactions(
+                r#"
+                2000/01/01 Salary
+                    assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:fp-orig1:
+                2000/01/01 Salary
+                    assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:fp-orig2:
+                2000/01/01 Salary
+                    assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:
                 "#
             ),
         );
