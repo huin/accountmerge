@@ -1,8 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use chrono::NaiveDate;
 use failure::Error;
-use ledger_parser::{Posting, Transaction};
+use ledger_parser::Transaction;
 
 use crate::tags;
 
@@ -12,30 +11,8 @@ mod transaction;
 
 #[derive(Debug, Fail)]
 enum MergeError {
-    #[fail(
-        display = "posting {} has no fingerprints, required for candidate matching",
-        posting
-    )]
-    InputPostingHasNoFingerprint { posting: Posting },
-    #[fail(
-        display = "input posting with fingerprints {} matches multiple destination postings",
-        fingerprints
-    )]
-    InputPostingMatchesMultiplePostings { fingerprints: DisplayStringList },
-    #[fail(
-        display = "input transaction on {} ({:?}) matches multiple existing transactions: {}",
-        in_trn_date, in_trn_desc, out_trn_descs
-    )]
-    InputTransactionMatchesMultipleTransactions {
-        in_trn_date: NaiveDate,
-        in_trn_desc: String,
-        out_trn_descs: DisplayStringList,
-    },
-    #[fail(
-        display = "multiple postings with same fingerprint ({:?}) found within a single input transaction set",
-        fingerprint
-    )]
-    DuplicateFingerprint { fingerprint: String },
+    #[fail(display = "bad input to merge: {}", reason)]
+    Input { reason: String },
 }
 
 #[derive(Debug)]
@@ -91,7 +68,7 @@ impl Merger {
 
                 for fp in src_post.iter_fingerprints().map(str::to_string) {
                     if fingerprints.contains(&fp) {
-                        return Err(MergeError::DuplicateFingerprint { fingerprint: fp }.into());
+                        return Err(MergeError::Input{reason: format!("multiple postings with same fingerprint ({:?}) found within a single input transaction set", fp)}.into());
                     }
                     fingerprints.insert(fp);
                 }
@@ -110,11 +87,8 @@ impl Merger {
                             // Multiple destinations postings matched the
                             // fingerprint(s) of the input posting, this is a
                             // fatal merge error.
-                            return Err(MergeError::InputPostingMatchesMultiplePostings {
-                                fingerprints: DisplayStringList(
-                                    src_post.iter_fingerprints().map(str::to_string).collect(),
-                                ),
-                            }
+                            return Err(MergeError::Input{reason: format!("input posting with fingerprints {} matches multiple destination postings",
+                                &itertools::join(src_post.iter_fingerprints(), ", "))}
                             .into());
                         }
                     },
@@ -129,8 +103,8 @@ impl Merger {
                             let fp = src_post.iter_fingerprints().nth(0).map(str::to_string);
                             match fp {
                                 None => {
-                                    return Err(MergeError::InputPostingHasNoFingerprint {
-                                        posting: src_post.into_posting(),
+                                    return Err(MergeError::Input {
+                                        reason: format!("posting {} has no fingerprints, required for candidate matching", src_post.into_posting()),
                                     }
                                     .into());
                                 }
@@ -246,14 +220,17 @@ impl Merger {
         // Check that only one destination transaction matches.
         match candidate_trns.len() {
             n if n <= 1 => Ok(candidate_trns.iter().nth(0).map(|i| i.0)),
-            _ => Err(MergeError::InputTransactionMatchesMultipleTransactions {
-                in_trn_date: src_trn.get_date(),
-                in_trn_desc: src_trn.get_description().to_string(),
-                out_trn_descs: DisplayStringList(
-                    candidate_trns
-                        .iter()
-                        .map(|trn_idx| self.trns.get(trn_idx.0).get_description().to_string())
-                        .collect(),
+            _ => Err(MergeError::Input {
+                reason: format!(
+                    "input transaction on {} ({:?}) matches multiple existing transactions: {}",
+                    src_trn.get_date(),
+                    src_trn.get_description().to_string(),
+                    itertools::join(
+                        candidate_trns
+                            .iter()
+                            .map(|trn_idx| self.trns.get(trn_idx.0).get_description()),
+                        ", "
+                    ),
                 ),
             }
             .into()),
