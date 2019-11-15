@@ -1,8 +1,15 @@
-pub struct MatchSet<T>(MatchSetInner<T>);
+pub enum MatchSet<T> {
+    /// Zero values.
+    Zero,
+    /// One value.
+    One(T),
+    /// Two or more values.
+    Many(Container<T>),
+}
 
 impl<T> Default for MatchSet<T> {
     fn default() -> Self {
-        MatchSet(MatchSetInner::Zero)
+        MatchSet::Zero
     }
 }
 
@@ -10,10 +17,10 @@ impl<T> IntoIterator for MatchSet<T> {
     type Item = T;
     type IntoIter = IntoIter<T>;
     fn into_iter(self) -> IntoIter<T> {
-        IntoIter(match self.0 {
-            MatchSetInner::Zero => IntoIterInner::Zero,
-            MatchSetInner::One(v) => IntoIterInner::One(v),
-            MatchSetInner::Many(vs) => IntoIterInner::Many(vs.into_iter()),
+        IntoIter(match self {
+            MatchSet::Zero => IntoIterInner::Zero,
+            MatchSet::One(v) => IntoIterInner::One(v),
+            MatchSet::Many(vs) => IntoIterInner::Many(vs.0.into_iter()),
         })
     }
 }
@@ -32,48 +39,27 @@ where
     }
 }
 
-impl<T> MatchSet<T> {
-    pub fn is_empty(&self) -> bool {
-        use MatchSetInner::*;
-        match &self.0 {
-            Zero => true,
-            One(_) => false,
-            // Should never be true:
-            Many(vs) => vs.is_empty(),
-        }
-    }
-
-    pub fn into_single(self) -> Result<Option<T>, Vec<T>> {
-        use MatchSetInner::*;
-        match self.0 {
-            Zero => Ok(None),
-            One(v) => Ok(Some(v)),
-            Many(vs) => Err(vs),
-        }
-    }
-}
-
 impl<T> MatchSet<T>
 where
     T: PartialEq,
 {
     pub fn insert(&mut self, v: T) {
-        use MatchSetInner::*;
+        use MatchSet::*;
         let mut inner = Zero;
-        std::mem::swap(&mut inner, &mut self.0);
+        std::mem::swap(&mut inner, self);
 
-        self.0 = match inner {
+        *self = match inner {
             Zero => One(v),
             One(existing) => {
                 if existing == v {
                     One(existing)
                 } else {
-                    Many(vec![existing, v])
+                    Many(Container(vec![existing, v]))
                 }
             }
             Many(mut vs) => {
-                if !vs.contains(&v) {
-                    vs.push(v);
+                if !vs.0.contains(&v) {
+                    vs.0.push(v);
                 }
                 Many(vs)
             }
@@ -81,10 +67,16 @@ where
     }
 }
 
-enum MatchSetInner<T> {
-    Zero,
-    One(T),
-    Many(Vec<T>),
+// Container is a protective layer to prevent external changes of the `Vec` in
+// `MatchSet::Many`.
+pub struct Container<T>(Vec<T>);
+
+impl<T> IntoIterator for Container<T> {
+    type Item = T;
+    type IntoIter = IntoIter<T>;
+    fn into_iter(self) -> IntoIter<T> {
+        IntoIter(IntoIterInner::Many(self.0.into_iter()))
+    }
 }
 
 pub struct IntoIter<T>(IntoIterInner<T>);
@@ -135,15 +127,6 @@ mod tests {
 
     use super::*;
 
-    #[test_case(vec![], true; "empty input to empty")]
-    #[test_case(vec![1, 1, 1, 1], false; "deduping 4x1 to non-empty")]
-    #[test_case(vec![1, 2, 1, 2], false; "deduping 1 2 to non-empty")]
-    #[test_case(vec![1, 2, 3, 4], false; "deduping uniques to non-empty")]
-    fn is_empty(input: Vec<i8>, want: bool) {
-        let m: MatchSet<_> = input.into_iter().collect();
-        assert_eq!(m.is_empty(), want);
-    }
-
     #[test_case(vec![], vec![]; "empty input to empty output")]
     #[test_case(vec![1, 1, 1, 1], vec![1]; "deduping to single")]
     #[test_case(vec![1, 2, 1, 2], vec![1, 2]; "deduping to two")]
@@ -151,16 +134,6 @@ mod tests {
     fn add_dedupes(input: Vec<i8>, want: Vec<i8>) {
         let m: MatchSet<_> = input.into_iter().collect();
         let got: Vec<i8> = m.into_iter().collect();
-        assert_eq!(got, want);
-    }
-
-    #[test_case(vec![], Ok(None); "empty input to None")]
-    #[test_case(vec![1, 1, 1, 1], Ok(Some(1)); "dedupe to Some")]
-    #[test_case(vec![1, 2, 1, 2], Err(vec![1, 2]); "dedupe to Many 2")]
-    #[test_case(vec![1, 2, 3, 4], Err(vec![1, 2, 3, 4]); "four items to Many 4")]
-    fn into_single(input: Vec<i8>, want: Result<Option<i8>, Vec<i8>>) {
-        let m: MatchSet<_> = input.into_iter().collect();
-        let got = m.into_single();
         assert_eq!(got, want);
     }
 }
