@@ -15,17 +15,6 @@ enum MergeError {
     Input { reason: String },
 }
 
-#[derive(Debug)]
-struct DisplayStringList(Vec<String>);
-impl std::fmt::Display for DisplayStringList {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        f.write_str(&itertools::join(
-            self.0.iter().map(|f| format!("{:?}", f)),
-            ", ",
-        ))
-    }
-}
-
 pub struct Merger {
     posts: posting::IndexedPostings,
     trns: transaction::IndexedTransactions,

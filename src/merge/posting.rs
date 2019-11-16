@@ -140,19 +140,6 @@ impl ConsumePostings {
     }
 }
 
-#[derive(Eq)]
-struct HashablePostingIndex(Index);
-impl PartialEq for HashablePostingIndex {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.arr_idx() == other.0.arr_idx() && self.0.gen() == other.0.gen()
-    }
-}
-impl std::hash::Hash for HashablePostingIndex {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.arr_idx().hash(state);
-    }
-}
-
 pub struct Input {
     fingerprints: Vec<String>,
     trn_date: NaiveDate,
