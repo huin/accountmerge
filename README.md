@@ -1,3 +1,7 @@
+# Account Merge
+
+Tools for managing Ledger journals.
+
 ## Matching algorithm
 
 For each transaction in the source, scan over each of its postings in turn to
