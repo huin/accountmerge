@@ -1,0 +1,35 @@
+2019-01-01 ATM Withdrawal
+  assets:unknown  GBP-30.00 = GBP200.00
+  ; :fp-LVcP3L+Y-WW8uMNeoOKj6PZ9NZUDLVPkyNfI:unknown-account:
+  ; account: Current
+  ; bank: Nationwide
+  ; trn_type: ATM
+  expenses:unknown  GBP30.00
+  ; :fp-LVcP3L+Y-FJegoeyjgvrfvmUOwPWmB/v56ZU:unknown-account:
+  ; account: Current
+  ; bank: Nationwide
+  ; trn_type: ATM
+
+2019-01-02 Payroll
+  assets:unknown  GBP300.00 = GBP500.00
+  ; :fp-LVcP3L+Y-dJfxGn8yvRnpCrbtRFfOFhwuNqc:unknown-account:
+  ; account: Current
+  ; bank: Nationwide
+  ; trn_type: Transfer
+  income:unknown  GBP-300.00
+  ; :fp-LVcP3L+Y-YPrvk5cO9uFIWdXxfEVQ7Fidgl0:unknown-account:
+  ; account: Current
+  ; bank: Nationwide
+  ; trn_type: Transfer
+
+2019-01-05 Transfer to Savings
+  assets:unknown  GBP-100.00 = GBP400.00
+  ; :fp-LVcP3L+Y-K6Ovwd43vF2NXlOH7jkG+0bPi1o:unknown-account:
+  ; account: Current
+  ; bank: Nationwide
+  ; trn_type: Transfer
+  expenses:unknown  GBP100.00
+  ; :fp-LVcP3L+Y-+TbEJQvPBEJT0NRA2ej8Dz5TXiE:unknown-account:
+  ; account: Current
+  ; bank: Nationwide
+  ; trn_type: Transfer

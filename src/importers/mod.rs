@@ -7,6 +7,9 @@ mod nationwide_csv;
 mod paypal_csv;
 mod util;
 
+#[cfg(test)]
+mod testutil;
+
 use importer::TransactionImporter;
 
 #[derive(Debug, StructOpt)]
