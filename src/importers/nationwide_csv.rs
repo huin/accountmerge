@@ -397,10 +397,10 @@ mod tests {
     fn golden() {
         golden_test(
             &NationwideCsv {
-                input: FileSpec::from_str("testdata/importers/nationwide-csv.csv").unwrap(),
+                input: FileSpec::from_str("testdata/importers/nationwide_csv.csv").unwrap(),
                 fp_prefix: FpPrefix::Generated,
             },
-            "nationwide-csv.golden.journal",
+            "nationwide_csv.golden.journal",
         );
     }
 }
