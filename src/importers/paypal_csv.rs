@@ -373,3 +373,22 @@ fn parse_timezone_abbr(s: &str) -> Option<Tz> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::importers::testutil::golden_test;
+
+    use super::*;
+
+    #[test]
+    fn golden() {
+        golden_test(
+            &PaypalCsv {
+                input: FileSpec::from_str("testdata/importers/paypal_csv.csv").unwrap(),
+                output_timezone: Tz::UTC,
+                fp_prefix: "paypal".to_string(),
+            },
+            "paypal_csv.golden.journal",
+        );
+    }
+}
