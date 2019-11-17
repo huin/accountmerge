@@ -303,15 +303,16 @@ mod tests {
     use super::*;
     use crate::testutil::parse_transactions;
 
-    #[test]
-    fn error_when_merging_without_fingerprint() {
-        let journal = r#"
+    #[test_case(
+        r#"
             2000/01/01 Salary
                 assets:checking  GBP 100.00
         "#;
-
+        "error_when_merging_without_fingerprint"
+    )]
+    fn merge_error(first: &str) {
         let mut merger = Merger::new();
-        assert!(merger.merge(parse_transactions(journal)).is_err());
+        assert!(merger.merge(parse_transactions(first)).is_err());
     }
 
     #[test_case(
