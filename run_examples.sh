@@ -22,8 +22,10 @@ cargo run -q -- merge \
     example_output/initial.journal \
     example_output/statements*-ruled.journal
 
-# Should be able to re-merge the merged result above with one of its inputs.
+# Should be able to re-merge the merged result above with all its inputs and
+# get the same result.
 cargo run -q -- merge \
     --output example_output/merged2.journal \
     example_output/merged.journal \
-    example_output/statements1-ruled.journal
+    example_output/initial.journal \
+    example_output/statements*-ruled.journal

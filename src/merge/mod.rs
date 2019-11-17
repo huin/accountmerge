@@ -3,11 +3,11 @@ use std::collections::{HashMap, HashSet};
 use failure::Error;
 use ledger_parser::Transaction;
 
-use crate::tags;
-
 mod matchset;
 mod posting;
 mod transaction;
+
+use crate::tags;
 
 #[derive(Debug, Fail)]
 enum MergeError {
@@ -53,7 +53,7 @@ impl Merger {
             let mut src_posts_matched =
                 Vec::<(posting::Input, Option<posting::Index>)>::with_capacity(orig_posts.len());
             for orig_post in orig_posts.into_iter() {
-                let src_post = posting::Input::from_posting(orig_post, src_trn.get_date());
+                let src_post = posting::Input::from_posting(orig_post, src_trn.get_date())?;
 
                 for fp in src_post.iter_fingerprints().map(str::to_string) {
                     if fingerprints.contains(&fp) {
@@ -89,25 +89,17 @@ impl Merger {
                         Many(matched_idxs) => {
                             // Ambiguous multiple possible soft matches.
                             // Add candidate tags and don't use src_post any further.
-                            let fp = src_post.iter_fingerprints().nth(0).map(str::to_string);
-                            match fp {
-                                None => {
-                                    return Err(MergeError::Input {
-                                        reason: format!("posting {} has no fingerprints, required for candidate matching", src_post.into_posting()),
-                                    }
-                                    .into());
-                                }
-                                Some(fp) => {
-                                    let candidate_tag =
-                                        format!("{}{}", tags::CANDIDATE_FP_TAG_PREFIX, fp);
-                                    for idx in matched_idxs.into_iter() {
-                                        self.posts
-                                            .get_mut(idx)
-                                            .comment
-                                            .tags
-                                            .insert(candidate_tag.clone());
-                                    }
-                                }
+                            let candidate_tag = format!(
+                                "{}{}",
+                                tags::CANDIDATE_FP_TAG_PREFIX,
+                                src_post.primary_fingerprint()
+                            );
+                            for idx in matched_idxs.into_iter() {
+                                self.posts
+                                    .get_mut(idx)
+                                    .comment
+                                    .tags
+                                    .insert(candidate_tag.clone());
                             }
                         }
                     },
@@ -295,6 +287,17 @@ mod tests {
     use super::*;
     use crate::testutil::parse_transactions;
 
+    #[test]
+    fn error_when_merging_without_fingerprint() {
+        let journal = r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00
+        "#;
+
+        let mut merger = Merger::new();
+        assert!(merger.merge(parse_transactions(journal)).is_err());
+    }
+
     #[test_case(
         r#"
             2000/01/01 Salary
@@ -313,16 +316,16 @@ mod tests {
     #[test_case(
         r#"
             2000/01/01 Transfer to checking
-                assets:checking  GBP 100.00
+                assets:checking  GBP 100.00  ; :fp-1:
             2000/01/01 Transfer to savings
-                assets:savings   GBP 100.00
+                assets:savings   GBP 100.00  ; :fp-2:
         "#,
         // The existing transactions have postings that match both the
         // postings from the single input transaction.
         r#"
             2000/01/01 Mixed
-                assets:checking  GBP 100.00
-                assets:savings   GBP 100.00
+                assets:checking  GBP 100.00  ; :fp-1:
+                assets:savings   GBP 100.00  ; :fp-2:
         "#;
         "transation_would_be_split"
     )]
@@ -344,25 +347,25 @@ mod tests {
     #[test_case(
         r#"
             2000/02/01 Salary
-                assets:checking  GBP 100.00
-                income:salary    GBP -100.00
+                assets:checking  GBP 100.00   ; :fp-1:
+                income:salary    GBP -100.00  ; :fp-2:
             2000/01/01 Salary
-                assets:checking  GBP 100.00
-                income:salary    GBP -100.00
+                assets:checking  GBP 100.00   ; :fp-3:
+                income:salary    GBP -100.00  ; :fp-4:
             2000/02/01 Lunch
-                assets:checking  GBP -5.00
-                expenses:dining  GBP 5.00
+                assets:checking  GBP -5.00    ; :fp-5:
+                expenses:dining  GBP 5.00     ; :fp-6:
         "#,
         r#"
             2000/01/01 Salary
-                assets:checking  GBP 100.00
-                income:salary    GBP -100.00
+                assets:checking  GBP 100.00   ; :fp-3:
+                income:salary    GBP -100.00  ; :fp-4:
             2000/02/01 Salary
-                assets:checking  GBP 100.00
-                income:salary    GBP -100.00
+                assets:checking  GBP 100.00   ; :fp-1:
+                income:salary    GBP -100.00  ; :fp-2:
             2000/02/01 Lunch
-                assets:checking  GBP -5.00
-                expenses:dining  GBP 5.00
+                assets:checking  GBP -5.00    ; :fp-5:
+                expenses:dining  GBP 5.00     ; :fp-6:
         "#;
         "stable_sorts_by_date"
     )]
@@ -371,23 +374,23 @@ mod tests {
         // same call to merge.
         r#"
             2000/01/01 Foo
-                assets:foo  GBP 10.00  ; :foo-1:
+                assets:foo  GBP 10.00  ; :fp-1:
             2000/01/01 Foo
-                assets:foo  GBP 10.00  ; :foo-2:
+                assets:foo  GBP 10.00  ; :fp-2:
             2000/01/01 Foo
-                assets:foo  GBP 10.00  ; :foo-3:
+                assets:foo  GBP 10.00  ; :fp-3:
             2000/01/01 Foo
-                assets:foo  GBP 10.00  ; :foo-4:
+                assets:foo  GBP 10.00  ; :fp-4:
         "#,
         r#"
             2000/01/01 Foo
-                assets:foo  GBP 10.00  ; :foo-1:
+                assets:foo  GBP 10.00  ; :fp-1:
             2000/01/01 Foo
-                assets:foo  GBP 10.00  ; :foo-2:
+                assets:foo  GBP 10.00  ; :fp-2:
             2000/01/01 Foo
-                assets:foo  GBP 10.00  ; :foo-3:
+                assets:foo  GBP 10.00  ; :fp-3:
             2000/01/01 Foo
-                assets:foo  GBP 10.00  ; :foo-4:
+                assets:foo  GBP 10.00  ; :fp-4:
         "#;
         "postings_do_not_match_from_same_merge"
     )]
@@ -402,24 +405,24 @@ mod tests {
     #[test_case(
         r#"
             2000/01/01 Salary
-                assets:checking  GBP 100.00
-                income:salary    GBP -100.00
+                assets:checking  GBP 100.00   ; :fp-1:
+                income:salary    GBP -100.00  ; :fp-2:
         "#,
         r#"
             2000/01/01 Salary
-                assets:checking  GBP 100.00
-                income:salary    GBP -100.00
+                assets:checking  GBP 100.00   ; :fp-3:
+                income:salary    GBP -100.00  ; :fp-4:
             2000/01/02 Lunch
-                assets:checking  GBP -5.00
-                expenses:dining  GBP 5.00
+                assets:checking  GBP -5.00    ; :fp-5:
+                expenses:dining  GBP 5.00     ; :fp-6:
         "#,
         r#"
             2000/01/01 Salary
-                assets:checking  GBP 100.00
-                income:salary    GBP -100.00
+                assets:checking  GBP 100.00   ; :fp-1:fp-3:
+                income:salary    GBP -100.00  ; :fp-2:fp-4:
             2000/01/02 Lunch
-                assets:checking  GBP -5.00
-                expenses:dining  GBP 5.00
+                assets:checking  GBP -5.00    ; :fp-5:
+                expenses:dining  GBP 5.00     ; :fp-6:
         "#;
         "soft_matches_existing"
     )]
@@ -446,7 +449,7 @@ mod tests {
             2000/01/01 Salary
                 assets:checking  GBP 100.00   ; :fp-orig2:
             2000/01/01 Salary
-                assets:checking  GBP 100.00
+                assets:checking  GBP 100.00   ; :fp-orig3:
         "#,
         // The following postings all soft-match against the postings above, but
         // will *not* be merged in.
@@ -464,43 +467,40 @@ mod tests {
             2000/01/01 Salary
                 assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:fp-orig2:
             2000/01/01 Salary
-                assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:
+                assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:fp-orig3:
         "#;
         "ambiguous_soft_match_adds_candidate_tags"
     )]
     #[test_case(
         r#"
             2000/01/01 Salary
-                assets:checking  GBP 100.00
-                income:salary    GBP -100.00
+                assets:checking  GBP 100.00  ; :fp-1:
         "#,
         r#"
             2000/01/01 Salary
-                assets:checking  GBP 100.00  =GBP 1234.00
-                income:salary    GBP -100.00
+                assets:checking  GBP 100.00  =GBP 1234.00  ; :fp-1:
         "#,
         r#"
             2000/01/01 Salary
-                assets:checking  GBP 100.00  = GBP 1234.00
-                income:salary    GBP -100.00
+                assets:checking  GBP 100.00  =GBP 1234.00  ; :fp-1:
         "#;
         "balances_added_to_existing"
     )]
     #[test_case(
         r#"
             2000/01/01 Salary
-                assets:checking  GBP 100.00
-                income:salary    GBP -100.00
+                assets:checking  GBP 100.00   ; :fp-1:
+                income:salary    GBP -100.00  ; :fp-2:
         "#,
         r#"
             2000/01/01 Salary
-                assets:checking  GBP 100.00  =GBP 1234.00
-                income:salary    GBP -100.00
+                assets:checking  GBP 100.00  =GBP 1234.00  ; :fp-1:
+                income:salary    GBP -100.00               ; :fp-2:
         "#,
         r#"
             2000/01/01 Salary
-                assets:checking  GBP 100.00  = GBP 1234.00
-                income:salary    GBP -100.00
+                assets:checking  GBP 100.00  =GBP 1234.00  ; :fp-1:
+                income:salary    GBP -100.00               ; :fp-2:
         "#;
         "does_not_overwrite_some_fields"
     )]
