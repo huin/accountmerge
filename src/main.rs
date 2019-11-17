@@ -143,7 +143,7 @@ struct Merge {
 }
 
 fn do_merge(merge: &Merge) -> Result<(), Error> {
-    let mut merger = merge::Merger::new();
+    let mut merger = merge::merger::Merger::new();
 
     let mut unmerged = ledger_parser::Ledger {
         commodity_prices: Default::default(),
