@@ -1,12 +1,13 @@
 //! Functions to read and write text files. Allows use of "-" as a way to
 //! specify stdin or stdout.
 
+use std::fmt;
 use std::fs::File;
 use std::io::{stdin, stdout, Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use failure::Error;
+use failure::{Error, ResultExt};
 use ledger_parser::Ledger;
 
 #[derive(Debug, Fail)]
@@ -24,12 +25,25 @@ pub enum FileSpec {
     Path(PathBuf),
 }
 
+impl fmt::Display for FileSpec {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        use FileSpec::*;
+        match self {
+            Stdio => f.write_str("<stdio>"),
+            Path(path) => write!(f, "{:?}", path),
+        }
+    }
+}
+
 impl FileSpec {
     pub fn reader(&self) -> Result<Box<dyn Read>, Error> {
         use FileSpec::*;
         Ok(match self {
             Stdio => Box::new(stdin()),
-            Path(path) => Box::new(File::open(path)?),
+            Path(path) => Box::new(
+                File::open(path)
+                    .with_context(|e| format!("opening {:?} for reading: {}", path, e))?,
+            ),
         })
     }
 
@@ -37,7 +51,10 @@ impl FileSpec {
         use FileSpec::*;
         Ok(match self {
             Stdio => Box::new(stdout()),
-            Path(path) => Box::new(File::create(path)?),
+            Path(path) => Box::new(
+                File::create(path)
+                    .with_context(|e| format!("opening {:?} for writing: {}", path, e))?,
+            ),
         })
     }
 }
