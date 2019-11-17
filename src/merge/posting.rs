@@ -298,152 +298,129 @@ fn fingerprints_from_comment(comment: &Comment) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use test_case::test_case;
 
+    use super::*;
     use crate::testutil::parse_posting;
 
-    #[test]
-    fn test_merge_from_posting() {
+    #[test_case(
+       "foo  GBP 10.00  ; :fp-1:",
+       "foo  GBP 10.00 =GBP 90.00  ; :fp-1:",
+       "foo  GBP 10.00 =GBP 90.00  ; :fp-1:";
+       "updates None balance"
+    )]
+    #[test_case(
+       "foo  GBP 10.00 =GBP 50.00  ; :fp-1:",
+       "foo  GBP 10.00 =GBP 90.00  ; :fp-1:",
+       "foo  GBP 10.00 =GBP 50.00  ; :fp-1:";
+       "does not update existing balance"
+    )]
+    #[test_case(
+       "foo  GBP 10.00 =GBP 50.00 ; :fp-1:\n  ; key: old-value",
+       "foo  GBP 10.00 =GBP 90.00 ; :fp-2:\n  ; key: new-value",
+       "foo  GBP 10.00 =GBP 50.00 ; :fp-1:fp-2:\n  ; key: new-value";
+       "merges comments"
+    )]
+    #[test_case(
+       "foo  GBP 10.00 ; :fp-1:",
+       "bar  GBP 10.00 ; :fp-1:unknown-account:",
+       "foo  GBP 10.00 ; :fp-1:";
+       "Does not update from unknown account."
+    )]
+    #[test_case(
+       "foo  GBP 10.00 ; :fp-1:unknown-account:",
+       "bar  GBP 10.00 ; :fp-1:unknown-account:",
+       "foo  GBP 10.00 ; :fp-1:unknown-account:";
+       "Does not update unknown account from unknown account."
+    )]
+    #[test_case(
+       "foo  GBP 10.00 ; :fp-1:unknown-account:",
+       "bar  GBP 10.00 ; :fp-1:",
+       "bar  GBP 10.00 ; :fp-1:";
+       "Updates unknown account and removes unknown-account tag."
+    )]
+    fn input_from_posting(dest: &str, src: &str, want: &str) {
         let dummy_date = NaiveDate::from_ymd(2000, 1, 1);
         let dummy_idx = StandardIndex::from_idx_first_gen(0);
-        let parse_merge_from = |dest: &str, src: &str| {
-            let dest_posting = Input::from_posting(parse_posting(dest), dummy_date).unwrap();
-            let src_posting = Input::from_posting(parse_posting(src), dummy_date).unwrap();
-            let (mut dest_holder, _, _) = Holder::from_input(dest_posting, dummy_idx);
-            dest_holder.merge_from_input_posting(src_posting);
-            dest_holder.into_posting()
-        };
 
-        assert_eq!(
-            parse_merge_from(
-                "foo  GBP 10.00  ; :fp-1:",
-                "foo  GBP 10.00 =GBP 90.00  ; :fp-1:"
-            ),
-            parse_posting("foo  GBP 10.00 =GBP 90.00  ; :fp-1:"),
-            "updates None balance",
-        );
-        assert_eq!(
-            parse_merge_from(
-                "foo  GBP 10.00 =GBP 50.00  ; :fp-1:",
-                "foo  GBP 10.00 =GBP 90.00  ; :fp-1:",
-            ),
-            parse_posting("foo  GBP 10.00 =GBP 50.00  ; :fp-1:"),
-            "does not update existing balance",
-        );
-        assert_eq!(
-            parse_merge_from(
-                "foo  GBP 10.00 =GBP 50.00 ; :fp-1:\n  ; key: old-value",
-                "foo  GBP 10.00 =GBP 90.00 ; :fp-2:\n  ; key: new-value",
-            ),
-            parse_posting("foo  GBP 10.00 =GBP 50.00 ; :fp-1:fp-2:\n  ; key: new-value"),
-            "merges comments",
-        );
-        assert_eq!(
-            parse_merge_from(
-                "foo  GBP 10.00 ; :fp-1:",
-                "bar  GBP 10.00 ; :fp-1:unknown-account:",
-            ),
-            parse_posting("foo  GBP 10.00 ; :fp-1:"),
-            "Does not update from unknown account.",
-        );
-        assert_eq!(
-            parse_merge_from(
-                "foo  GBP 10.00 ; :fp-1:unknown-account:",
-                "bar  GBP 10.00 ; :fp-1:unknown-account:",
-            ),
-            parse_posting("foo  GBP 10.00 ; :fp-1:unknown-account:"),
-            "Does not update unknown account from unknown account.",
-        );
-        assert_eq!(
-            parse_merge_from(
-                "foo  GBP 10.00 ; :fp-1:unknown-account:",
-                "bar  GBP 10.00 ; :fp-1:",
-            ),
-            parse_posting("bar  GBP 10.00 ; :fp-1:"),
-            "Updates unknown account and removes unknown-account tag.",
-        );
+        let dest_posting = Input::from_posting(parse_posting(dest), dummy_date).unwrap();
+        let src_posting = Input::from_posting(parse_posting(src), dummy_date).unwrap();
+        let (mut dest_holder, _, _) = Holder::from_input(dest_posting, dummy_idx);
+        dest_holder.merge_from_input_posting(src_posting);
+        let result = dest_holder.into_posting();
+
+        assert_eq!(result, parse_posting(want));
     }
 
-    #[test]
-    fn test_match_posting() {
+    #[test_case(
+        "foo  GBP 10.00 =GBP 90.00  ; :fp-1:",
+        "foo  GBP 10.00 =GBP 90.00  ; :fp-1:",
+        true;
+        "have_same_balances"
+    )]
+    #[test_case(
+        "foo  GBP 10.00 =GBP 23.00  ; :fp-1:",
+        "foo  GBP 10.00 =GBP 90.00  ; :fp-1:",
+        false;
+        "have_differing_balances"
+    )]
+    #[test_case(
+        "foo  GBP 10.00  ; :fp-1:",
+        "foo  GBP 10.00 =GBP 90.00  ; :fp-1:",
+        true;
+        "only_source_balance"
+    )]
+    #[test_case(
+        "foo  GBP 10.00 =GBP 90.00  ; :fp-1:",
+        "foo  GBP 10.00  ; :fp-1:",
+        true;
+        "only_dest_balance"
+    )]
+    #[test_case(
+        "foo  GBP 10.00  ; :fp-1:",
+        "foo  GBP 10.00  ; :fp-1:",
+        true;
+        "same_amount"
+    )]
+    #[test_case(
+        "foo  GBP 23.00  ; :fp-1:",
+        "foo  GBP 10.00  ; :fp-1:",
+        false;
+        "differing_amount"
+    )]
+    #[test_case(
+        "foo  GBP 10.00  ; :fp-1:",
+        "bar  GBP 10.00  ; :fp-1:unknown-account:",
+        true;
+        "differing_unknown_source_account"
+    )]
+    #[test_case(
+        "foo  GBP 10.00  ; :fp-1:unknown-account:",
+        "bar  GBP 10.00  ; :fp-1:",
+        true;
+        "differing_unknown_dest_account"
+    )]
+    #[test_case(
+        "foo  GBP 10.00  ; :fp-1:unknown-account:",
+        "bar  GBP 10.00  ; :fp-1:unknown-account:",
+        true;
+        "differing_unknown_accounts_match"
+    )]
+    #[test_case(
+        "foo  GBP 10.00  ; :fp-1:",
+        "bar  GBP 10.00  ; :fp-1:",
+        false;
+        "differing_known_accounts_do_not_match"
+    )]
+    fn holding_matches(dest: &str, src: &str, want: bool) {
         let dummy_date = NaiveDate::from_ymd(2000, 1, 1);
         let dummy_idx = StandardIndex::from_idx_first_gen(0);
-        let parse_match = |dest: &str, src: &str| {
-            let dest_posting = Input::from_posting(parse_posting(dest), dummy_date).unwrap();
-            let src_posting = Input::from_posting(parse_posting(src), dummy_date).unwrap();
-            let (dest_holder, _, _) = Holder::from_input(dest_posting, dummy_idx);
-            dest_holder.matches(&src_posting)
-        };
-        assert_eq!(
-            parse_match(
-                "foo  GBP 10.00 =GBP 90.00  ; :fp-1:",
-                "foo  GBP 10.00 =GBP 90.00  ; :fp-1:",
-            ),
-            true,
-            "Have same balances.",
-        );
-        assert_eq!(
-            parse_match(
-                "foo  GBP 10.00 =GBP 23.00  ; :fp-1:",
-                "foo  GBP 10.00 =GBP 90.00  ; :fp-1:",
-            ),
-            false,
-            "Have differing balances."
-        );
-        assert_eq!(
-            parse_match(
-                "foo  GBP 10.00  ; :fp-1:",
-                "foo  GBP 10.00 =GBP 90.00  ; :fp-1:",
-            ),
-            true,
-            "Only source balance.",
-        );
-        assert_eq!(
-            parse_match(
-                "foo  GBP 10.00 =GBP 90.00  ; :fp-1:",
-                "foo  GBP 10.00  ; :fp-1:",
-            ),
-            true,
-            "Only dest balance.",
-        );
-        assert_eq!(
-            parse_match("foo  GBP 10.00  ; :fp-1:", "foo  GBP 10.00  ; :fp-1:"),
-            true,
-            "Same amount.",
-        );
-        assert_eq!(
-            parse_match("foo  GBP 23.00  ; :fp-1:", "foo  GBP 10.00  ; :fp-1:"),
-            false,
-            "Differing amount.",
-        );
-        assert_eq!(
-            parse_match(
-                "foo  GBP 10.00  ; :fp-1:",
-                "bar  GBP 10.00  ; :fp-1:unknown-account:",
-            ),
-            true,
-            "Differing unknown source account.",
-        );
-        assert_eq!(
-            parse_match(
-                "foo  GBP 10.00  ; :fp-1:unknown-account:",
-                "bar  GBP 10.00  ; :fp-1:",
-            ),
-            true,
-            "Differing unknown dest account.",
-        );
-        assert_eq!(
-            parse_match(
-                "foo  GBP 10.00  ; :fp-1:unknown-account:",
-                "bar  GBP 10.00  ; :fp-1:unknown-account:",
-            ),
-            true,
-            "Differing unknown accounts match.",
-        );
-        assert_eq!(
-            parse_match("foo  GBP 10.00  ; :fp-1:", "bar  GBP 10.00  ; :fp-1:"),
-            false,
-            "Differing known accounts do not match.",
-        );
+
+        let dest_posting = Input::from_posting(parse_posting(dest), dummy_date).unwrap();
+        let src_posting = Input::from_posting(parse_posting(src), dummy_date).unwrap();
+        let (dest_holder, _, _) = Holder::from_input(dest_posting, dummy_idx);
+        let got = dest_holder.matches(&src_posting);
+
+        assert_eq!(got, want);
     }
 }
