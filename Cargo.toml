@@ -24,6 +24,7 @@ serde_derive = "1"
 sha-1 = "0.8.1"
 structopt = "0.2"
 typed-generational-arena = "0.2.5"
+uuid-b64 = "0.1"
 
 [dependencies.chrono-tz]
 version = "0.5"

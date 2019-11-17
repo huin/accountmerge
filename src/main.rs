@@ -21,6 +21,7 @@ extern crate serde_derive;
 extern crate sha1;
 extern crate structopt;
 extern crate typed_generational_arena;
+extern crate uuid_b64;
 
 #[cfg(test)]
 extern crate goldenfile;
@@ -42,6 +43,7 @@ mod accounts;
 mod comment;
 mod filespec;
 mod fingerprint;
+mod fpgen;
 mod importers;
 mod merge;
 mod rule;
@@ -61,6 +63,10 @@ enum SubCommand {
     #[structopt(name = "apply-rules")]
     /// Applies a rules file to an input file and dumps the results to stdout,
     ApplyRules(ApplyRules),
+    #[structopt(name = "generate-fingerprints")]
+    /// Generates random fingerprints to the postings in the input file and
+    /// writes them back out.
+    GenerateFingerprints(fpgen::GenerateFingerprints),
     #[structopt(name = "import")]
     /// Reads financial transaction data from a given source, converts them to
     /// Ledger transactions, and dumps them to stdout.
@@ -75,6 +81,7 @@ fn main() -> Result<(), Error> {
     use SubCommand::*;
     match cmd.subcmd {
         ApplyRules(apply_rules) => do_apply_rules(&apply_rules),
+        GenerateFingerprints(gen_fp) => gen_fp.run(),
         Import(import) => import.run(),
         Merge(merge) => do_merge(&merge),
     }
