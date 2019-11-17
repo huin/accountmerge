@@ -148,6 +148,10 @@ impl Merger {
                     }),
             );
         }
+
+        // TODO: Check if multiple source postings have matched against the same
+        // destination posting.
+
         Ok(pending)
     }
 
