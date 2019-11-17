@@ -31,7 +31,7 @@ impl Merger {
         Ok(unmatched_trns)
     }
 
-    fn make_pending(&mut self, orig_trns: Vec<Transaction>) -> Result<PendingMerges, Error> {
+    fn make_pending(&self, orig_trns: Vec<Transaction>) -> Result<PendingMerges, Error> {
         let mut pending = PendingMerges::new();
 
         // Set of fingerprints found in `pending.posts` so far.
