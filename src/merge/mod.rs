@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use failure::Error;
-use ledger_parser::Transaction;
+use ledger_parser::{Posting, Transaction};
 
 mod matchset;
 mod posting;
@@ -14,6 +14,10 @@ enum MergeError {
     #[fail(display = "bad input to merge: {}", reason)]
     Input { reason: String },
 }
+
+/// A newtype to return transactions that failed to merge and that need human
+/// intervention to resolve.
+pub struct UnmatchedTransactions(pub Vec<Transaction>);
 
 pub struct Merger {
     posts: posting::IndexedPostings,
@@ -30,10 +34,10 @@ impl Merger {
 
     /// This merging algorithm is described in README.md under "Matching
     /// algorithm".
-    pub fn merge(&mut self, src_trns: Vec<Transaction>) -> Result<(), Error> {
+    pub fn merge(&mut self, src_trns: Vec<Transaction>) -> Result<UnmatchedTransactions, Error> {
         let pending = self.make_pending(src_trns)?;
-        self.apply_pending(pending);
-        Ok(())
+        let unmatched_trns = self.apply_pending(pending);
+        Ok(unmatched_trns)
     }
 
     fn make_pending(&mut self, orig_trns: Vec<Transaction>) -> Result<PendingMerges, Error> {
@@ -44,6 +48,7 @@ impl Merger {
         let mut fingerprints = HashSet::<String>::new();
 
         for orig_trn in orig_trns.into_iter() {
+            let mut send_trn_to_unmerged = false;
             let (src_trn, orig_posts) = transaction::Holder::from_transaction(orig_trn);
 
             if orig_posts.is_empty() {
@@ -53,7 +58,9 @@ impl Merger {
             let mut src_posts_matched =
                 Vec::<(posting::Input, Option<posting::Index>)>::with_capacity(orig_posts.len());
             for orig_post in orig_posts.into_iter() {
-                let src_post = posting::Input::from_posting(orig_post, src_trn.get_date())?;
+                let mut src_post = posting::Input::from_posting(orig_post, src_trn.get_date())?;
+
+                // TODO: Error if any src_post has a candidate tag on it.
 
                 for fp in src_post.iter_fingerprints().map(str::to_string) {
                     if fingerprints.contains(&fp) {
@@ -64,11 +71,14 @@ impl Merger {
 
                 use posting::Match::*;
                 use posting::MatchedIndices::*;
-                match self.posts.find_matching_postings(&src_post) {
+                let dest_idx: Option<posting::Index> = match self
+                    .posts
+                    .find_matching_postings(&src_post)
+                {
                     Fingerprint(m) => match m {
                         One(dest_idx) => {
                             // Unambiguous match by fingerprint.
-                            src_posts_matched.push((src_post, Some(dest_idx)));
+                            Some(dest_idx)
                         }
                         Many(_matched_idxs) => {
                             // TODO: Use `_matched_idxs` to improve the error
@@ -84,33 +94,43 @@ impl Merger {
                     Soft(m) => match m {
                         One(dest_idx) => {
                             // Unambiguous single soft match.
-                            src_posts_matched.push((src_post, Some(dest_idx)));
+                            Some(dest_idx)
                         }
                         Many(matched_idxs) => {
-                            // Ambiguous multiple possible soft matches.
-                            // Add candidate tags and don't use src_post any further.
-                            let candidate_tag = format!(
-                                "{}{}",
-                                tags::CANDIDATE_FP_TAG_PREFIX,
-                                src_post.primary_fingerprint()
-                            );
+                            // Add candidate tags of the destinations to the
+                            // single src_post and mark the entire transaction
+                            // as unmerged.
                             for idx in matched_idxs.into_iter() {
-                                self.posts
-                                    .get_mut(idx)
-                                    .comment
-                                    .tags
-                                    .insert(candidate_tag.clone());
+                                let candidate_dest_post = self.posts.get(idx);
+                                src_post.add_tag(format!(
+                                    "{}{}",
+                                    tags::CANDIDATE_FP_TAG_PREFIX,
+                                    candidate_dest_post.primary_fingerprint()
+                                ));
                             }
+                            send_trn_to_unmerged = true;
+                            // No clear matched posting.
+                            None
                         }
                     },
                     Zero => {
-                        src_posts_matched.push((src_post, None));
+                        // No matched posting.
+                        None
                     }
-                }
+                };
+
+                src_posts_matched.push((src_post, dest_idx));
             }
 
-            if src_posts_matched.is_empty() {
-                // No posts matched, so no further work to do.
+            if send_trn_to_unmerged {
+                // src_trn is to remain unmerged for a human to handle
+                // remaining problems.
+                let postings: Vec<Posting> = src_posts_matched
+                    .into_iter()
+                    .map(|(src_post, _)| src_post.into_posting())
+                    .collect();
+                let trn = src_trn.into_transaction(postings);
+                pending.unmerged_trns.0.push(trn);
                 continue;
             }
 
@@ -142,7 +162,7 @@ impl Merger {
         Ok(pending)
     }
 
-    fn apply_pending(&mut self, mut pending: PendingMerges) {
+    fn apply_pending(&mut self, mut pending: PendingMerges) -> UnmatchedTransactions {
         // Maps from index in pending.new_trns to index in self.trn_arena.
         let new_trn_idxs: HashMap<HashableTransactionIndex, HashableTransactionIndex> = pending
             .new_trns
@@ -178,6 +198,8 @@ impl Merger {
                 }
             }
         }
+
+        pending.unmerged_trns
     }
 
     /// Gethers the existing transactions that are the parents of the
@@ -240,6 +262,8 @@ struct PendingMerges {
     posts: Vec<PendingPosting>,
     /// New transactions to create.
     new_trns: transaction::Arena,
+    /// Transactions that failed to merge.
+    unmerged_trns: UnmatchedTransactions,
 }
 
 impl PendingMerges {
@@ -247,6 +271,7 @@ impl PendingMerges {
         PendingMerges {
             posts: Vec::new(),
             new_trns: transaction::Arena::new(),
+            unmerged_trns: UnmatchedTransactions(Vec::new()),
         }
     }
 }
@@ -331,7 +356,8 @@ mod tests {
     )]
     fn merge_merge_error(first: &str, second: &str) {
         let mut merger = Merger::new();
-        merger.merge(parse_transactions(first)).unwrap();
+        let unmerged = merger.merge(parse_transactions(first)).unwrap();
+        assert!(unmerged.0.is_empty());
         assert!(merger.merge(parse_transactions(second)).is_err());
 
         // The result should be the same as before attempting to merge the
@@ -397,7 +423,9 @@ mod tests {
     fn merge_build(first: &str, want: &str) {
         let mut merger = Merger::new();
 
-        merger.merge(parse_transactions(first)).unwrap();
+        let unmerged = merger.merge(parse_transactions(first)).unwrap();
+        assert!(unmerged.0.is_empty());
+
         let result = merger.build();
         assert_transactions_eq!(&result, parse_transactions(want));
     }
@@ -416,6 +444,7 @@ mod tests {
                 assets:checking  GBP -5.00    ; :fp-5:
                 expenses:dining  GBP 5.00     ; :fp-6:
         "#,
+        r#""#,
         r#"
             2000/01/01 Salary
                 assets:checking  GBP 100.00   ; :fp-1:fp-3:
@@ -436,6 +465,7 @@ mod tests {
             2000/01/02 Salary
                 assets:checking  GBP 100.00   ; :fp-1:fp-2:fp-4:
         "#,
+        r#""#,
         r#"
             2000/01/01 Salary
                 assets:checking  GBP 100.00   ; :fp-1:fp-2:fp-3:fp-4:
@@ -455,21 +485,28 @@ mod tests {
         // will *not* be merged in.
         r#"
             2000/01/01 Salary
-                assets:checking  GBP 100.00   ; :fp-new1:foo:
+                assets:checking  GBP 100.00   ; :fp-new1:
             2000/01/01 Salary
-                assets:checking  GBP 100.00   ; :fp-new2:bar:
+                assets:checking  GBP 100.00   ; :fp-new2:
         "#,
-        // Candidate match tags should be added, but not the :foo: and :bar:
-        // tags.
+        // Candidate destination match tags should be added to the src
+        // transaction, and it should be left in the unmerged transactions.
         r#"
             2000/01/01 Salary
-                assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:fp-orig1:
+                assets:checking  GBP 100.00   ; :candidate-fp-orig1:candidate-fp-orig2:candidate-fp-orig3:fp-new1:
             2000/01/01 Salary
-                assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:fp-orig2:
+                assets:checking  GBP 100.00   ; :candidate-fp-orig1:candidate-fp-orig2:candidate-fp-orig3:fp-new2:
+        "#,
+        // The original transactions should be unchanged.
+        r#"
             2000/01/01 Salary
-                assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:fp-orig3:
+                assets:checking  GBP 100.00   ; :fp-orig1:
+            2000/01/01 Salary
+                assets:checking  GBP 100.00   ; :fp-orig2:
+            2000/01/01 Salary
+                assets:checking  GBP 100.00   ; :fp-orig3:
         "#;
-        "ambiguous_soft_match_adds_candidate_tags"
+        "ambiguous_soft_match_adds_candidate_tags_and_leaves_unmerged"
     )]
     #[test_case(
         r#"
@@ -480,6 +517,7 @@ mod tests {
             2000/01/01 Salary
                 assets:checking  GBP 100.00  =GBP 1234.00  ; :fp-1:
         "#,
+        r#""#,
         r#"
             2000/01/01 Salary
                 assets:checking  GBP 100.00  =GBP 1234.00  ; :fp-1:
@@ -497,6 +535,7 @@ mod tests {
                 assets:checking  GBP 100.00  =GBP 1234.00  ; :fp-1:
                 income:salary    GBP -100.00               ; :fp-2:
         "#,
+        r#""#,
         r#"
             2000/01/01 Salary
                 assets:checking  GBP 100.00  =GBP 1234.00  ; :fp-1:
@@ -504,11 +543,15 @@ mod tests {
         "#;
         "does_not_overwrite_some_fields"
     )]
-    fn merge_merge_build(first: &str, second: &str, want: &str) {
+    fn merge_merge_build(first: &str, second: &str, want_unmerged_second: &str, want: &str) {
         let mut merger = Merger::new();
 
-        merger.merge(parse_transactions(first)).unwrap();
-        merger.merge(parse_transactions(second)).unwrap();
+        let unmerged_first = merger.merge(parse_transactions(first)).unwrap();
+        assert!(unmerged_first.0.is_empty());
+
+        let unmerged_second = merger.merge(parse_transactions(second)).unwrap();
+        assert_transactions_eq!(unmerged_second.0, parse_transactions(want_unmerged_second));
+
         let result = merger.build();
         assert_transactions_eq!(&result, parse_transactions(want));
     }

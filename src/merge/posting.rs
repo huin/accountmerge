@@ -61,7 +61,7 @@ impl IndexedPostings {
         self.post_arena.get(post_idx).expect(BAD_POSTING_INDEX)
     }
 
-    pub fn get_mut(&mut self, post_idx: Index) -> &mut Holder {
+    fn get_mut(&mut self, post_idx: Index) -> &mut Holder {
         self.post_arena.get_mut(post_idx).expect(BAD_POSTING_INDEX)
     }
 
@@ -143,6 +143,8 @@ impl ConsumePostings {
 }
 
 pub struct Input {
+    // TODO: Consider removing the `fingerprints` field and serve
+    // `iter_fingerprints` on the fly.
     fingerprints: Vec<String>,
     trn_date: NaiveDate,
     posting: Posting,
@@ -172,8 +174,17 @@ impl Input {
         }
     }
 
-    pub fn primary_fingerprint(&self) -> &str {
-        &self.fingerprints[0]
+    pub fn into_posting(self) -> Posting {
+        let mut posting = self.posting;
+        posting.comment = self.comment.into_opt_comment();
+        posting
+    }
+
+    pub fn add_tag(&mut self, tag: String) {
+        if tag.starts_with(FINGERPRINT_TAG_PREFIX) {
+            self.fingerprints.push(tag.clone());
+        }
+        self.comment.tags.insert(tag);
     }
 
     pub fn iter_fingerprints<'a>(&'a self) -> impl Iterator<Item = &str> + 'a {
@@ -208,6 +219,15 @@ impl Holder {
 
     pub fn get_parent_trn(&self) -> transaction::Index {
         self.parent_trn
+    }
+
+    pub fn primary_fingerprint(&self) -> &str {
+        self.comment
+            .tags
+            .iter()
+            .nth(0)
+            .expect("must always have a fingerprint tag")
+            .as_str()
     }
 
     fn matches(&self, input: &Input) -> bool {
