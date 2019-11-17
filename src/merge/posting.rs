@@ -9,7 +9,7 @@ use crate::comment::Comment;
 use crate::merge::matchset::MatchSet;
 use crate::merge::transaction;
 use crate::merge::MergeError;
-use crate::tags::{FINGERPRINT_TAG_PREFIX, UNKNOWN_ACCOUNT_TAG};
+use crate::tags::{CANDIDATE_FP_TAG_PREFIX, FINGERPRINT_TAG_PREFIX, UNKNOWN_ACCOUNT_TAG};
 
 const BAD_POSTING_INDEX: &str = "internal error: used invalid posting::Index";
 
@@ -155,6 +155,20 @@ impl Input {
     pub fn from_posting(mut posting: Posting, trn_date: NaiveDate) -> Result<Self, Error> {
         let comment = Comment::from_opt_comment(posting.comment.as_ref().map(String::as_str));
         posting.comment = None;
+
+        // Error if any src_post has a candidate tag on it. The user
+        // should have removed it.
+        if comment
+            .tags
+            .iter()
+            .any(|tag| tag.starts_with(CANDIDATE_FP_TAG_PREFIX))
+        {
+            return Err(MergeError::Input {
+                reason: format!("posting \"{}\" has a candidate tag", posting),
+            }
+            .into());
+        }
+
         let fingerprints = fingerprints_from_comment(&comment);
         // Ensure that there is at least one fingerprint to serve as the
         // primary. Having at least one fingerprint is required by the merging

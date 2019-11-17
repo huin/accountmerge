@@ -51,8 +51,6 @@ impl Merger {
             for orig_post in orig_posts.into_iter() {
                 let mut src_post = posting::Input::from_posting(orig_post, src_trn.get_date())?;
 
-                // TODO: Error if any src_post has a candidate tag on it.
-
                 for fp in src_post.iter_fingerprints().map(str::to_string) {
                     if fingerprints.contains(&fp) {
                         return Err(MergeError::Input{reason: format!("multiple postings with same fingerprint ({:?}) found within a single input transaction set", fp)}.into());
@@ -309,6 +307,13 @@ mod tests {
                 assets:checking  GBP 100.00
         "#;
         "error_when_merging_without_fingerprint"
+    )]
+    #[test_case(
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00  ; :fp-1:candidate-fp-2:
+        "#;
+        "merging_with_candidate_tag"
     )]
     fn merge_error(first: &str) {
         let mut merger = Merger::new();
