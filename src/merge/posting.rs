@@ -39,10 +39,13 @@ impl IndexedPostings {
     ///
     /// TODO: This should produce an error if adding a post with a fingerprint
     /// that has already been seen.
-    pub fn add(&mut self, input_posting: Input, parent_trn: transaction::Index) -> Index {
-        let (posting, trn_date, fingerprints) = Holder::from_input(input_posting, parent_trn);
-        let idx = self.post_arena.insert(posting);
-        self.register_fingerprints(fingerprints, idx);
+    pub fn add(&mut self, input: Input, parent_trn: transaction::Index) -> Index {
+        let fingerprints: Vec<String> = fingerprints_from_comment(&input.comment)
+            .map(str::to_string)
+            .collect();
+        let (holder, trn_date) = Holder::from_input(input, parent_trn);
+        let idx = self.post_arena.insert(holder);
+        self.register_fingerprints(fingerprints.into_iter(), idx);
 
         self.posts_by_date
             .entry(trn_date)
@@ -75,15 +78,22 @@ impl IndexedPostings {
     /// TODO: This should produce an error if adding a post with a fingerprint
     /// that has already been seen that is not part of the existing_post_idx.
     pub fn merge_into(&mut self, existing_post_idx: Index, input_posting: Input) {
+        self.register_fingerprints(
+            fingerprints_from_comment(&input_posting.comment).map(str::to_string),
+            existing_post_idx,
+        );
         let dest_post = self.get_mut(existing_post_idx);
-        let post_fingerprints = dest_post.merge_from_input_posting(input_posting);
-        self.register_fingerprints(post_fingerprints, existing_post_idx);
+        dest_post.merge_from_input_posting(input_posting);
     }
 
-    /// Adds to posting fingerprints index.
-    fn register_fingerprints(&mut self, fingerprints: Vec<String>, post_idx: Index) {
-        for fp in fingerprints.into_iter() {
-            self.post_by_fingerprint.insert(fp, post_idx);
+    /// Adds fingerprints to posting fingerprints index.
+    fn register_fingerprints(
+        &mut self,
+        fingerprints: impl Iterator<Item = String>,
+        post_idx: Index,
+    ) {
+        for fp in fingerprints {
+            self.post_by_fingerprint.insert(fp.to_string(), post_idx);
         }
     }
 
@@ -143,9 +153,6 @@ impl ConsumePostings {
 }
 
 pub struct Input {
-    // TODO: Consider removing the `fingerprints` field and serve
-    // `iter_fingerprints` on the fly.
-    fingerprints: Vec<String>,
     trn_date: NaiveDate,
     posting: Posting,
     comment: Comment,
@@ -169,23 +176,26 @@ impl Input {
             .into());
         }
 
-        let fingerprints = fingerprints_from_comment(&comment);
         // Ensure that there is at least one fingerprint to serve as the
         // primary. Having at least one fingerprint is required by the merging
-        // process. I.e `primary_fingerprint` may panic if we don't check this.
-        if fingerprints.is_empty() {
-            Err(MergeError::Input {
+        // process. I.e `Holder::primary_fingerprint` may panic if we don't
+        // check this.
+        if !comment
+            .tags
+            .iter()
+            .any(|tag| tag.starts_with(FINGERPRINT_TAG_PREFIX))
+        {
+            return Err(MergeError::Input {
                 reason: format!("posting \"{}\" does not have a fingerprint tag", posting),
             }
-            .into())
-        } else {
-            Ok(Self {
-                fingerprints,
-                trn_date,
-                posting,
-                comment,
-            })
+            .into());
         }
+
+        Ok(Self {
+            trn_date,
+            posting,
+            comment,
+        })
     }
 
     pub fn into_posting(self) -> Posting {
@@ -195,14 +205,11 @@ impl Input {
     }
 
     pub fn add_tag(&mut self, tag: String) {
-        if tag.starts_with(FINGERPRINT_TAG_PREFIX) {
-            self.fingerprints.push(tag.clone());
-        }
         self.comment.tags.insert(tag);
     }
 
     pub fn iter_fingerprints<'a>(&'a self) -> impl Iterator<Item = &str> + 'a {
-        self.fingerprints.iter().map(String::as_str)
+        fingerprints_from_comment(&self.comment)
     }
 }
 
@@ -214,7 +221,7 @@ pub struct Holder {
 }
 
 impl Holder {
-    fn from_input(proto: Input, parent_trn: transaction::Index) -> (Self, NaiveDate, Vec<String>) {
+    fn from_input(proto: Input, parent_trn: transaction::Index) -> (Self, NaiveDate) {
         (
             Self {
                 parent_trn,
@@ -222,7 +229,6 @@ impl Holder {
                 comment: proto.comment,
             },
             proto.trn_date,
-            proto.fingerprints,
         )
     }
 
@@ -266,7 +272,7 @@ impl Holder {
         accounts_match && amounts_match && balances_match
     }
 
-    fn merge_from_input_posting(&mut self, mut src: Input) -> Vec<String> {
+    fn merge_from_input_posting(&mut self, mut src: Input) {
         // TODO: Merge/update status.
         if self.posting.balance.is_none() {
             self.posting.balance = src.posting.balance.clone()
@@ -280,20 +286,16 @@ impl Holder {
         src.comment.tags.remove(UNKNOWN_ACCOUNT_TAG);
 
         self.comment.merge_from(src.comment);
-        src.fingerprints
     }
 }
 
-/// Extracts copies of the fingerprint tag(s) from `comment`.
-fn fingerprints_from_comment(comment: &Comment) -> Vec<String> {
-    let mut fingerprints: Vec<String> = comment
+/// Extracts the fingerprint tag(s) from `comment`.
+fn fingerprints_from_comment(comment: &Comment) -> impl Iterator<Item = &str> {
+    comment
         .tags
         .iter()
+        .map(String::as_str)
         .filter(|t| t.starts_with(FINGERPRINT_TAG_PREFIX))
-        .cloned()
-        .collect();
-    fingerprints.sort();
-    fingerprints
 }
 
 #[cfg(test)]
@@ -345,7 +347,7 @@ mod tests {
 
         let dest_posting = Input::from_posting(parse_posting(dest), dummy_date).unwrap();
         let src_posting = Input::from_posting(parse_posting(src), dummy_date).unwrap();
-        let (mut dest_holder, _, _) = Holder::from_input(dest_posting, dummy_idx);
+        let (mut dest_holder, _) = Holder::from_input(dest_posting, dummy_idx);
         dest_holder.merge_from_input_posting(src_posting);
         let result = dest_holder.into_posting();
 
@@ -418,7 +420,7 @@ mod tests {
 
         let dest_posting = Input::from_posting(parse_posting(dest), dummy_date).unwrap();
         let src_posting = Input::from_posting(parse_posting(src), dummy_date).unwrap();
-        let (dest_holder, _, _) = Holder::from_input(dest_posting, dummy_idx);
+        let (dest_holder, _) = Holder::from_input(dest_posting, dummy_idx);
         let got = dest_holder.matches(&src_posting);
 
         assert_eq!(got, want);
