@@ -290,340 +290,226 @@ impl std::hash::Hash for HashableTransactionIndex {
 
 #[cfg(test)]
 mod tests {
+    use test_case::test_case;
+
     use super::*;
     use crate::testutil::parse_transactions;
 
-    #[test]
-    fn stable_sorts_destination_by_date() {
+    #[test_case(
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00   ; :fp-1:
+            2000/01/02 Transfer to savings
+                assets:savings   GBP 100.00   ; :fp-2:
+        "#,
+        // This posting has fingerprints matching two different postings
+        // and should cause an error when atttempting to merge.
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00   ; :fp-1:fp-2:
+        "#;
+        "fingerprint_many_match_failure"
+    )]
+    #[test_case(
+        r#"
+            2000/01/01 Transfer to checking
+                assets:checking  GBP 100.00
+            2000/01/01 Transfer to savings
+                assets:savings   GBP 100.00
+        "#,
+        // The existing transactions have postings that match both the
+        // postings from the single input transaction.
+        r#"
+            2000/01/01 Mixed
+                assets:checking  GBP 100.00
+                assets:savings   GBP 100.00
+        "#;
+        "many_matched_transactions_failure"
+    )]
+    fn merge_merge_error(first: &str, second: &str) {
         let mut merger = Merger::new();
-        merger
-            .merge(parse_transactions(
-                r#"
-                2000/02/01 Salary
-                    assets:checking  GBP 100.00
-                    income:salary    GBP -100.00
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00
-                    income:salary    GBP -100.00
-                2000/02/01 Lunch
-                    assets:checking  GBP -5.00
-                    expenses:dining  GBP 5.00
-                "#,
-            ))
-            .unwrap();
+        merger.merge(parse_transactions(first)).unwrap();
+        assert!(merger.merge(parse_transactions(second)).is_err());
+
+        // The result should be the same as before attempting to merge the
+        // second time.
+        let mut merger_only_first = Merger::new();
+        merger_only_first.merge(parse_transactions(first)).unwrap();
+
         let result = merger.build();
-        assert_transactions_eq!(
-            &result,
-            parse_transactions(
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00
-                    income:salary    GBP -100.00
-                2000/02/01 Salary
-                    assets:checking  GBP 100.00
-                    income:salary    GBP -100.00
-                2000/02/01 Lunch
-                    assets:checking  GBP -5.00
-                    expenses:dining  GBP 5.00
-                "#
-            ),
-        );
+        let only_first = merger_only_first.build();
+        assert_transactions_eq!(&result, &only_first);
     }
 
-    #[test]
-    fn dedupes_added() {
-        let mut merger = Merger::new();
-
-        merger
-            .merge(parse_transactions(
-                r#"
+    #[test_case(
+        r#"
+            2000/02/01 Salary
+                assets:checking  GBP 100.00
+                income:salary    GBP -100.00
             2000/01/01 Salary
                 assets:checking  GBP 100.00
                 income:salary    GBP -100.00
-            "#,
-            ))
-            .unwrap();
-        merger
-            .merge(parse_transactions(
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00
-                    income:salary    GBP -100.00
-                2000/01/02 Lunch
-                    assets:checking  GBP -5.00
-                    expenses:dining  GBP 5.00
-                "#,
-            ))
-            .unwrap();
-        let result = merger.build();
-        assert_transactions_eq!(
-            &result,
-            parse_transactions(
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00
-                    income:salary    GBP -100.00
-                2000/01/02 Lunch
-                    assets:checking  GBP -5.00
-                    expenses:dining  GBP 5.00
-                "#
-            ),
-        );
-    }
-
-    #[test]
-    fn fingerprint_matching() {
+            2000/02/01 Lunch
+                assets:checking  GBP -5.00
+                expenses:dining  GBP 5.00
+        "#,
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00
+                income:salary    GBP -100.00
+            2000/02/01 Salary
+                assets:checking  GBP 100.00
+                income:salary    GBP -100.00
+            2000/02/01 Lunch
+                assets:checking  GBP -5.00
+                expenses:dining  GBP 5.00
+        "#;
+        "stable_sorts_destination_by_date"
+    )]
+    #[test_case(
+        // Postings from a call to merge should not match earlier postings from the
+        // same call to merge.
+        r#"
+            2000/01/01 Foo
+                assets:foo  GBP 10.00  ; :foo-1:
+            2000/01/01 Foo
+                assets:foo  GBP 10.00  ; :foo-2:
+            2000/01/01 Foo
+                assets:foo  GBP 10.00  ; :foo-3:
+            2000/01/01 Foo
+                assets:foo  GBP 10.00  ; :foo-4:
+        "#,
+        r#"
+            2000/01/01 Foo
+                assets:foo  GBP 10.00  ; :foo-1:
+            2000/01/01 Foo
+                assets:foo  GBP 10.00  ; :foo-2:
+            2000/01/01 Foo
+                assets:foo  GBP 10.00  ; :foo-3:
+            2000/01/01 Foo
+                assets:foo  GBP 10.00  ; :foo-4:
+        "#;
+        "postings_do_not_match_from_same_merge"
+    )]
+    fn merge_build(first: &str, want: &str) {
         let mut merger = Merger::new();
 
-        merger
-            .merge(parse_transactions(
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00   ; :fp-1:fp-2:fp-3:
-                "#,
-            ))
-            .unwrap();
-        merger
-            .merge(parse_transactions(
-                // Different date to avoid soft-matching if fingerprint matching fails.
-                r#"
-                2000/01/02 Salary
-                    assets:checking  GBP 100.00   ; :fp-1:fp-2:fp-4:
-                "#,
-            ))
-            .unwrap();
+        merger.merge(parse_transactions(first)).unwrap();
         let result = merger.build();
-        assert_transactions_eq!(
-            &result,
-            parse_transactions(
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00  ; :fp-1:fp-2:fp-3:fp-4:
-                "#
-            ),
-        );
+        assert_transactions_eq!(&result, parse_transactions(want),);
     }
 
-    // Postings from a call to merge should not match earlier postings from the
-    // same call to merge.
-    #[test]
-    fn postings_do_not_match_from_same_merge() {
-        let mut merger = Merger::new();
-
-        // The tags in the transactions aren't significant for the test, but
-        // their merging makes it more obvious what's wrong if there's a
-        // failure.
-        merger
-            .merge(parse_transactions(
-                r#"
-                2000/01/01 Foo
-                    assets:foo  GBP 10.00  ; :foo-1:
-                2000/01/01 Foo
-                    assets:foo  GBP 10.00  ; :foo-2:
-                2000/01/01 Foo
-                    assets:foo  GBP 10.00  ; :foo-3:
-                2000/01/01 Foo
-                    assets:foo  GBP 10.00  ; :foo-4:
-                "#,
-            ))
-            .unwrap();
-
-        let result = merger.build();
-        assert_transactions_eq!(
-            &result,
-            parse_transactions(
-                r#"
-                2000/01/01 Foo
-                    assets:foo  GBP 10.00  ; :foo-1:
-                2000/01/01 Foo
-                    assets:foo  GBP 10.00  ; :foo-2:
-                2000/01/01 Foo
-                    assets:foo  GBP 10.00  ; :foo-3:
-                2000/01/01 Foo
-                    assets:foo  GBP 10.00  ; :foo-4:
-                "#
-            ),
-        );
-    }
-
-    #[test]
-    fn fingerprint_many_match_failure() {
-        let mut merger = Merger::new();
-        merger
-            .merge(parse_transactions(
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00   ; :fp-1:
-                2000/01/02 Transfer to savings
-                    assets:savings   GBP 100.00   ; :fp-2:
-                "#,
-            ))
-            .unwrap();
-        assert!(merger
-            .merge(parse_transactions(
-                // This posting has fingerprints matching two different postings
-                // and should cause an error when atttempting to merge.
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00   ; :fp-1:fp-2:
-                "#,
-            ))
-            .is_err());
-
-        // The result should be the same as before attempting to merge.
-        let result = merger.build();
-        assert_transactions_eq!(
-            &result,
-            parse_transactions(
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00   ; :fp-1:
-                2000/01/02 Transfer to savings
-                    assets:savings   GBP 100.00   ; :fp-2:
-                "#
-            ),
-        );
-    }
-
-    #[test]
-    fn soft_posting_match_adds_candidate_match_tags() {
-        let mut merger = Merger::new();
-        merger
-            .merge(parse_transactions(
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00   ; :fp-orig1:
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00   ; :fp-orig2:
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00
-                "#,
-            ))
-            .unwrap();
-        merger
-            .merge(parse_transactions(
-                // These postings all soft-match against the postings above,
-                // but will *not* be merged in.
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00   ; :fp-new1:foo:
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00   ; :fp-new2:bar:
-                "#,
-            ))
-            .unwrap();
-
+    #[test_case(
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00
+                income:salary    GBP -100.00
+        "#,
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00
+                income:salary    GBP -100.00
+            2000/01/02 Lunch
+                assets:checking  GBP -5.00
+                expenses:dining  GBP 5.00
+        "#,
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00
+                income:salary    GBP -100.00
+            2000/01/02 Lunch
+                assets:checking  GBP -5.00
+                expenses:dining  GBP 5.00
+        "#;
+        "dedupes_added"
+    )]
+    #[test_case(
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00   ; :fp-1:fp-2:fp-3:
+        "#,
+        // Different date to avoid soft-matching if fingerprint matching fails.
+        r#"
+            2000/01/02 Salary
+                assets:checking  GBP 100.00   ; :fp-1:fp-2:fp-4:
+        "#,
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00  ; :fp-1:fp-2:fp-3:fp-4:
+        "#;
+        "fingerprint_matching"
+    )]
+    #[test_case(
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00   ; :fp-orig1:
+            2000/01/01 Salary
+                assets:checking  GBP 100.00   ; :fp-orig2:
+            2000/01/01 Salary
+                assets:checking  GBP 100.00
+        "#,
+        // These postings all soft-match against the postings above,
+        // but will *not* be merged in.
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00   ; :fp-new1:foo:
+            2000/01/01 Salary
+                assets:checking  GBP 100.00   ; :fp-new2:bar:
+        "#,
         // Candidate match tags should be added, but not the :foo: and :bar:
         // tags.
-        let result = merger.build();
-        assert_transactions_eq!(
-            &result,
-            parse_transactions(
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:fp-orig1:
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:fp-orig2:
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:
-                "#
-            ),
-        );
-    }
-
-    #[test]
-    fn many_matched_transactions_failure() {
-        let mut merger = Merger::new();
-        merger
-            .merge(parse_transactions(
-                r#"
-                2000/01/01 Transfer to checking
-                    assets:checking  GBP 100.00
-                2000/01/01 Transfer to savings
-                    assets:savings   GBP 100.00
-                "#,
-            ))
-            .unwrap();
-        assert!(merger
-            .merge(parse_transactions(
-                // The existing transactions have postings that match both the
-                // postings from the single input transaction.
-                r#"
-                2000/01/01 Mixed
-                    assets:checking  GBP 100.00
-                    assets:savings   GBP 100.00
-                "#,
-            ))
-            .is_err());
-    }
-
-    #[test]
-    fn balances_added_to_existing() {
-        let mut merger = Merger::new();
-
-        merger
-            .merge(parse_transactions(
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00
-                    income:salary    GBP -100.00
-                "#,
-            ))
-            .unwrap();
-        merger
-            .merge(parse_transactions(
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00  =GBP 1234.00
-                    income:salary    GBP -100.00
-                "#,
-            ))
-            .unwrap();
-        let result = merger.build();
-        assert_transactions_eq!(
-            &result,
-            parse_transactions(
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00  = GBP 1234.00
-                    income:salary    GBP -100.00
-                "#
-            ),
-        );
-    }
-
-    #[test]
-    fn does_not_overwrite_some_fields() {
-        let mut merger = Merger::new();
-
-        merger
-            .merge(parse_transactions(
-                r#"
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:fp-orig1:
+            2000/01/01 Salary
+                assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:fp-orig2:
+            2000/01/01 Salary
+                assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:
+        "#;
+        "soft_posting_match_adds_candidate_match_tags"
+    )]
+    #[test_case(
+        r#"
             2000/01/01 Salary
                 assets:checking  GBP 100.00
                 income:salary    GBP -100.00
-            "#,
-            ))
-            .unwrap();
-        merger
-            .merge(parse_transactions(
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00  =GBP 1234.00
-                    income:salary    GBP -100.00
-                "#,
-            ))
-            .unwrap();
+        "#,
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00  =GBP 1234.00
+                income:salary    GBP -100.00
+        "#,
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00  = GBP 1234.00
+                income:salary    GBP -100.00
+        "#;
+        "balances_added_to_existing"
+    )]
+    #[test_case(
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00
+                income:salary    GBP -100.00
+        "#,
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00  =GBP 1234.00
+                income:salary    GBP -100.00
+        "#,
+        r#"
+            2000/01/01 Salary
+                assets:checking  GBP 100.00  = GBP 1234.00
+                income:salary    GBP -100.00
+        "#;
+        "does_not_overwrite_some_fields"
+    )]
+    fn merge_merge_build(first: &str, second: &str, want: &str) {
+        let mut merger = Merger::new();
+
+        merger.merge(parse_transactions(first)).unwrap();
+        merger.merge(parse_transactions(second)).unwrap();
         let result = merger.build();
-        assert_transactions_eq!(
-            &result,
-            parse_transactions(
-                r#"
-                2000/01/01 Salary
-                    assets:checking  GBP 100.00  = GBP 1234.00
-                    income:salary    GBP -100.00
-                "#
-            ),
-        );
+        assert_transactions_eq!(&result, parse_transactions(want),);
     }
 }
