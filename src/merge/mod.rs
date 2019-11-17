@@ -308,7 +308,7 @@ mod tests {
             2000/01/01 Salary
                 assets:checking  GBP 100.00   ; :fp-1:fp-2:
         "#;
-        "fingerprint_many_match_failure"
+        "posts_fingerprint_match_multiple_posts"
     )]
     #[test_case(
         r#"
@@ -324,7 +324,7 @@ mod tests {
                 assets:checking  GBP 100.00
                 assets:savings   GBP 100.00
         "#;
-        "many_matched_transactions_failure"
+        "transation_would_be_split"
     )]
     fn merge_merge_error(first: &str, second: &str) {
         let mut merger = Merger::new();
@@ -364,7 +364,7 @@ mod tests {
                 assets:checking  GBP -5.00
                 expenses:dining  GBP 5.00
         "#;
-        "stable_sorts_destination_by_date"
+        "stable_sorts_by_date"
     )]
     #[test_case(
         // Postings from a call to merge should not match earlier postings from the
@@ -396,7 +396,7 @@ mod tests {
 
         merger.merge(parse_transactions(first)).unwrap();
         let result = merger.build();
-        assert_transactions_eq!(&result, parse_transactions(want),);
+        assert_transactions_eq!(&result, parse_transactions(want));
     }
 
     #[test_case(
@@ -421,7 +421,7 @@ mod tests {
                 assets:checking  GBP -5.00
                 expenses:dining  GBP 5.00
         "#;
-        "dedupes_added"
+        "soft_matches_existing"
     )]
     #[test_case(
         r#"
@@ -435,9 +435,9 @@ mod tests {
         "#,
         r#"
             2000/01/01 Salary
-                assets:checking  GBP 100.00  ; :fp-1:fp-2:fp-3:fp-4:
+                assets:checking  GBP 100.00   ; :fp-1:fp-2:fp-3:fp-4:
         "#;
-        "fingerprint_matching"
+        "fingerprint_matches_existing_non_soft_match"
     )]
     #[test_case(
         r#"
@@ -448,8 +448,8 @@ mod tests {
             2000/01/01 Salary
                 assets:checking  GBP 100.00
         "#,
-        // These postings all soft-match against the postings above,
-        // but will *not* be merged in.
+        // The following postings all soft-match against the postings above, but
+        // will *not* be merged in.
         r#"
             2000/01/01 Salary
                 assets:checking  GBP 100.00   ; :fp-new1:foo:
@@ -466,7 +466,7 @@ mod tests {
             2000/01/01 Salary
                 assets:checking  GBP 100.00   ; :candidate-fp-new1:candidate-fp-new2:
         "#;
-        "soft_posting_match_adds_candidate_match_tags"
+        "ambiguous_soft_match_adds_candidate_tags"
     )]
     #[test_case(
         r#"
@@ -510,6 +510,6 @@ mod tests {
         merger.merge(parse_transactions(first)).unwrap();
         merger.merge(parse_transactions(second)).unwrap();
         let result = merger.build();
-        assert_transactions_eq!(&result, parse_transactions(want),);
+        assert_transactions_eq!(&result, parse_transactions(want));
     }
 }
