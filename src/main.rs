@@ -47,10 +47,8 @@ mod fingerprint;
 mod fpgen;
 mod importers;
 mod merge;
-mod rule;
+mod rules;
 mod tags;
-
-use filespec::FileSpec;
 
 #[derive(Debug, StructOpt)]
 /// Utilities for working with Ledger journals.
@@ -63,7 +61,7 @@ struct Command {
 enum SubCommand {
     #[structopt(name = "apply-rules")]
     /// Applies a rules file to an input file and dumps the results to stdout,
-    ApplyRules(ApplyRules),
+    ApplyRules(rules::Command),
     #[structopt(name = "generate-fingerprints")]
     /// Generates random fingerprints to the postings in the input file and
     /// writes them back out.
@@ -81,31 +79,9 @@ fn main() -> Result<(), Error> {
     let cmd = Command::from_args();
     use SubCommand::*;
     match cmd.subcmd {
-        ApplyRules(apply_rules) => do_apply_rules(&apply_rules),
+        ApplyRules(cmd) => cmd.run(),
         GenerateFingerprints(gen_fp) => gen_fp.run(),
         Import(import) => import.run(),
         Merge(merge) => merge.run(),
     }
-}
-
-#[derive(Debug, StructOpt)]
-struct ApplyRules {
-    #[structopt(short = "r", long = "rules")]
-    /// The file to read the rules from.
-    rules: FileSpec,
-    /// The Ledger journal to read.
-    input_journal: FileSpec,
-    /// The ledger file to write to (overwrites any existing file). "-" writes
-    /// to stdout.
-    #[structopt(short = "o", long = "output", default_value = "-")]
-    output: FileSpec,
-}
-
-fn do_apply_rules(apply_rules: &ApplyRules) -> Result<(), Error> {
-    let mut ledger = filespec::read_ledger_file(&apply_rules.input_journal)?;
-    let rules = rule::Table::from_filespec(&apply_rules.rules)?;
-    for trn in &mut ledger.transactions {
-        rules.update_transaction(trn)?;
-    }
-    filespec::write_ledger_file(&apply_rules.output, &ledger)
 }
