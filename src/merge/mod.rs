@@ -15,7 +15,7 @@ enum MergeError {
 }
 
 #[derive(Debug, StructOpt)]
-pub struct Merge {
+pub struct Command {
     /// The Ledger journals to read from.
     inputs: Vec<FileSpec>,
 
@@ -28,43 +28,45 @@ pub struct Merge {
     output: FileSpec,
 }
 
-pub fn do_merge(merge: &Merge) -> Result<(), Error> {
-    let mut merger = merger::Merger::new();
+impl Command {
+    pub fn run(&self) -> Result<(), Error> {
+        let mut merger = merger::Merger::new();
 
-    let mut unmerged = ledger_parser::Ledger {
-        commodity_prices: Default::default(),
-        transactions: Default::default(),
-    };
+        let mut unmerged = ledger_parser::Ledger {
+            commodity_prices: Default::default(),
+            transactions: Default::default(),
+        };
 
-    for ledger_file in &merge.inputs {
-        let ledger = filespec::read_ledger_file(ledger_file)?;
-        let mut unmerged_trns = merger.merge(ledger.transactions)?;
+        for ledger_file in &self.inputs {
+            let ledger = filespec::read_ledger_file(ledger_file)?;
+            let mut unmerged_trns = merger.merge(ledger.transactions)?;
 
-        // TODO: Need to be able to differentiate between where the files where
-        // the unmerged transaction originally came from. Tagging?
-        unmerged.transactions.append(&mut unmerged_trns.0);
-    }
+            // TODO: Need to be able to differentiate between where the files where
+            // the unmerged transaction originally came from. Tagging?
+            unmerged.transactions.append(&mut unmerged_trns.0);
+        }
 
-    if !unmerged.transactions.is_empty() {
-        match merge.unmerged.as_ref() {
-            Some(fs) => {
-                filespec::write_ledger_file(fs, &unmerged)?;
-            }
-            None => {
-                return Err(format_err!(
+        if !unmerged.transactions.is_empty() {
+            match self.unmerged.as_ref() {
+                Some(fs) => {
+                    filespec::write_ledger_file(fs, &unmerged)?;
+                }
+                None => {
+                    return Err(format_err!(
                     "{} input transactions have gone unmerged and no --unmerged output file was specified",
                     unmerged.transactions.len(),
                 ));
+                }
             }
         }
+
+        let transactions = merger.build();
+
+        let ledger = ledger_parser::Ledger {
+            transactions,
+            commodity_prices: Default::default(),
+        };
+
+        filespec::write_ledger_file(&self.output, &ledger)
     }
-
-    let transactions = merger.build();
-
-    let ledger = ledger_parser::Ledger {
-        transactions,
-        commodity_prices: Default::default(),
-    };
-
-    filespec::write_ledger_file(&merge.output, &ledger)
 }

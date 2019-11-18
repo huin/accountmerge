@@ -10,6 +10,7 @@ mod util;
 #[cfg(test)]
 mod testutil;
 
+use crate::filespec::{self, FileSpec};
 use importer::TransactionImporter;
 
 #[derive(Debug, StructOpt)]
@@ -38,5 +39,23 @@ impl Importer {
             NationwideCsv(imp) => imp,
             PaypalCsv(imp) => imp,
         }
+    }
+}
+
+#[derive(Debug, StructOpt)]
+pub struct Command {
+    /// The ledger file to write to (overwrites any existing file). "-" writes
+    /// to stdout.
+    #[structopt(short = "o", long = "output", default_value = "-")]
+    output: FileSpec,
+    #[structopt(subcommand)]
+    /// The importer type to use to read transactions.
+    importer: Importer,
+}
+
+impl Command {
+    pub fn run(&self) -> Result<(), Error> {
+        let ledger = self.importer.do_import()?;
+        filespec::write_ledger_file(&self.output, &ledger)
     }
 }

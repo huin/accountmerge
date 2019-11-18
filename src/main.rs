@@ -67,14 +67,14 @@ enum SubCommand {
     #[structopt(name = "generate-fingerprints")]
     /// Generates random fingerprints to the postings in the input file and
     /// writes them back out.
-    GenerateFingerprints(fpgen::GenerateFingerprints),
+    GenerateFingerprints(fpgen::Command),
     #[structopt(name = "import")]
     /// Reads financial transaction data from a given source, converts them to
     /// Ledger transactions, and dumps them to stdout.
-    Import(Import),
+    Import(importers::Command),
     #[structopt(name = "merge")]
     /// Merges multiple Ledger journals together.
-    Merge(merge::Merge),
+    Merge(merge::Command),
 }
 
 fn main() -> Result<(), Error> {
@@ -84,7 +84,7 @@ fn main() -> Result<(), Error> {
         ApplyRules(apply_rules) => do_apply_rules(&apply_rules),
         GenerateFingerprints(gen_fp) => gen_fp.run(),
         Import(import) => import.run(),
-        Merge(merge) => merge::do_merge(&merge),
+        Merge(merge) => merge.run(),
     }
 }
 
@@ -108,22 +108,4 @@ fn do_apply_rules(apply_rules: &ApplyRules) -> Result<(), Error> {
         rules.update_transaction(trn)?;
     }
     filespec::write_ledger_file(&apply_rules.output, &ledger)
-}
-
-#[derive(Debug, StructOpt)]
-struct Import {
-    /// The ledger file to write to (overwrites any existing file). "-" writes
-    /// to stdout.
-    #[structopt(short = "o", long = "output", default_value = "-")]
-    output: FileSpec,
-    #[structopt(subcommand)]
-    /// The importer type to use to read transactions.
-    importer: importers::Importer,
-}
-
-impl Import {
-    fn run(&self) -> Result<(), Error> {
-        let ledger = self.importer.do_import()?;
-        filespec::write_ledger_file(&self.output, &ledger)
-    }
 }

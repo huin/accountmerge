@@ -7,12 +7,12 @@ use crate::filespec::{self, FileSpec};
 use crate::tags::FINGERPRINT_TAG_PREFIX;
 
 #[derive(Debug, StructOpt)]
-pub struct GenerateFingerprints {
+pub struct Command {
     /// The Ledger journals to update.
     journals: Vec<FileSpec>,
 }
 
-impl GenerateFingerprints {
+impl Command {
     pub fn run(&self) -> Result<(), Error> {
         for ledger_file in &self.journals {
             let mut ledger = filespec::read_ledger_file(ledger_file)?;
