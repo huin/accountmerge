@@ -56,7 +56,7 @@ in the following order:
     - If no postings match, then that is the end of the search and no existing
       postings are found to match.
     - If only one posting is found, then use that as the destination posting.
-    - If multiple postings are found, then mark the source posting with tagsin
+    - If multiple postings are found, then mark the source posting with tags in
       the form `"candidate-$FINGERPRINT"` using a fingerprint from the
       potential destination postings, and skip any further steps of merging
       this posting. The source posting's parent transaction will then go into
