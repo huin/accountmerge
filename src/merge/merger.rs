@@ -71,15 +71,22 @@ impl Merger {
                             // Unambiguous match by fingerprint.
                             Some(dest_idx)
                         }
-                        Many(_matched_idxs) => {
-                            // TODO: Use `_matched_idxs` to improve the error
-                            // message with fingerprints from the matches.
+                        Many(matched_idxs) => {
                             // Multiple destinations postings matched the
                             // fingerprint(s) of the input posting, this is a
                             // fatal merge error.
-                            return Err(MergeError::Input{reason: format!("input posting with fingerprints {} matches multiple destination postings",
-                                &itertools::join(src_post.iter_fingerprints(), ", "))}
-                            .into());
+                            let destinations = itertools::join(
+                                matched_idxs.iter().map(|dest_idx| {
+                                    format!("{}", self.posts.get(*dest_idx).get_posting())
+                                }),
+                                "\n",
+                            );
+                            let reason = format!(
+                                "input posting matches multiple same destination postings by fingerprints\ninput:\n{}\nmatched ndestinations:\n{}",
+                                src_post.get_posting(),
+                                destinations,
+                            );
+                            return Err(MergeError::Input { reason }.into());
                         }
                     },
                     Soft(m) => match m {
