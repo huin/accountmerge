@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use failure::Error;
 use ledger_parser::{Posting, Transaction};
 
+use crate::merge::matchset::MatchSet;
 use crate::merge::{posting, transaction, MergeError};
 use crate::tags;
 
@@ -27,6 +28,7 @@ impl Merger {
     /// algorithm".
     pub fn merge(&mut self, src_trns: Vec<Transaction>) -> Result<UnmatchedTransactions, Error> {
         let pending = self.make_pending(src_trns)?;
+        self.check_pending(&pending)?;
         let unmatched_trns = self.apply_pending(pending);
         Ok(unmatched_trns)
     }
@@ -149,10 +151,51 @@ impl Merger {
             );
         }
 
-        // TODO: Check if multiple source postings have matched against the same
-        // destination posting.
-
         Ok(pending)
+    }
+
+    fn check_pending(&self, pending: &PendingMerges) -> Result<(), Error> {
+        // Check if multiple source postings have matched against the same
+        // destination posting.
+        {
+            let mut src_idx_by_dest: HashMap<posting::IndexHashable, MatchSet<usize>> =
+                HashMap::new();
+            for (pending_post_idx, pending_post) in pending.posts.iter().enumerate() {
+                use PostingDestination::*;
+                match pending_post.destination {
+                    MergeIntoExisting(existing_post_idx) => {
+                        let key = posting::IndexHashable(existing_post_idx);
+                        src_idx_by_dest
+                            .entry(key)
+                            .or_default()
+                            .insert(pending_post_idx);
+                    }
+                    // No possible conflict.
+                    AddToTransaction(_) => {}
+                }
+            }
+
+            for (dest_idx_hash, src_idxs) in src_idx_by_dest {
+                if src_idxs.len() > 1 {
+                    let inputs = itertools::join(
+                        src_idxs.iter().map(|src_idx| {
+                            format!("{}", pending.posts[*src_idx].post.get_posting())
+                        }),
+                        "\n",
+                    );
+                    let destination = self.posts.get(dest_idx_hash.0);
+                    let reason = format!(
+                        "{} input postings match the same destination posting\ninputs:\n{}\n\ndestination:\n{}",
+                        src_idxs.len(),
+                        inputs,
+                        destination.get_posting(),
+                    );
+                    return Err(MergeError::Input { reason }.into());
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn apply_pending(&mut self, mut pending: PendingMerges) -> UnmatchedTransactions {
@@ -354,6 +397,19 @@ mod tests {
                 assets:savings   GBP 100.00  ; :fp-2:
         "#;
         "transation_would_be_split"
+    )]
+    #[test_case(
+        r#"
+            2000/01/01 Foo
+                assets:checking  GBP 100.00  ; :fp-1:fp-2:
+        "#,
+        r#"
+            2000/01/01 Foo-1
+                assets:checking  GBP 100.00  ; :fp-1:
+            2000/01/01 Foo-2
+                assets:checking  GBP 100.00  ; :fp-2:
+        "#;
+        "multiple_postings_match_same_destination"
     )]
     fn merge_merge_error(first: &str, second: &str) {
         let mut merger = Merger::new();

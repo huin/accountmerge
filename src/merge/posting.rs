@@ -16,6 +16,20 @@ const BAD_POSTING_INDEX: &str = "internal error: used invalid posting::Index";
 pub type Arena = StandardArena<Holder>;
 pub type Index = StandardIndex<Holder>;
 
+/// A newtype to allow using `Index` in a `HashSet` or `HashMap` key.
+#[derive(Eq)]
+pub struct IndexHashable(pub Index);
+impl PartialEq for IndexHashable {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.arr_idx() == other.0.arr_idx() && self.0.gen() == other.0.gen()
+    }
+}
+impl std::hash::Hash for IndexHashable {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.arr_idx().hash(state);
+    }
+}
+
 pub struct IndexedPostings {
     post_arena: Arena,
     posts_by_date: HashMap<NaiveDate, Vec<Index>>,
@@ -178,8 +192,7 @@ impl Input {
 
         // Ensure that there is at least one fingerprint to serve as the
         // primary. Having at least one fingerprint is required by the merging
-        // process. I.e `Holder::primary_fingerprint` may panic if we don't
-        // check this.
+        // process. I.e `primary_fingerprint` may panic if we don't check this.
         if !comment
             .tags
             .iter()
@@ -196,6 +209,10 @@ impl Input {
             posting,
             comment,
         })
+    }
+
+    pub fn get_posting(&self) -> &Posting {
+        &self.posting
     }
 
     pub fn into_posting(self) -> Posting {
@@ -237,17 +254,16 @@ impl Holder {
         self.posting
     }
 
+    pub fn get_posting(&self) -> &Posting {
+        &self.posting
+    }
+
     pub fn get_parent_trn(&self) -> transaction::Index {
         self.parent_trn
     }
 
     pub fn primary_fingerprint(&self) -> &str {
-        self.comment
-            .tags
-            .iter()
-            .nth(0)
-            .expect("must always have a fingerprint tag")
-            .as_str()
+        primary_fingerprint(&self.comment)
     }
 
     fn matches(&self, input: &Input) -> bool {
@@ -287,6 +303,12 @@ impl Holder {
 
         self.comment.merge_from(src.comment);
     }
+}
+
+fn primary_fingerprint(comment: &Comment) -> &str {
+    fingerprints_from_comment(comment)
+        .nth(0)
+        .expect("must always have a fingerprint tag")
 }
 
 /// Extracts the fingerprint tag(s) from `comment`.

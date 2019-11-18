@@ -13,14 +13,26 @@ impl<T> Default for MatchSet<T> {
     }
 }
 
-impl<T> IntoIterator for MatchSet<T> {
+impl<'a, T> IntoIterator for &'a MatchSet<T> {
+    type Item = &'a T;
+    type IntoIter = Iter<'a, T>;
+    fn into_iter(self) -> Iter<'a, T> {
+        Iter(match self {
+            MatchSet::Zero => IterInner::Zero,
+            MatchSet::One(v) => IterInner::One(v),
+            MatchSet::Many(vs) => IterInner::Many(vs.0.iter()),
+        })
+    }
+}
+
+impl<T: 'static> IntoIterator for MatchSet<T> {
     type Item = T;
     type IntoIter = IntoIter<T>;
     fn into_iter(self) -> IntoIter<T> {
         IntoIter(match self {
-            MatchSet::Zero => IntoIterInner::Zero,
-            MatchSet::One(v) => IntoIterInner::One(v),
-            MatchSet::Many(vs) => IntoIterInner::Many(vs.0.into_iter()),
+            MatchSet::Zero => IterInner::Zero,
+            MatchSet::One(v) => IterInner::One(v),
+            MatchSet::Many(vs) => IterInner::Many(vs.0.into_iter()),
         })
     }
 }
@@ -36,6 +48,22 @@ where
         let mut m = MatchSet::default();
         iter.into_iter().for_each(|v| m.insert(v));
         m
+    }
+}
+
+impl<T> MatchSet<T> {
+    /// Returns the number of contained values.
+    pub fn len(&self) -> usize {
+        use MatchSet::*;
+        match self {
+            Zero => 0,
+            One(_) => 1,
+            Many(vs) => vs.0.len(),
+        }
+    }
+
+    pub fn iter(&self) -> Iter<T> {
+        self.into_iter()
     }
 }
 
@@ -71,21 +99,57 @@ where
 // `MatchSet::Many`.
 pub struct Container<T>(Vec<T>);
 
-impl<T> IntoIterator for Container<T> {
+impl<T: 'static> IntoIterator for Container<T> {
     type Item = T;
     type IntoIter = IntoIter<T>;
     fn into_iter(self) -> IntoIter<T> {
-        IntoIter(IntoIterInner::Many(self.0.into_iter()))
+        IntoIter(IterInner::Many(self.0.into_iter()))
     }
 }
 
-pub struct IntoIter<T>(IntoIterInner<T>);
+pub struct Iter<'a, T>(IterInner<&'a T, std::slice::Iter<'a, T>>);
+
+impl<'a, T> Iterator for Iter<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<&'a T> {
+        use IterInner::*;
+        let mut inner = Zero;
+        std::mem::swap(&mut inner, &mut self.0);
+        match inner {
+            Zero => {
+                self.0 = Zero;
+                None
+            }
+            One(v) => {
+                self.0 = Zero;
+                Some(&v)
+            }
+            Many(mut i) => {
+                let v = i.next();
+                self.0 = Many(i);
+                v
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        use IterInner::*;
+        match &self.0 {
+            Zero => (0, Some(0)),
+            One(_) => (1, Some(1)),
+            Many(i) => i.size_hint(),
+        }
+    }
+}
+
+pub struct IntoIter<T: 'static>(IterInner<T, std::vec::IntoIter<T>>);
 
 impl<T> Iterator for IntoIter<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<T> {
-        use IntoIterInner::*;
+        use IterInner::*;
         let mut inner = Zero;
         std::mem::swap(&mut inner, &mut self.0);
         match inner {
@@ -106,7 +170,7 @@ impl<T> Iterator for IntoIter<T> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        use IntoIterInner::*;
+        use IterInner::*;
         match &self.0 {
             Zero => (0, Some(0)),
             One(_) => (1, Some(1)),
@@ -115,10 +179,10 @@ impl<T> Iterator for IntoIter<T> {
     }
 }
 
-enum IntoIterInner<T> {
+enum IterInner<T, I> {
     Zero,
     One(T),
-    Many(std::vec::IntoIter<T>),
+    Many(I),
 }
 
 #[cfg(test)]
