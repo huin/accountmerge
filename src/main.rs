@@ -80,8 +80,8 @@ fn main() -> Result<(), Error> {
     use SubCommand::*;
     match cmd.subcmd {
         ApplyRules(cmd) => cmd.run(),
-        GenerateFingerprints(gen_fp) => gen_fp.run(),
-        Import(import) => import.run(),
-        Merge(merge) => merge.run(),
+        GenerateFingerprints(cmd) => cmd.run(),
+        Import(cmd) => cmd.run(),
+        Merge(cmd) => cmd.run(),
     }
 }
