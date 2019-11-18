@@ -38,124 +38,10 @@ impl Merger {
 
         // Set of fingerprints found in `pending.posts` so far.
         // This is used to check if duplicate fingerprints exist in the input.
-        let mut fingerprints = HashSet::<String>::new();
+        let mut fingerprints_seen = HashSet::<String>::new();
 
         for orig_trn in orig_trns.into_iter() {
-            let mut send_trn_to_unmerged = false;
-            let (src_trn, orig_posts) = transaction::Holder::from_transaction(orig_trn);
-
-            if orig_posts.is_empty() {
-                continue;
-            }
-
-            let mut src_posts_matched =
-                Vec::<(posting::Input, Option<posting::Index>)>::with_capacity(orig_posts.len());
-            for orig_post in orig_posts.into_iter() {
-                let mut src_post = posting::Input::from_posting(orig_post, src_trn.get_date())?;
-
-                for fp in src_post.iter_fingerprints().map(str::to_string) {
-                    if fingerprints.contains(&fp) {
-                        return Err(MergeError::Input{reason: format!("multiple postings with same fingerprint ({:?}) found within a single input transaction set", fp)}.into());
-                    }
-                    fingerprints.insert(fp);
-                }
-
-                use posting::Match::*;
-                use posting::MatchedIndices::*;
-                let dest_idx: Option<posting::Index> = match self
-                    .posts
-                    .find_matching_postings(&src_post)
-                {
-                    Fingerprint(m) => match m {
-                        One(dest_idx) => {
-                            // Unambiguous match by fingerprint.
-                            Some(dest_idx)
-                        }
-                        Many(matched_idxs) => {
-                            // Multiple destinations postings matched the
-                            // fingerprint(s) of the input posting, this is a
-                            // fatal merge error.
-                            let destinations = itertools::join(
-                                matched_idxs.iter().map(|dest_idx| {
-                                    format!("{}", self.posts.get(*dest_idx).get_posting())
-                                }),
-                                "\n",
-                            );
-                            let reason = format!(
-                                "input posting matches multiple same destination postings by fingerprints\ninput:\n{}\nmatched ndestinations:\n{}",
-                                src_post.get_posting(),
-                                destinations,
-                            );
-                            return Err(MergeError::Input { reason }.into());
-                        }
-                    },
-                    Soft(m) => match m {
-                        One(dest_idx) => {
-                            // Unambiguous single soft match.
-                            Some(dest_idx)
-                        }
-                        Many(matched_idxs) => {
-                            // Add candidate tags of the destinations to the
-                            // single src_post and mark the entire transaction
-                            // as unmerged.
-                            for idx in matched_idxs.into_iter() {
-                                let candidate_dest_post = self.posts.get(idx);
-                                src_post.add_tag(format!(
-                                    "{}{}",
-                                    tags::CANDIDATE_FP_TAG_PREFIX,
-                                    candidate_dest_post.primary_fingerprint()
-                                ));
-                            }
-                            send_trn_to_unmerged = true;
-                            // No clear matched posting.
-                            None
-                        }
-                    },
-                    Zero => {
-                        // No matched posting.
-                        None
-                    }
-                };
-
-                src_posts_matched.push((src_post, dest_idx));
-            }
-
-            if send_trn_to_unmerged {
-                // src_trn is to remain unmerged for a human to handle
-                // remaining problems.
-                let postings: Vec<Posting> = src_posts_matched
-                    .into_iter()
-                    .map(|(src_post, _)| src_post.into_posting())
-                    .collect();
-                let trn = src_trn.into_transaction(postings);
-                pending.unmerged_trns.0.push(trn);
-                continue;
-            }
-
-            // Determine default destination transaction.
-            let default_dest_trn: DestinationTransaction = self
-                .find_existing_dest_trn(&src_trn, &src_posts_matched)?
-                .map(DestinationTransaction::Existing)
-                .unwrap_or_else(|| DestinationTransaction::New(pending.new_trns.insert(src_trn)));
-
-            pending.posts.extend(
-                src_posts_matched
-                    .into_iter()
-                    .map(|(src_post, opt_dest_post)| {
-                        let destination = match opt_dest_post {
-                            // Merge into existing posting.
-                            Some(dest_post) => PostingDestination::MergeIntoExisting(dest_post),
-                            // Create new posting, added to the default destination
-                            // transaction.
-                            None => PostingDestination::AddToTransaction(default_dest_trn),
-                        };
-
-                        PendingPosting {
-                            post: src_post,
-                            destination,
-                        }
-                    }),
-            );
+            self.add_trn_to_pending(&mut fingerprints_seen, &mut pending, orig_trn)?;
         }
 
         Ok(pending)
@@ -245,6 +131,129 @@ impl Merger {
         pending.unmerged_trns
     }
 
+    fn add_trn_to_pending(
+        &self,
+        fingerprints_seen: &mut HashSet<String>,
+        pending: &mut PendingMerges,
+        orig_trn: Transaction,
+    ) -> Result<(), Error> {
+        let (src_trn, orig_posts) = transaction::Holder::from_transaction(orig_trn);
+
+        if orig_posts.is_empty() {
+            return Ok(());
+        }
+
+        let mut src_post_actions =
+            Vec::<(posting::Input, PostingMergeAction)>::with_capacity(orig_posts.len());
+        for orig_post in orig_posts.into_iter() {
+            let mut src_post = posting::Input::from_posting(orig_post, src_trn.get_date())?;
+
+            for fp in src_post.iter_fingerprints().map(str::to_string) {
+                if fingerprints_seen.contains(&fp) {
+                    return Err(MergeError::Input{reason: format!("multiple postings with same fingerprint ({:?}) found within a single input transaction set", fp)}.into());
+                }
+                fingerprints_seen.insert(fp);
+            }
+
+            let action = self.determine_posting_action(&mut src_post)?;
+            src_post_actions.push((src_post, action));
+        }
+
+        if src_post_actions
+            .iter()
+            .any(|(_, action)| action.is_leave_unmerged())
+        {
+            // src_trn is to remain unmerged for a human to handle
+            // remaining problems.
+            let postings: Vec<Posting> = src_post_actions
+                .into_iter()
+                .map(|(src_post, _)| src_post.into_posting())
+                .collect();
+            let trn = src_trn.into_transaction(postings);
+            pending.unmerged_trns.0.push(trn);
+        } else {
+            // Determine default destination transaction.
+            let default_dest_trn: DestinationTransaction = self
+                .find_existing_dest_trn(&src_trn, &src_post_actions)?
+                .map(DestinationTransaction::Existing)
+                .unwrap_or_else(|| DestinationTransaction::New(pending.new_trns.insert(src_trn)));
+
+            pending
+                .posts
+                .extend(src_post_actions.into_iter().map(|(src_post, action)| {
+                    let destination = action.with_dest_transaction(default_dest_trn);
+
+                    PendingPosting {
+                        post: src_post,
+                        destination,
+                    }
+                }));
+        }
+
+        Ok(())
+    }
+
+    fn determine_posting_action(
+        &self,
+        src_post: &mut posting::Input,
+    ) -> Result<PostingMergeAction, Error> {
+        use posting::Match::*;
+        use posting::MatchedIndices::*;
+        use PostingMergeAction::*;
+        match self.posts.find_matching_postings(&src_post) {
+            Fingerprint(m) => match m {
+                One(dest_idx) => {
+                    // Unambiguous match by fingerprint.
+                    Ok(MergeIntoExisting(dest_idx))
+                }
+                Many(matched_idxs) => {
+                    // Multiple destinations postings matched the
+                    // fingerprint(s) of the input posting, this is a
+                    // fatal merge error.
+                    let destinations = itertools::join(
+                        matched_idxs
+                            .iter()
+                            .map(|dest_idx| format!("{}", self.posts.get(*dest_idx).get_posting())),
+                        "\n",
+                    );
+                    let reason = format!(
+                        "input posting matches multiple same destination postings by fingerprints\ninput:\n{}\nmatched ndestinations:\n{}",
+                        src_post.get_posting(),
+                        destinations,
+                    );
+                    Err(MergeError::Input { reason }.into())
+                }
+            },
+
+            Soft(m) => match m {
+                One(dest_idx) => {
+                    // Unambiguous single soft match.
+                    Ok(MergeIntoExisting(dest_idx))
+                }
+                Many(matched_idxs) => {
+                    // Add candidate tags of the destinations to the
+                    // single src_post and mark the entire transaction
+                    // as unmerged.
+                    for idx in matched_idxs.into_iter() {
+                        let candidate_dest_post = self.posts.get(idx);
+                        src_post.add_tag(format!(
+                            "{}{}",
+                            tags::CANDIDATE_FP_TAG_PREFIX,
+                            candidate_dest_post.primary_fingerprint()
+                        ));
+                    }
+                    // No clear matched posting, let a human decide.
+                    Ok(LeaveUnmerged)
+                }
+            },
+
+            Zero => {
+                // No matched posting.
+                Ok(AddToTransaction)
+            }
+        }
+    }
+
     /// Gethers the existing transactions that are the parents of the
     /// `src_posts_matched`. Returns None if `src_posts_matched` contains no
     /// postings. Returns an error if multiple transactions are parents of the
@@ -252,15 +261,22 @@ impl Merger {
     fn find_existing_dest_trn(
         &self,
         src_trn: &transaction::Holder,
-        src_posts_matched: &[(posting::Input, Option<posting::Index>)],
+        src_posts_matched: &[(posting::Input, PostingMergeAction)],
     ) -> Result<Option<transaction::Index>, Error> {
+        // Look for parent transactions of postings that have been matched as
+        // destination postings.
         let candidate_trns: HashSet<HashableTransactionIndex> = src_posts_matched
             .iter()
-            .filter_map(|(_, opt_dest_post)| {
-                opt_dest_post
-                    .map(|dest_post| self.posts.get(dest_post).get_parent_trn())
-                    .map(HashableTransactionIndex)
+            .filter_map(|(_, action)| {
+                use PostingMergeAction::*;
+                match action {
+                    MergeIntoExisting(dest_post_idx) => Some(*dest_post_idx),
+                    AddToTransaction => None,
+                    LeaveUnmerged => None,
+                }
             })
+            .map(|dest_post_idx| self.posts.get(dest_post_idx).get_parent_trn())
+            .map(HashableTransactionIndex)
             .collect();
 
         // Check that only one destination transaction matches.
@@ -300,6 +316,34 @@ impl Merger {
     }
 }
 
+enum PostingMergeAction {
+    /// Merge the posting into the specified existing posting.
+    MergeIntoExisting(posting::Index),
+    /// Add the posting into a to-be-determined (existing or new) transaction.
+    AddToTransaction,
+    /// Leave the posting unmerged for a human to resolve.
+    LeaveUnmerged,
+}
+
+impl PostingMergeAction {
+    fn is_leave_unmerged(&self) -> bool {
+        match self {
+            Self::LeaveUnmerged => true,
+            _ => false,
+        }
+    }
+
+    fn with_dest_transaction(self, dest_trn: DestinationTransaction) -> PostingDestination {
+        use PostingDestination::*;
+        match self {
+            Self::MergeIntoExisting(dest_post_idx) => MergeIntoExisting(dest_post_idx),
+            Self::AddToTransaction => AddToTransaction(dest_trn),
+            //
+            Self::LeaveUnmerged => AddToTransaction(dest_trn),
+        }
+    }
+}
+
 struct PendingMerges {
     /// Posts to merge so far.
     posts: Vec<PendingPosting>,
@@ -325,7 +369,9 @@ struct PendingPosting {
 }
 
 enum PostingDestination {
+    /// Merge the posting into the specified existing posting.
     MergeIntoExisting(posting::Index),
+    // Create new posting, added to the default destination transaction.
     AddToTransaction(DestinationTransaction),
 }
 
