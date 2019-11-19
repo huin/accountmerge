@@ -1,3 +1,6 @@
+use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
+
 /// Contains a value that can be updated via move.
 /// See `MutCell::map_value` in particular.
 pub struct MutCell<T>(State<T>);
@@ -22,6 +25,15 @@ impl<T> MutCell<T> {
         }
     }
 
+    /// Returns true if the `MutCell` has been poisoned.
+    pub fn is_poisoned(&self) -> bool {
+        use State::*;
+        match self.0 {
+            Poisoned => true,
+            Value(_) => false,
+        }
+    }
+
     /// Use the given function to update the inner value.
     ///
     /// Note that if `f` panics, then the `MutCell` will be poisoned, and futher
@@ -38,6 +50,16 @@ impl<T> MutCell<T> {
     }
 }
 
+impl<T> AsMut<T> for MutCell<T> {
+    fn as_mut(&mut self) -> &mut T {
+        use State::*;
+        match &mut self.0 {
+            Poisoned => panic!("poisoned"),
+            Value(v) => v,
+        }
+    }
+}
+
 impl<T> AsRef<T> for MutCell<T> {
     fn as_ref(&self) -> &T {
         use State::*;
@@ -48,13 +70,57 @@ impl<T> AsRef<T> for MutCell<T> {
     }
 }
 
-impl<T> AsMut<T> for MutCell<T> {
-    fn as_mut(&mut self) -> &mut T {
+impl<T> Clone for MutCell<T>
+where
+    T: Clone,
+{
+    fn clone(&self) -> Self {
+        MutCell(State::Value(self.as_ref().clone()))
+    }
+}
+
+impl<T> Debug for MutCell<T>
+where
+    T: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         use State::*;
-        match &mut self.0 {
-            Poisoned => panic!("poisoned"),
-            Value(v) => v,
+        match &self.0 {
+            Poisoned => write!(f, "MutCell(<poisoned>)"),
+            Value(v) => write!(f, "MutCell({:?})", v),
         }
+    }
+}
+
+impl<T> Default for MutCell<T>
+where
+    T: Default,
+{
+    fn default() -> Self {
+        MutCell(State::Value(T::default()))
+    }
+}
+
+impl<T> Eq for MutCell<T> where T: Eq {}
+
+impl<T> Hash for MutCell<T>
+where
+    T: Hash,
+{
+    fn hash<H>(&self, h: &mut H)
+    where
+        H: Hasher,
+    {
+        self.as_ref().hash(h)
+    }
+}
+
+impl<T> PartialEq for MutCell<T>
+where
+    T: PartialEq,
+{
+    fn eq(&self, rhs: &Self) -> bool {
+        self.as_ref() == rhs.as_ref()
     }
 }
 
