@@ -47,6 +47,7 @@ mod fingerprint;
 mod fpgen;
 mod importers;
 mod merge;
+mod mutcell;
 mod rules;
 mod tags;
 
