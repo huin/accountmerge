@@ -29,8 +29,7 @@ impl Merger {
     pub fn merge(&mut self, src_trns: Vec<Transaction>) -> Result<UnmatchedTransactions, Error> {
         let pending = self.make_pending(src_trns)?;
         self.check_pending(&pending)?;
-        let unmatched_trns = self.apply_pending(pending);
-        Ok(unmatched_trns)
+        self.apply_pending(pending)
     }
 
     fn make_pending(&self, orig_trns: Vec<Transaction>) -> Result<PendingMerges, Error> {
@@ -91,7 +90,10 @@ impl Merger {
         Ok(())
     }
 
-    fn apply_pending(&mut self, mut pending: PendingMerges) -> UnmatchedTransactions {
+    fn apply_pending(
+        &mut self,
+        mut pending: PendingMerges,
+    ) -> Result<UnmatchedTransactions, Error> {
         // Maps from index in pending.new_trns to index in self.trn_arena.
         let new_trn_idxs: HashMap<HashableTransactionIndex, HashableTransactionIndex> = pending
             .new_trns
@@ -110,7 +112,7 @@ impl Merger {
 
             match post.destination {
                 MergeIntoExisting(existing_post_idx) => {
-                    self.posts.merge_into(existing_post_idx, post.post);
+                    self.posts.merge_into(existing_post_idx, post.post)?;
                 }
                 AddToTransaction(trn_type) => {
                     let dest_trn_idx = match trn_type {
@@ -122,13 +124,13 @@ impl Merger {
                         }
                         Existing(trn_idx) => trn_idx,
                     };
-                    let post_idx = self.posts.add(post.post, dest_trn_idx);
+                    let post_idx = self.posts.add(post.post, dest_trn_idx)?;
                     self.trns.add_post_to_trn(dest_trn_idx, post_idx);
                 }
             }
         }
 
-        pending.unmerged_trns
+        Ok(pending.unmerged_trns)
     }
 
     fn add_trn_to_pending(

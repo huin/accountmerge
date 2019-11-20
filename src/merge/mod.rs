@@ -12,6 +12,8 @@ use crate::filespec::{self, FileSpec};
 enum MergeError {
     #[fail(display = "bad input to merge: {}", reason)]
     Input { reason: String },
+    #[fail(display = "internal merge error: {}", reason)]
+    Internal { reason: String },
 }
 
 #[derive(Debug, StructOpt)]

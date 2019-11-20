@@ -50,22 +50,19 @@ impl IndexedPostings {
     }
 
     /// Adds a new posting, updating the fingerprint index.
-    ///
-    /// TODO: This should produce an error if adding a post with a fingerprint
-    /// that has already been seen.
-    pub fn add(&mut self, input: Input, parent_trn: transaction::Index) -> Index {
+    pub fn add(&mut self, input: Input, parent_trn: transaction::Index) -> Result<Index, Error> {
         let fingerprints: Vec<String> = fingerprints_from_comment(&input.comment)
             .map(str::to_string)
             .collect();
         let (holder, trn_date) = Holder::from_input(input, parent_trn);
         let idx = self.post_arena.insert(holder);
-        self.register_fingerprints(fingerprints.into_iter(), idx);
+        self.register_fingerprints(fingerprints.into_iter(), idx)?;
 
         self.posts_by_date
             .entry(trn_date)
             .or_insert_with(Vec::new)
             .push(idx);
-        idx
+        Ok(idx)
     }
 
     pub fn fingerprint_to_index(&self, fingerprint: &str) -> Option<Index> {
@@ -91,13 +88,18 @@ impl IndexedPostings {
     ///
     /// TODO: This should produce an error if adding a post with a fingerprint
     /// that has already been seen that is not part of the existing_post_idx.
-    pub fn merge_into(&mut self, existing_post_idx: Index, input_posting: Input) {
+    pub fn merge_into(
+        &mut self,
+        existing_post_idx: Index,
+        input_posting: Input,
+    ) -> Result<(), Error> {
         self.register_fingerprints(
             fingerprints_from_comment(&input_posting.comment).map(str::to_string),
             existing_post_idx,
-        );
+        )?;
         let dest_post = self.get_mut(existing_post_idx);
         dest_post.merge_from_input_posting(input_posting);
+        Ok(())
     }
 
     /// Adds fingerprints to posting fingerprints index.
@@ -105,10 +107,25 @@ impl IndexedPostings {
         &mut self,
         fingerprints: impl Iterator<Item = String>,
         post_idx: Index,
-    ) {
+    ) -> Result<(), Error> {
         for fp in fingerprints {
-            self.post_by_fingerprint.insert(fp.to_string(), post_idx);
+            use std::collections::hash_map::Entry::*;
+            match self.post_by_fingerprint.entry(fp.to_string()) {
+                Occupied(e) => {
+                    if e.get() != &post_idx {
+                        let reason = format!(
+                            "multiple posts claiming fingerprint {:?} added or merged",
+                            fp
+                        );
+                        return Err(MergeError::Internal { reason }.into());
+                    }
+                }
+                Vacant(e) => {
+                    e.insert(post_idx);
+                }
+            }
         }
+        Ok(())
     }
 
     pub fn find_matching_postings(&self, post: &Input) -> Match {
