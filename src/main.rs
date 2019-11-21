@@ -42,11 +42,11 @@ mod testutil;
 
 mod accounts;
 mod comment;
-mod commented;
 mod filespec;
 mod fingerprint;
 mod fpgen;
 mod importers;
+mod internal;
 mod merge;
 mod mutcell;
 mod rules;
