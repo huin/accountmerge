@@ -42,6 +42,7 @@ mod testutil;
 
 mod accounts;
 mod comment;
+mod commented;
 mod filespec;
 mod fingerprint;
 mod fpgen;

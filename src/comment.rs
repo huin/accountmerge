@@ -32,6 +32,10 @@ impl Comment {
         CommentBuilder::new()
     }
 
+    pub fn from_opt_string(comment: &Option<String>) -> Self {
+        Self::from_opt_comment(comment.as_ref().map(String::as_str))
+    }
+
     /// Parses the given string into a `Comment`.
     pub fn from_opt_comment(comment: Option<&str>) -> Self {
         lazy_static! {
