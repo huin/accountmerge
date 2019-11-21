@@ -182,103 +182,118 @@ impl CommentBuilder {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_parse_comment() {
-        assert_eq!(Comment::new(), Comment::from_opt_comment(Some("")));
-        assert_eq!(
-            CommentBuilder::new().with_line("comment text").build(),
-            Comment::from_opt_comment(Some("comment text"))
-        );
-        assert_eq!(
-            CommentBuilder::new()
-                .with_line("start text")
-                .with_value_tag("key", "value")
-                .with_line("end text")
-                .build(),
-            Comment::from_opt_comment(Some("start text\nkey: value\nend text")),
-        );
-        assert_eq!(
-            CommentBuilder::new()
-                .with_line("start text")
-                .with_tag("TAG1")
-                .with_tag("TAG2")
-                .with_line("end text")
-                .build(),
-            Comment::from_opt_comment(Some("start text :TAG1:TAG2: end text\n")),
-        );
-        assert_eq!(
-            CommentBuilder::new()
-                .with_line("start text")
-                .with_tag("TAG1")
-                .with_tag("TAG2")
-                .with_line("end : text : with : colons")
-                .build(),
-            Comment::from_opt_comment(Some("start text :TAG1:TAG2: end : text : with : colons\n")),
-        );
-        assert_eq!(
-            CommentBuilder::new()
-                .with_line("comment")
-                .with_tag("flag")
-                .with_line("ignored-key: value") // Badly formed value tag becomes text.
-                .with_value_tag("key", "value")
-                .build(),
-            Comment::from_opt_comment(Some("comment\n:flag: ignored-key: value\nkey: value")),
-        );
-        assert_eq!(
-            CommentBuilder::new()
-                .with_line("comment")
-                .with_value_tag("key-without-value", "")
-                .build(),
-            Comment::from_opt_comment(Some("comment\nkey-without-value:")),
-        );
+    use test_case::test_case;
+
+    #[test_case(
+        ""
+        => Comment::new();
+        "empty_comment"
+    )]
+    #[test_case(
+        "comment text"
+        => CommentBuilder::new().with_line("comment text").build();
+        "just_text"
+    )]
+    #[test_case(
+        "start text\nkey: value\nend text"
+        => CommentBuilder::new()
+            .with_line("start text")
+            .with_value_tag("key", "value")
+            .with_line("end text")
+            .build();
+        "text_kv_text"
+    )]
+    #[test_case(
+        "start text :TAG1:TAG2: end text\n"
+        => CommentBuilder::new()
+            .with_line("start text")
+            .with_tag("TAG1")
+            .with_tag("TAG2")
+            .with_line("end text")
+            .build();
+        "text_2_inline_tags_text"
+    )]
+    #[test_case(
+        "start text :TAG1:TAG2: end : text : with : colons\n"
+        => CommentBuilder::new()
+            .with_line("start text")
+            .with_tag("TAG1")
+            .with_tag("TAG2")
+            .with_line("end : text : with : colons")
+            .build();
+        "text_2_inline_tags_text_with_colons"
+    )]
+    #[test_case(
+        "comment\n:flag: ignored-key: value\nkey: value"
+        => CommentBuilder::new()
+            .with_line("comment")
+            .with_tag("flag")
+            .with_line("ignored-key: value") // Badly formed value tag becomes text.
+            .with_value_tag("key", "value")
+            .build();
+        "bad_key_value_becomes_text"
+    )]
+    #[test_case(
+        "comment\nkey-without-value:"
+        => CommentBuilder::new()
+            .with_line("comment")
+            .with_value_tag("key-without-value", "")
+            .build();
+        "key_without_value"
+    )]
+    fn test_parse_comment(text: &str) -> Comment {
+        Comment::from_opt_comment(Some(text))
     }
 
-    #[test]
-    fn test_format_comment() {
-        assert_eq!(None, Comment::new().into_opt_comment());
-        assert_eq!(
-            Some("first line\nsecond line".to_string()),
-            CommentBuilder::new()
-                .with_line("first line")
-                .with_line("second line")
-                .build()
-                .into_opt_comment(),
-        );
-        assert_eq!(
-            Some("first line\nsecond line\nname: value".to_string()),
-            CommentBuilder::new()
-                .with_line("first line")
-                .with_line("second line")
-                .with_value_tag("name", "value")
-                .build()
-                .into_opt_comment(),
-        );
-        assert_eq!(
-            Some(":tag1:tag2:tag3:tag4: text\nmore text".to_string()),
-            CommentBuilder::new()
-                .with_line("text")
-                .with_tag("tag1")
-                .with_tag("tag2")
-                .with_line("more text")
-                .with_tag("tag3")
-                .with_tag("tag4")
-                .build()
-                .into_opt_comment(),
-        );
-        // Are newlines injected when needed, even if not specified?
-        assert_eq!(
-            Some(":tag1:tag2:tag3: text\nmore text\nname1: value1\nname2: value2".to_string()),
-            CommentBuilder::new()
-                .with_line("text")
-                .with_tag("tag1")
-                .with_tag("tag2")
-                .with_value_tag("name1", "value1")
-                .with_line("more text")
-                .with_tag("tag3")
-                .with_value_tag("name2", "value2")
-                .build()
-                .into_opt_comment(),
-        );
+    #[test_case(
+        Comment::new()
+        => None;
+        "empty_comment_to_none"
+    )]
+    #[test_case(
+        CommentBuilder::new()
+            .with_line("first line")
+            .with_line("second line")
+            .build()
+        => Some("first line\nsecond line".to_string());
+        "two_lines_of_text"
+    )]
+    #[test_case(
+        CommentBuilder::new()
+            .with_line("first line")
+            .with_line("second line")
+            .with_value_tag("name", "value")
+            .build()
+        => Some("first line\nsecond line\nname: value".to_string());
+        "two_lines_of_text_and_key_value"
+    )]
+    #[test_case(
+        CommentBuilder::new()
+            .with_line("text")
+            .with_tag("tag1")
+            .with_tag("tag2")
+            .with_line("more text")
+            .with_tag("tag3")
+            .with_tag("tag4")
+            .build()
+        => Some(":tag1:tag2:tag3:tag4: text\nmore text".to_string());
+        "four_inline_tags_followed_by_text"
+    )]
+    #[test_case(
+        CommentBuilder::new()
+            .with_line("text")
+            .with_tag("tag1")
+            .with_tag("tag2")
+            .with_value_tag("name1", "value1")
+            .with_line("more text")
+            .with_tag("tag3")
+            .with_value_tag("name2", "value2")
+            .build()
+        => Some(":tag1:tag2:tag3: text\nmore text\nname1: value1\nname2: value2".to_string());
+        "newlines_injected_when_needed"
+    )]
+    fn test_format_comment(comment: Comment) -> Option<String> {
+        comment.into_opt_comment()
     }
 
     #[test]
