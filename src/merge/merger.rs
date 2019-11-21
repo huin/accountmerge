@@ -146,7 +146,7 @@ impl Merger {
             return Ok(());
         }
 
-        let mut src_post_actions = MergeActions::new();
+        let mut src_post_actions = MergeActionsAccumulator::new();
         for orig_post in orig_posts.into_iter() {
             let mut src_post = posting::Input::from_posting(orig_post, src_trn.get_date())?;
 
@@ -162,7 +162,7 @@ impl Merger {
         }
 
         match src_post_actions.into_inner() {
-            MergeActionsInner::LeaveUnmerged(input_postings) => {
+            MergeActions::LeaveUnmerged(input_postings) => {
                 // src_trn is to remain unmerged for a human to handle
                 // remaining problems.
                 let postings: Vec<Posting> = input_postings
@@ -172,7 +172,7 @@ impl Merger {
                 let trn = src_trn.into_transaction(postings);
                 pending.unmerged_trns.0.push(trn);
             }
-            MergeActionsInner::Actions(src_post_actions) => {
+            MergeActions::Actions(src_post_actions) => {
                 // Determine default destination transaction.
                 let default_dest_trn: DestinationTransaction = self
                     .find_existing_dest_trn(&src_trn, &src_post_actions)?
@@ -324,16 +324,16 @@ impl Merger {
 /// Accumulates pairs of `posting::Input` and the chosen `PostingMergeAction`
 /// for it, until a `None` is added, at which point it throws away the
 /// current and future `PostingMergeAction`s.
-struct MergeActions(MutCell<MergeActionsInner>);
+struct MergeActionsAccumulator(MutCell<MergeActions>);
 
-impl MergeActions {
+impl MergeActionsAccumulator {
     fn new() -> Self {
-        Self(MutCell::new(MergeActionsInner::Actions(Vec::new())))
+        Self(MutCell::new(MergeActions::Actions(Vec::new())))
     }
 
     fn push(&mut self, posting: posting::Input, action: Option<PostingMergeAction>) {
         self.0.map_value(|inner| {
-            use MergeActionsInner::*;
+            use MergeActions::*;
             match inner {
                 Actions(mut post_actions) => match action {
                     Some(action) => {
@@ -357,12 +357,12 @@ impl MergeActions {
         });
     }
 
-    fn into_inner(self) -> MergeActionsInner {
+    fn into_inner(self) -> MergeActions {
         self.0.into_inner()
     }
 }
 
-enum MergeActionsInner {
+enum MergeActions {
     /// Merge/add the postings into the destination.
     Actions(Vec<(posting::Input, PostingMergeAction)>),
     /// Leave the postings unmerged for a human to resolve.
