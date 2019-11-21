@@ -85,9 +85,6 @@ impl IndexedPostings {
     }
 
     /// Updates an existing posting, updating the fingerprint index.
-    ///
-    /// TODO: This should produce an error if adding a post with a fingerprint
-    /// that has already been seen that is not part of the existing_post_idx.
     pub fn merge_into(
         &mut self,
         existing_post_idx: Index,
