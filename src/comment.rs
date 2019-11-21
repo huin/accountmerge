@@ -2,6 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use regex::Regex;
 
+/// Maximum length of a tag before it gets put onto a line on its own.
+const MAX_INLINE_TAG_LEN: usize = 12;
+
 /// Parsed contents of a Ledger comment, suitable for manipulation before being
 /// (re)output.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -93,10 +96,19 @@ impl Comment {
         let mut out_lines = Vec::<String>::new();
 
         if !self.tags.is_empty() {
-            // TODO: Put long tags onto a line of their own.
-            let mut tags: Vec<String> = self.tags.into_iter().collect();
-            tags.sort();
-            out_lines.push(format!(":{}:", tags.join(":")));
+            let (mut short_tags, mut long_tags): (Vec<String>, Vec<String>) = self
+                .tags
+                .into_iter()
+                .partition(|tag| tag.len() <= MAX_INLINE_TAG_LEN);
+
+            if !short_tags.is_empty() {
+                short_tags.sort();
+                out_lines.push(format!(":{}:", short_tags.join(":")));
+            }
+
+            // Put any long tags onto a line of their own.
+            long_tags.sort();
+            out_lines.extend(long_tags.into_iter().map(|tag| format!(":{}:", tag)));
         }
         for (i, line) in self.lines.into_iter().enumerate() {
             if i == 0 && !out_lines.is_empty() {
@@ -291,6 +303,16 @@ mod tests {
             .build()
         => Some(":tag1:tag2:tag3: text\nmore text\nname1: value1\nname2: value2".to_string());
         "newlines_injected_when_needed"
+    )]
+    #[test_case(
+        CommentBuilder::new()
+            .with_tag("a_tag")
+            .with_tag("z_tag")
+            .with_value_tag("name1", "value1")
+            .with_tag("really_long_tag_name")
+            .build()
+        => Some(":a_tag:z_tag:\n:really_long_tag_name:\nname1: value1".to_string());
+        "long_tags_go_on_own_line"
     )]
     fn test_format_comment(comment: Comment) -> Option<String> {
         comment.into_opt_comment()

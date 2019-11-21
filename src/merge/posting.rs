@@ -339,7 +339,7 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::testutil::parse_posting;
+    use crate::testutil::{normalize_comment, parse_posting};
 
     #[test_case(
        "foo  GBP 10.00  ; :fp-1:",
@@ -385,7 +385,8 @@ mod tests {
         let src_posting = Input::from_posting(parse_posting(src), dummy_date).unwrap();
         let (mut dest_holder, _) = Holder::from_input(dest_posting, dummy_idx);
         dest_holder.merge_from_input_posting(src_posting);
-        let result = dest_holder.into_posting();
+        let mut result = dest_holder.into_posting();
+        normalize_comment(&mut result.comment);
 
         assert_eq!(result, parse_posting(want));
     }

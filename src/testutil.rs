@@ -1,9 +1,18 @@
 use ledger_parser::{Posting, Transaction};
 
+use crate::comment::Comment;
+
 pub fn parse_transactions(s: &str) -> Vec<Transaction> {
-    ledger_parser::parse(textwrap::dedent(s).as_ref())
+    let mut trns = ledger_parser::parse(textwrap::dedent(s).as_ref())
         .expect("test input did not parse")
-        .transactions
+        .transactions;
+    // Reformat comments to normalize the format used in tests.
+    for trn in &mut trns {
+        for post in &mut trn.postings {
+            normalize_comment(&mut post.comment);
+        }
+    }
+    trns
 }
 
 pub fn format_transactions(transactions: &Vec<Transaction>) -> String {
@@ -12,6 +21,11 @@ pub fn format_transactions(transactions: &Vec<Transaction>) -> String {
         result.push_str(&format!("{}", trn));
     }
     result
+}
+
+pub fn normalize_comment(text: &mut Option<String>) {
+    let c = Comment::from_opt_comment(text.as_ref().map(String::as_str));
+    *text = c.into_opt_comment();
 }
 
 #[macro_export]
@@ -36,5 +50,7 @@ macro_rules! assert_transactions_eq {
 pub fn parse_posting(p: &str) -> Posting {
     let t = "2000/01/01 Dummy Transaction\n  ".to_string() + p + "\n";
     let mut trn = ledger_parser::parse(&t).unwrap();
-    trn.transactions.remove(0).postings.remove(0)
+    let mut post = trn.transactions.remove(0).postings.remove(0);
+    normalize_comment(&mut post.comment);
+    post
 }
