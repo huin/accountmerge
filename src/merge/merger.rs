@@ -3,14 +3,13 @@ use std::collections::{HashMap, HashSet};
 use failure::Error;
 use ledger_parser::{Posting, Transaction};
 
-use crate::merge::matchset::MatchSet;
 use crate::merge::{posting, transaction, MergeError};
 use crate::mutcell::MutCell;
 use crate::tags;
 
 /// A newtype to return transactions that failed to merge and that need human
 /// intervention to resolve.
-pub struct UnmatchedTransactions(pub Vec<Transaction>);
+pub struct UnmergedTransactions(pub Vec<Transaction>);
 
 pub struct Merger {
     posts: posting::IndexedPostings,
@@ -27,59 +26,80 @@ impl Merger {
 
     /// This merging algorithm is described in README.md under "Matching
     /// algorithm".
-    pub fn merge(&mut self, src_trns: Vec<Transaction>) -> Result<UnmatchedTransactions, Error> {
+    pub fn merge(&mut self, src_trns: Vec<Transaction>) -> Result<UnmergedTransactions, Error> {
         let pending = self.make_pending(src_trns)?;
         self.check_pending(&pending)?;
         self.apply_pending(pending)
     }
 
-    fn make_pending(&self, orig_trns: Vec<Transaction>) -> Result<PendingMerges, Error> {
-        let mut pending = PendingMerges::new();
+    fn make_pending(
+        &self,
+        orig_trns: Vec<Transaction>,
+    ) -> Result<Vec<TransactionMergeAction>, Error> {
+        let mut pending = Vec::<TransactionMergeAction>::new();
 
         // Set of fingerprints found in `pending.posts` so far.
         // This is used to check if duplicate fingerprints exist in the input.
         let mut fingerprints_seen = HashSet::<String>::new();
 
         for orig_trn in orig_trns.into_iter() {
-            self.add_trn_to_pending(&mut fingerprints_seen, &mut pending, orig_trn)?;
+            let trn_action = self.to_transaction_merge_action(&mut fingerprints_seen, orig_trn)?;
+            pending.push(trn_action);
         }
 
         Ok(pending)
     }
 
-    fn check_pending(&self, pending: &PendingMerges) -> Result<(), Error> {
+    fn check_pending(&self, pending: &[TransactionMergeAction]) -> Result<(), Error> {
         // Check if multiple source postings have matched against the same
         // destination posting.
+        // TODO: Should we do the same for merging into the same destination
+        // transaction, or is that acceptable, given that we're checking the
+        // postings?
         {
-            let mut src_idx_by_dest: HashMap<posting::IndexHashable, MatchSet<usize>> =
+            let mut src_idx_by_dest: HashMap<posting::IndexHashable, Vec<&posting::Input>> =
                 HashMap::new();
-            for (pending_post_idx, pending_post) in pending.posts.iter().enumerate() {
-                use PostingDestination::*;
-                match pending_post.destination {
-                    MergeIntoExisting(existing_post_idx) => {
-                        let key = posting::IndexHashable(existing_post_idx);
-                        src_idx_by_dest
-                            .entry(key)
-                            .or_default()
-                            .insert(pending_post_idx);
+            for trn_action in pending.iter() {
+                match trn_action {
+                    TransactionMergeAction::New(_) => {
+                        // No possible conflict; not merging any child posting
+                        // into existing posting.
                     }
-                    // No possible conflict.
-                    AddToTransaction(_) => {}
+                    TransactionMergeAction::MergeInto { pending_trn, .. } => {
+                        for (post, action) in &pending_trn.post_actions {
+                            match action {
+                                PostingMergeAction::New => {
+                                    // No possible conflict; not merging this
+                                    // posting into an existing posting.
+                                }
+                                PostingMergeAction::MergeIntoExisting(dest_idx) => {
+                                    let dest_idx_hash = posting::IndexHashable(*dest_idx);
+                                    src_idx_by_dest.entry(dest_idx_hash).or_default().push(post);
+                                }
+                            }
+                        }
+                    }
+                    TransactionMergeAction::LeaveUnmerged(_) => {
+                        // No possible conflict; not merging this transaction
+                        // or its postings at all.
+                    }
                 }
             }
 
-            for (dest_idx_hash, src_idxs) in src_idx_by_dest {
-                if src_idxs.len() > 1 {
+            for (dest_idx_hash, src_posts) in src_idx_by_dest {
+                if src_posts.len() > 1 {
+                    // Oh no! Multiple input postings have matched the same
+                    // destination transaction.
                     let inputs = itertools::join(
-                        src_idxs.iter().map(|src_idx| {
-                            format!("{}", pending.posts[*src_idx].post.get_posting())
-                        }),
+                        src_posts
+                            .iter()
+                            .map(|src_post| format!("{}", src_post.get_posting())),
                         "\n",
                     );
                     let destination = self.posts.get(dest_idx_hash.0);
                     let reason = format!(
                         "{} input postings match the same destination posting\ninputs:\n{}\n\ndestination:\n{}",
-                        src_idxs.len(),
+                        src_posts.len(),
                         inputs,
                         destination.get_posting(),
                     );
@@ -93,57 +113,68 @@ impl Merger {
 
     fn apply_pending(
         &mut self,
-        mut pending: PendingMerges,
-    ) -> Result<UnmatchedTransactions, Error> {
-        // Maps from index in pending.new_trns to index in self.trn_arena.
-        let new_trn_idxs: HashMap<HashableTransactionIndex, HashableTransactionIndex> = pending
-            .new_trns
-            .drain()
-            .map(|(pending_trn_idx, trn)| {
-                (
-                    HashableTransactionIndex(pending_trn_idx),
-                    HashableTransactionIndex(self.trns.add(trn)),
-                )
-            })
-            .collect();
+        pending: Vec<TransactionMergeAction>,
+    ) -> Result<UnmergedTransactions, Error> {
+        let mut unmerged = Vec::<Transaction>::new();
 
-        for post in pending.posts.drain(..) {
-            use DestinationTransaction::*;
-            use PostingDestination::*;
+        for trn_action in pending.into_iter() {
+            use TransactionMergeAction::*;
 
-            match post.destination {
-                MergeIntoExisting(existing_post_idx) => {
-                    self.posts.merge_into(existing_post_idx, post.post)?;
+            match trn_action {
+                New(pending_trn) => {
+                    let dest_trn = self.trns.add(pending_trn.src_trn);
+                    self.apply_post_actions_to_trn(dest_trn, pending_trn.post_actions)?;
                 }
-                AddToTransaction(trn_type) => {
-                    let dest_trn_idx = match trn_type {
-                        New(pending_trn_idx) => {
-                            new_trn_idxs
-                                .get(&HashableTransactionIndex(pending_trn_idx))
-                                .expect("new transaction index not found in new transaction arena")
-                                .0
-                        }
-                        Existing(trn_idx) => trn_idx,
-                    };
-                    let post_idx = self.posts.add(post.post, dest_trn_idx)?;
-                    self.trns.add_post_to_trn(dest_trn_idx, post_idx);
+                MergeInto {
+                    pending_trn,
+                    dest_trn,
+                } => {
+                    // `src_trn` currently unused.
+                    drop(pending_trn.src_trn);
+                    self.apply_post_actions_to_trn(dest_trn, pending_trn.post_actions)?;
+                }
+                LeaveUnmerged(trn) => {
+                    unmerged.push(trn);
                 }
             }
         }
-
-        Ok(pending.unmerged_trns)
+        Ok(UnmergedTransactions(unmerged))
     }
 
-    fn add_trn_to_pending(
+    fn apply_post_actions_to_trn(
+        &mut self,
+        dest_trn_idx: transaction::Index,
+        post_actions: Vec<(posting::Input, PostingMergeAction)>,
+    ) -> Result<(), Error> {
+        for (post, action) in post_actions {
+            match action {
+                PostingMergeAction::New => {
+                    let post_idx = self.posts.add(post, dest_trn_idx)?;
+                    self.trns.add_post_to_trn(dest_trn_idx, post_idx);
+                }
+                PostingMergeAction::MergeIntoExisting(dest_post_idx) => {
+                    self.posts.merge_into(dest_post_idx, post)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn to_transaction_merge_action(
         &self,
         fingerprints_seen: &mut HashSet<String>,
-        pending: &mut PendingMerges,
         orig_trn: Transaction,
-    ) -> Result<(), Error> {
+    ) -> Result<TransactionMergeAction, Error> {
         let (src_trn, orig_posts) = transaction::Holder::from_transaction(orig_trn);
 
         if orig_posts.is_empty() {
-            return Ok(());
+            // Because we have no postings to match against, we can't merge into
+            // an existing transaction. But if we try to create a new
+            // transaction, it won't match itself next time a merge happens, and
+            // we'll keep added transactions.
+            return Ok(TransactionMergeAction::LeaveUnmerged(
+                src_trn.into_transaction(Vec::new()),
+            ));
         }
 
         let mut src_post_actions = MergeActionsAccumulator::new();
@@ -169,32 +200,29 @@ impl Merger {
                     .into_iter()
                     .map(posting::Input::into_posting)
                     .collect();
-                let trn = src_trn.into_transaction(postings);
-                pending.unmerged_trns.0.push(trn);
+                Ok(TransactionMergeAction::LeaveUnmerged(
+                    src_trn.into_transaction(postings),
+                ))
             }
             MergeActions::Actions(src_post_actions) => {
                 // Determine default destination transaction.
-                let default_dest_trn: DestinationTransaction = self
-                    .find_existing_dest_trn(&src_trn, &src_post_actions)?
-                    .map(DestinationTransaction::Existing)
-                    .unwrap_or_else(|| {
-                        DestinationTransaction::New(pending.new_trns.insert(src_trn))
-                    });
+                let opt_dest_trn: Option<transaction::Index> =
+                    self.find_existing_dest_trn(&src_trn, &src_post_actions)?;
 
-                pending
-                    .posts
-                    .extend(src_post_actions.into_iter().map(|(src_post, action)| {
-                        let destination = action.with_dest_transaction(default_dest_trn);
+                let pending_trn = PendingTransaction {
+                    src_trn,
+                    post_actions: src_post_actions,
+                };
 
-                        PendingPosting {
-                            post: src_post,
-                            destination,
-                        }
-                    }));
+                Ok(match opt_dest_trn {
+                    Some(dest_trn) => TransactionMergeAction::MergeInto {
+                        pending_trn,
+                        dest_trn,
+                    },
+                    None => TransactionMergeAction::New(pending_trn),
+                })
             }
         }
-
-        Ok(())
     }
 
     fn determine_posting_action(
@@ -253,9 +281,8 @@ impl Merger {
             },
 
             Zero => {
-                // No matched posting. Add to the same transaction as the
-                // other postings.
-                Ok(Some(AddToTransaction))
+                // No matched posting. Add as a new posting.
+                Ok(Some(New))
             }
         }
     }
@@ -276,8 +303,8 @@ impl Merger {
             .filter_map(|(_, action)| {
                 use PostingMergeAction::*;
                 match action {
+                    New => None,
                     MergeIntoExisting(dest_post_idx) => Some(*dest_post_idx),
-                    AddToTransaction => None,
                 }
             })
             .map(|dest_post_idx| self.posts.get(dest_post_idx).get_parent_trn())
@@ -370,57 +397,27 @@ enum MergeActions {
 }
 
 enum PostingMergeAction {
-    /// Merge the posting into the specified existing posting.
+    /// Create new posting based on the source posting.
+    New,
+    /// Merge the posting into the existing posting.
     MergeIntoExisting(posting::Index),
-    /// Add the posting into the same transaction as the other postings.
-    AddToTransaction,
 }
 
-impl PostingMergeAction {
-    fn with_dest_transaction(self, dest_trn: DestinationTransaction) -> PostingDestination {
-        use PostingDestination::*;
-        match self {
-            Self::MergeIntoExisting(dest_post_idx) => MergeIntoExisting(dest_post_idx),
-            Self::AddToTransaction => AddToTransaction(dest_trn),
-        }
-    }
+struct PendingTransaction {
+    src_trn: transaction::Holder,
+    post_actions: Vec<(posting::Input, PostingMergeAction)>,
 }
 
-struct PendingMerges {
-    /// Posts to merge so far.
-    posts: Vec<PendingPosting>,
-    /// New transactions to create.
-    new_trns: transaction::Arena,
-    /// Transactions that failed to merge.
-    unmerged_trns: UnmatchedTransactions,
-}
-
-impl PendingMerges {
-    fn new() -> Self {
-        PendingMerges {
-            posts: Vec::new(),
-            new_trns: transaction::Arena::new(),
-            unmerged_trns: UnmatchedTransactions(Vec::new()),
-        }
-    }
-}
-
-struct PendingPosting {
-    post: posting::Input,
-    destination: PostingDestination,
-}
-
-enum PostingDestination {
-    /// Merge the posting into the specified existing posting.
-    MergeIntoExisting(posting::Index),
-    // Create new posting, added to the default destination transaction.
-    AddToTransaction(DestinationTransaction),
-}
-
-#[derive(Clone, Copy)]
-enum DestinationTransaction {
-    Existing(transaction::Index),
-    New(transaction::Index),
+enum TransactionMergeAction {
+    /// Create a new transaction based on the source transaction.
+    New(PendingTransaction),
+    /// Merge the postings into the existing transaction.
+    MergeInto {
+        pending_trn: PendingTransaction,
+        dest_trn: transaction::Index,
+    },
+    /// Leave the transaction unmerged for a human to handle.
+    LeaveUnmerged(Transaction),
 }
 
 #[derive(Eq)]
