@@ -5,6 +5,7 @@ use ledger_parser::{Posting, Transaction};
 
 use crate::merge::matchset::MatchSet;
 use crate::merge::{posting, transaction, MergeError};
+use crate::mutcell::MutCell;
 use crate::tags;
 
 /// A newtype to return transactions that failed to merge and that need human
@@ -145,8 +146,7 @@ impl Merger {
             return Ok(());
         }
 
-        let mut src_post_actions =
-            Vec::<(posting::Input, PostingMergeAction)>::with_capacity(orig_posts.len());
+        let mut src_post_actions = MergeActions::new();
         for orig_post in orig_posts.into_iter() {
             let mut src_post = posting::Input::from_posting(orig_post, src_trn.get_date())?;
 
@@ -158,38 +158,40 @@ impl Merger {
             }
 
             let action = self.determine_posting_action(&mut src_post)?;
-            src_post_actions.push((src_post, action));
+            src_post_actions.push(src_post, action);
         }
 
-        if src_post_actions
-            .iter()
-            .any(|(_, action)| action.is_leave_unmerged())
-        {
-            // src_trn is to remain unmerged for a human to handle
-            // remaining problems.
-            let postings: Vec<Posting> = src_post_actions
-                .into_iter()
-                .map(|(src_post, _)| src_post.into_posting())
-                .collect();
-            let trn = src_trn.into_transaction(postings);
-            pending.unmerged_trns.0.push(trn);
-        } else {
-            // Determine default destination transaction.
-            let default_dest_trn: DestinationTransaction = self
-                .find_existing_dest_trn(&src_trn, &src_post_actions)?
-                .map(DestinationTransaction::Existing)
-                .unwrap_or_else(|| DestinationTransaction::New(pending.new_trns.insert(src_trn)));
+        match src_post_actions.into_inner() {
+            MergeActionsInner::LeaveUnmerged(input_postings) => {
+                // src_trn is to remain unmerged for a human to handle
+                // remaining problems.
+                let postings: Vec<Posting> = input_postings
+                    .into_iter()
+                    .map(posting::Input::into_posting)
+                    .collect();
+                let trn = src_trn.into_transaction(postings);
+                pending.unmerged_trns.0.push(trn);
+            }
+            MergeActionsInner::Actions(src_post_actions) => {
+                // Determine default destination transaction.
+                let default_dest_trn: DestinationTransaction = self
+                    .find_existing_dest_trn(&src_trn, &src_post_actions)?
+                    .map(DestinationTransaction::Existing)
+                    .unwrap_or_else(|| {
+                        DestinationTransaction::New(pending.new_trns.insert(src_trn))
+                    });
 
-            pending
-                .posts
-                .extend(src_post_actions.into_iter().map(|(src_post, action)| {
-                    let destination = action.with_dest_transaction(default_dest_trn);
+                pending
+                    .posts
+                    .extend(src_post_actions.into_iter().map(|(src_post, action)| {
+                        let destination = action.with_dest_transaction(default_dest_trn);
 
-                    PendingPosting {
-                        post: src_post,
-                        destination,
-                    }
-                }));
+                        PendingPosting {
+                            post: src_post,
+                            destination,
+                        }
+                    }));
+            }
         }
 
         Ok(())
@@ -198,7 +200,7 @@ impl Merger {
     fn determine_posting_action(
         &self,
         src_post: &mut posting::Input,
-    ) -> Result<PostingMergeAction, Error> {
+    ) -> Result<Option<PostingMergeAction>, Error> {
         use posting::Match::*;
         use posting::MatchedIndices::*;
         use PostingMergeAction::*;
@@ -206,7 +208,7 @@ impl Merger {
             Fingerprint(m) => match m {
                 One(dest_idx) => {
                     // Unambiguous match by fingerprint.
-                    Ok(MergeIntoExisting(dest_idx))
+                    Ok(Some(MergeIntoExisting(dest_idx)))
                 }
                 Many(matched_idxs) => {
                     // Multiple destinations postings matched the
@@ -230,7 +232,7 @@ impl Merger {
             Soft(m) => match m {
                 One(dest_idx) => {
                     // Unambiguous single soft match.
-                    Ok(MergeIntoExisting(dest_idx))
+                    Ok(Some(MergeIntoExisting(dest_idx)))
                 }
                 Many(matched_idxs) => {
                     // Add candidate tags of the destinations to the
@@ -244,14 +246,16 @@ impl Merger {
                             candidate_dest_post.primary_fingerprint()
                         ));
                     }
-                    // No clear matched posting, let a human decide.
-                    Ok(LeaveUnmerged)
+                    // No clear matched posting, let a human decide what action
+                    // to take.
+                    Ok(None)
                 }
             },
 
             Zero => {
-                // No matched posting.
-                Ok(AddToTransaction)
+                // No matched posting. Add to the same transaction as the
+                // other postings.
+                Ok(Some(AddToTransaction))
             }
         }
     }
@@ -274,7 +278,6 @@ impl Merger {
                 match action {
                     MergeIntoExisting(dest_post_idx) => Some(*dest_post_idx),
                     AddToTransaction => None,
-                    LeaveUnmerged => None,
                 }
             })
             .map(|dest_post_idx| self.posts.get(dest_post_idx).get_parent_trn())
@@ -318,30 +321,67 @@ impl Merger {
     }
 }
 
+/// Accumulates pairs of `posting::Input` and the chosen `PostingMergeAction`
+/// for it, until a `None` is added, at which point it throws away the
+/// current and future `PostingMergeAction`s.
+struct MergeActions(MutCell<MergeActionsInner>);
+
+impl MergeActions {
+    fn new() -> Self {
+        Self(MutCell::new(MergeActionsInner::Actions(Vec::new())))
+    }
+
+    fn push(&mut self, posting: posting::Input, action: Option<PostingMergeAction>) {
+        self.0.map_value(|inner| {
+            use MergeActionsInner::*;
+            match inner {
+                Actions(mut post_actions) => match action {
+                    Some(action) => {
+                        post_actions.push((posting, action));
+                        Actions(post_actions)
+                    }
+                    None => {
+                        let mut postings: Vec<posting::Input> = post_actions
+                            .into_iter()
+                            .map(|(post, _action)| post)
+                            .collect();
+                        postings.push(posting);
+                        LeaveUnmerged(postings)
+                    }
+                },
+                LeaveUnmerged(mut postings) => {
+                    postings.push(posting);
+                    LeaveUnmerged(postings)
+                }
+            }
+        });
+    }
+
+    fn into_inner(self) -> MergeActionsInner {
+        self.0.into_inner()
+    }
+}
+
+enum MergeActionsInner {
+    /// Merge/add the postings into the destination.
+    Actions(Vec<(posting::Input, PostingMergeAction)>),
+    /// Leave the postings unmerged for a human to resolve.
+    LeaveUnmerged(Vec<posting::Input>),
+}
+
 enum PostingMergeAction {
     /// Merge the posting into the specified existing posting.
     MergeIntoExisting(posting::Index),
-    /// Add the posting into a to-be-determined (existing or new) transaction.
+    /// Add the posting into the same transaction as the other postings.
     AddToTransaction,
-    /// Leave the posting unmerged for a human to resolve.
-    LeaveUnmerged,
 }
 
 impl PostingMergeAction {
-    fn is_leave_unmerged(&self) -> bool {
-        match self {
-            Self::LeaveUnmerged => true,
-            _ => false,
-        }
-    }
-
     fn with_dest_transaction(self, dest_trn: DestinationTransaction) -> PostingDestination {
         use PostingDestination::*;
         match self {
             Self::MergeIntoExisting(dest_post_idx) => MergeIntoExisting(dest_post_idx),
             Self::AddToTransaction => AddToTransaction(dest_trn),
-            //
-            Self::LeaveUnmerged => AddToTransaction(dest_trn),
         }
     }
 }
@@ -587,36 +627,49 @@ mod tests {
     #[test_case(
         r#"
             2000/01/01 Salary
+                income:salary    GBP-100.00   ; :fp-sal1:
                 assets:checking  GBP 100.00   ; :fp-orig1:
             2000/01/01 Salary
                 assets:checking  GBP 100.00   ; :fp-orig2:
+                income:salary    GBP-100.00   ; :fp-sal2:
             2000/01/01 Salary
                 assets:checking  GBP 100.00   ; :fp-orig3:
+                income:salary    GBP-100.00   ; :fp-sal3:
         "#,
-        // The following postings all soft-match against the postings above, but
-        // will *not* be merged in.
+        // The following assets:checking postings each soft-match against
+        // multiple postings above, but should *not* be merged in due to that
+        // ambiguity.
+        // This also checks if encountering the ambiguity on the first or
+        // subsequent posting works.
         r#"
             2000/01/01 Salary
+                income:salary    GBP-100.00   ; :fp-sal1:
                 assets:checking  GBP 100.00   ; :fp-new1:
             2000/01/01 Salary
                 assets:checking  GBP 100.00   ; :fp-new2:
+                income:salary    GBP-100.00   ; :fp-sal2:
         "#,
         // Candidate destination match tags should be added to the src
-        // transaction, and it should be left in the unmerged transactions.
+        // postings, and they should be left in the unmerged transactions.
         r#"
             2000/01/01 Salary
+                income:salary    GBP-100.00   ; :fp-sal1:
                 assets:checking  GBP 100.00   ; :candidate-fp-orig1:candidate-fp-orig2:candidate-fp-orig3:fp-new1:
             2000/01/01 Salary
                 assets:checking  GBP 100.00   ; :candidate-fp-orig1:candidate-fp-orig2:candidate-fp-orig3:fp-new2:
+                income:salary    GBP-100.00   ; :fp-sal2:
         "#,
         // The original transactions should be unchanged.
         r#"
             2000/01/01 Salary
+                income:salary    GBP-100.00   ; :fp-sal1:
                 assets:checking  GBP 100.00   ; :fp-orig1:
             2000/01/01 Salary
                 assets:checking  GBP 100.00   ; :fp-orig2:
+                income:salary    GBP-100.00   ; :fp-sal2:
             2000/01/01 Salary
                 assets:checking  GBP 100.00   ; :fp-orig3:
+                income:salary    GBP-100.00   ; :fp-sal3:
         "#;
         "ambiguous_soft_match_adds_candidate_tags_and_leaves_unmerged"
     )]
