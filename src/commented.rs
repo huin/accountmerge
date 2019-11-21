@@ -1,4 +1,4 @@
-use ledger_parser::{Posting, Transaction};
+use ledger_parser::{Ledger, Posting, Transaction};
 
 use crate::comment::Comment;
 
@@ -30,6 +30,17 @@ impl Into<Transaction> for TransactionComment {
 pub struct TransactionPostings {
     pub trn: TransactionComment,
     pub posts: Vec<PostingComment>,
+}
+
+impl TransactionPostings {
+    pub fn put_into_ledger(ledger: &mut Ledger, trns: Vec<Self>) {
+        ledger.transactions = trns.into_iter().map(Into::into).collect();
+    }
+
+    pub fn take_from_ledger(ledger: &mut Ledger) -> Vec<Self> {
+        let raw_trns = std::mem::replace(&mut ledger.transactions, Vec::new());
+        raw_trns.into_iter().map(Into::into).collect()
+    }
 }
 
 impl From<Transaction> for TransactionPostings {
