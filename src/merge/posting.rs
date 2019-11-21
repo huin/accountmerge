@@ -303,7 +303,22 @@ impl Holder {
     }
 
     fn merge_from_input_posting(&mut self, mut src: Input) {
-        // TODO: Merge/update status.
+        use ledger_parser::TransactionStatus::*;
+        match (self.posting.status.as_ref(), src.posting.status) {
+            (None, src_status) => {
+                self.posting.status = src_status;
+            }
+            (Some(_), None) => {
+                // Don't update with less information.
+            }
+            (Some(self_status), Some(src_status)) => {
+                // Only update towards cleared, assuming that the state can only
+                // go from pending to cleared.
+                if let (Pending, Cleared) = (self_status, src_status) {
+                    self.posting.status = Some(Cleared);
+                }
+            }
+        }
         if self.posting.balance.is_none() {
             self.posting.balance = src.posting.balance.clone()
         }
