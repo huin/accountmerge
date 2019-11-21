@@ -93,6 +93,7 @@ impl Comment {
         let mut out_lines = Vec::<String>::new();
 
         if !self.tags.is_empty() {
+            // TODO: Put long tags onto a line of their own.
             let mut tags: Vec<String> = self.tags.into_iter().collect();
             tags.sort();
             out_lines.push(format!(":{}:", tags.join(":")));
