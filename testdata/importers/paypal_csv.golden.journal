@@ -1,45 +1,61 @@
 2019-01-01 Somecompany Inc.
   * assets:unknown  USD-5 = USD-5
   ; :fp-paypal-xdlfoieFapm6Ysy3A9Ot7gqwc1o:
+  ; :unknown-account:
   * expenses:unknown  USD5
   ; :fp-paypal-A28gcyqA+aQFSqETeaSbHrVimmI:
+  ; :unknown-account:
   ; trn_name: Somecompany Inc.
   ; trn_type: Pre-approved Payment Bill User Payment
   ! assets:unknown  GBP4.32 = GBP4.32
   ; :fp-paypal-Oo7zQfOd30Db+B/XJM2jXabHJBg:
+  ; :unknown-account:
   ! income:unknown  GBP-4.32
   ; :fp-paypal-evnIOChAA8J38rkuzfI+eOCG0pI:
+  ; :unknown-account:
   ; trn_type: Bank deposit to PayPal account
   * assets:unknown  GBP-4.32 = GBP0
   ; :fp-paypal-zDVqqHBrg2xM35kQSgdr2ctaQSE:
+  ; :unknown-account:
   * expenses:unknown  GBP4.32
   ; :fp-paypal-+dlSJ4WG+bCJXvk8W86UOUkilfE:
+  ; :unknown-account:
   ; trn_type: General Currency Conversion
   * assets:unknown  USD5 = USD0
   ; :fp-paypal-z1lcF0Wi2R+fwqXO9qKuD0mJMzs:
+  ; :unknown-account:
   * income:unknown  USD-5
   ; :fp-paypal-efwhrrhy/FFgxuoY/IGyVux9aQU:
+  ; :unknown-account:
   ; trn_type: General Currency Conversion
 
 2019-01-02 Othercompany Ltd.
   ! assets:unknown  GBP12.34 = GBP12.34
   ; :fp-paypal-5pEb+ghLkrbWNQGBs9ZaF7V3yTQ:
+  ; :unknown-account:
   ! income:unknown  GBP-12.34
   ; :fp-paypal-FVjQRTTiRf3imYx4qKa+jMNQw84:
+  ; :unknown-account:
   ; trn_type: Bank deposit to PayPal account
   * assets:unknown  GBP-12.34 = GBP0
   ; :fp-paypal-oSCbF3JHn3zoeiv9ce/DLPYH2Zw:
+  ; :unknown-account:
   * expenses:unknown  GBP12.34
   ; :fp-paypal-hWzj0X5c5oTkshFWCfJxiPw2Xl4:
+  ; :unknown-account:
   ; trn_type: General Currency Conversion
   * assets:unknown  USD13.37 = USD0
   ; :fp-paypal-3p1fCm5WSFR42pRKpNlfquPLC7g:
+  ; :unknown-account:
   * income:unknown  USD-13.37
   ; :fp-paypal-t+2fE90iayDET/7cywru5NnZ3WE:
+  ; :unknown-account:
   ; trn_type: General Currency Conversion
   * assets:unknown  USD-13.37 = USD-13.37
   ; :fp-paypal-YYpG0Elh0koWLxqd1GsjXtL5jrU:
+  ; :unknown-account:
   * expenses:unknown  USD13.37
   ; :fp-paypal-LDNaz/r3yUxRX3GHKnsHMxwrkRg:
+  ; :unknown-account:
   ; trn_name: Othercompany Ltd.
   ; trn_type: Pre-approved Payment Bill User Payment

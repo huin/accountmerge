@@ -16,6 +16,7 @@ use crate::filespec::FileSpec;
 use crate::fingerprint::{make_prefix, FingerprintBuilder};
 use crate::importers::importer::TransactionImporter;
 use crate::importers::util::self_and_peer_account_amount;
+use crate::tags::UNKNOWN_ACCOUNT_TAG;
 
 /// Transaction name field, provided by PayPal.
 const TRANSACTION_NAME_TAG: &str = "trn_name";
@@ -143,6 +144,7 @@ impl PaypalCsv {
 
 fn form_postings(record: Record, fp_prefix: &str) -> (Posting, Posting) {
     let self_comment = Comment::builder()
+        .with_tag(UNKNOWN_ACCOUNT_TAG)
         .with_tag(
             record
                 .partial_fp
@@ -152,6 +154,7 @@ fn form_postings(record: Record, fp_prefix: &str) -> (Posting, Posting) {
         )
         .build();
     let mut peer_comment = Comment::builder()
+        .with_tag(UNKNOWN_ACCOUNT_TAG)
         .with_tag(record.partial_fp.with("peer").build_with_prefix(fp_prefix))
         .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
         .build();
