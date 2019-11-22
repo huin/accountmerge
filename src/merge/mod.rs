@@ -4,6 +4,7 @@ use structopt::StructOpt;
 mod matchset;
 pub mod merger;
 mod posting;
+mod sources;
 mod transaction;
 
 use crate::filespec::{self, FileSpec};
@@ -38,13 +39,10 @@ impl Command {
         let mut unmerged = Vec::<TransactionPostings>::new();
 
         for ledger_file in &self.inputs {
-            let mut ledger = filespec::read_ledger_file(ledger_file)?;
-            let trns = TransactionPostings::take_from_ledger(&mut ledger);
-            let mut unmerged_trns = merger.merge(trns)?;
-
-            // TODO: Need to be able to differentiate between where the files where
-            // the unmerged transaction originally came from. Tagging?
-            unmerged.append(&mut unmerged_trns.0);
+            for trns in sources::read_ledger_file(ledger_file)? {
+                let mut unmerged_trns = merger.merge(trns)?;
+                unmerged.append(&mut unmerged_trns.0);
+            }
         }
 
         if !unmerged.is_empty() {
@@ -54,6 +52,13 @@ impl Command {
                         commodity_prices: Default::default(),
                         transactions: Default::default(),
                     };
+                    // Deliberately leave the source tags on the unmerged files
+                    // so that:
+                    // * The human has more context of where the transaction
+                    //   came from.
+                    // * When re-attempting to merge from the unmerged file, the
+                    //   sources::read_ledger_file can cause each source in the
+                    //   file to be merged independently.
                     TransactionPostings::put_into_ledger(&mut ledger, unmerged);
                     filespec::write_ledger_file(fs, &ledger)?;
                 }
@@ -66,11 +71,13 @@ impl Command {
             }
         }
 
+        let mut trns = merger.build();
+        sources::strip_sources(&mut trns);
         let mut ledger = ledger_parser::Ledger {
             commodity_prices: Default::default(),
             transactions: Default::default(),
         };
-        TransactionPostings::put_into_ledger(&mut ledger, merger.build());
+        TransactionPostings::put_into_ledger(&mut ledger, trns);
 
         filespec::write_ledger_file(&self.output, &ledger)
     }
