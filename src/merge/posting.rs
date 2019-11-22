@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use chrono::NaiveDate;
 use failure::Error;
-use ledger_parser::Posting;
 use typed_generational_arena::{StandardArena, StandardIndex};
 
 use crate::comment::Comment;
+use crate::internal::PostingInternal;
 use crate::merge::matchset::MatchSet;
 use crate::merge::transaction;
 use crate::merge::MergeError;
@@ -51,7 +51,7 @@ impl IndexedPostings {
 
     /// Adds a new posting, updating the fingerprint index.
     pub fn add(&mut self, input: Input, parent_trn: transaction::Index) -> Result<Index, Error> {
-        let fingerprints: Vec<String> = fingerprints_from_comment(&input.comment)
+        let fingerprints: Vec<String> = fingerprints_from_comment(&input.posting.comment)
             .map(str::to_string)
             .collect();
         let (holder, trn_date) = Holder::from_input(input, parent_trn);
@@ -91,7 +91,7 @@ impl IndexedPostings {
         input_posting: Input,
     ) -> Result<(), Error> {
         self.register_fingerprints(
-            fingerprints_from_comment(&input_posting.comment).map(str::to_string),
+            fingerprints_from_comment(&input_posting.posting.comment).map(str::to_string),
             existing_post_idx,
         )?;
         let dest_post = self.get_mut(existing_post_idx);
@@ -172,34 +172,40 @@ pub enum MatchedIndices {
 pub struct ConsumePostings(Arena);
 
 impl ConsumePostings {
-    pub fn take(&mut self, post_idx: Index) -> Posting {
+    pub fn take(&mut self, post_idx: Index) -> PostingInternal {
         self.0
             .remove(post_idx)
             .expect(BAD_POSTING_INDEX)
-            .into_posting()
+            .into_posting_internal()
     }
 }
 
+// TODO: Consider removing the `Input` type and moving `trn_date` into
+// `PostingInternal`.
+
 pub struct Input {
     trn_date: NaiveDate,
-    posting: Posting,
-    comment: Comment,
+    pub posting: PostingInternal,
 }
 
 impl Input {
-    pub fn from_posting(mut posting: Posting, trn_date: NaiveDate) -> Result<Self, Error> {
-        let comment = Comment::from_opt_comment(posting.comment.as_ref().map(String::as_str));
-        posting.comment = None;
-
-        // Error if any src_post has a candidate tag on it. The user
-        // should have removed it.
-        if comment
+    pub fn from_posting_internal(
+        posting: PostingInternal,
+        trn_date: NaiveDate,
+    ) -> Result<Self, Error> {
+        // Error if any src_post has a candidate tag on it. The user should have
+        // removed it.
+        if posting
+            .comment
             .tags
             .iter()
             .any(|tag| tag.starts_with(CANDIDATE_FP_TAG_PREFIX))
         {
             return Err(MergeError::Input {
-                reason: format!("posting \"{}\" has a candidate tag", posting),
+                reason: format!(
+                    "posting \"{}\" has a candidate tag",
+                    posting.clone_into_posting()
+                ),
             }
             .into());
         }
@@ -207,48 +213,41 @@ impl Input {
         // Ensure that there is at least one fingerprint to serve as the
         // primary. Having at least one fingerprint is required by the merging
         // process. I.e `primary_fingerprint` may panic if we don't check this.
-        if !comment
+        if !posting
+            .comment
             .tags
             .iter()
             .any(|tag| tag.starts_with(FINGERPRINT_TAG_PREFIX))
         {
             return Err(MergeError::Input {
-                reason: format!("posting \"{}\" does not have a fingerprint tag", posting),
+                reason: format!(
+                    "posting \"{}\" does not have a fingerprint tag",
+                    posting.clone_into_posting()
+                ),
             }
             .into());
         }
 
-        Ok(Self {
-            trn_date,
-            posting,
-            comment,
-        })
+        Ok(Self { trn_date, posting })
     }
 
-    pub fn get_posting(&self) -> &Posting {
-        &self.posting
-    }
-
-    pub fn into_posting(self) -> Posting {
-        let mut posting = self.posting;
-        posting.comment = self.comment.into_opt_comment();
-        posting
+    pub fn into_posting_internal(self) -> PostingInternal {
+        self.posting
     }
 
     pub fn add_tag(&mut self, tag: String) {
-        self.comment.tags.insert(tag);
+        self.posting.comment.tags.insert(tag);
     }
 
     pub fn iter_fingerprints<'a>(&'a self) -> impl Iterator<Item = &str> + 'a {
-        fingerprints_from_comment(&self.comment)
+        fingerprints_from_comment(&self.posting.comment)
     }
 }
 
 /// Contains a partially unpacked `Posting`.
 pub struct Holder {
     parent_trn: transaction::Index,
-    posting: Posting,
-    pub comment: Comment,
+    pub posting: PostingInternal,
 }
 
 impl Holder {
@@ -257,19 +256,13 @@ impl Holder {
             Self {
                 parent_trn,
                 posting: proto.posting,
-                comment: proto.comment,
             },
             proto.trn_date,
         )
     }
 
-    fn into_posting(mut self) -> Posting {
-        self.posting.comment = self.comment.into_opt_comment();
+    fn into_posting_internal(self) -> PostingInternal {
         self.posting
-    }
-
-    pub fn get_posting(&self) -> &Posting {
-        &self.posting
     }
 
     pub fn get_parent_trn(&self) -> transaction::Index {
@@ -277,61 +270,68 @@ impl Holder {
     }
 
     pub fn primary_fingerprint(&self) -> &str {
-        primary_fingerprint(&self.comment)
+        primary_fingerprint(&self.posting.comment)
     }
 
     fn matches(&self, input: &Input) -> bool {
-        let a = &self.posting;
-        let b = &input.posting;
+        matches(&self.posting, &input.posting)
+    }
 
-        let accounts_match = if !self.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
-            && !input.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
-        {
-            a.account == b.account
+    fn merge_from_input_posting(&mut self, src: Input) {
+        merge(&mut self.posting, src.posting)
+    }
+}
+
+fn matches(a: &PostingInternal, b: &PostingInternal) -> bool {
+    let (ap, ac) = (&a.post, &a.comment);
+    let (bp, bc) = (&b.post, &b.comment);
+
+    let accounts_match =
+        if !ac.tags.contains(UNKNOWN_ACCOUNT_TAG) && !bc.tags.contains(UNKNOWN_ACCOUNT_TAG) {
+            ap.account == bp.account
         } else {
             true
         };
 
-        let amounts_match = a.amount == b.amount;
+    let amounts_match = ap.amount == bp.amount;
 
-        let balances_match = match (&a.balance, &b.balance) {
-            (Some(a_bal), Some(b_bal)) => a_bal == b_bal,
-            _ => true,
-        };
+    let balances_match = match (&ap.balance, &bp.balance) {
+        (Some(a_bal), Some(b_bal)) => a_bal == b_bal,
+        _ => true,
+    };
 
-        accounts_match && amounts_match && balances_match
+    accounts_match && amounts_match && balances_match
+}
+
+fn merge(dest: &mut PostingInternal, mut src: PostingInternal) {
+    use ledger_parser::TransactionStatus::*;
+    match (dest.post.status.as_ref(), src.post.status) {
+        (None, src_status) => {
+            dest.post.status = src_status;
+        }
+        (Some(_), None) => {
+            // Don't update with less information.
+        }
+        (Some(dest_status), Some(src_status)) => {
+            // Only update towards cleared, assuming that the state can only
+            // go from pending to cleared.
+            if let (Pending, Cleared) = (dest_status, src_status) {
+                dest.post.status = Some(Cleared);
+            }
+        }
     }
-
-    fn merge_from_input_posting(&mut self, mut src: Input) {
-        use ledger_parser::TransactionStatus::*;
-        match (self.posting.status.as_ref(), src.posting.status) {
-            (None, src_status) => {
-                self.posting.status = src_status;
-            }
-            (Some(_), None) => {
-                // Don't update with less information.
-            }
-            (Some(self_status), Some(src_status)) => {
-                // Only update towards cleared, assuming that the state can only
-                // go from pending to cleared.
-                if let (Pending, Cleared) = (self_status, src_status) {
-                    self.posting.status = Some(Cleared);
-                }
-            }
-        }
-        if self.posting.balance.is_none() {
-            self.posting.balance = src.posting.balance.clone()
-        }
-        if self.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
-            && !src.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
-        {
-            self.comment.tags.remove(UNKNOWN_ACCOUNT_TAG);
-            self.posting.account = src.posting.account;
-        }
-        src.comment.tags.remove(UNKNOWN_ACCOUNT_TAG);
-
-        self.comment.merge_from(src.comment);
+    if dest.post.balance.is_none() {
+        dest.post.balance = src.post.balance.clone()
     }
+    if dest.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
+        && !src.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
+    {
+        dest.comment.tags.remove(UNKNOWN_ACCOUNT_TAG);
+        dest.post.account = src.post.account;
+    }
+    src.comment.tags.remove(UNKNOWN_ACCOUNT_TAG);
+
+    dest.comment.merge_from(src.comment);
 }
 
 fn primary_fingerprint(comment: &Comment) -> &str {
@@ -354,7 +354,7 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::testutil::{normalize_comment, parse_posting};
+    use crate::testutil::parse_posting_internal;
 
     #[test_case(
        "foo  GBP 10.00  ; :fp-1:",
@@ -396,14 +396,15 @@ mod tests {
         let dummy_date = NaiveDate::from_ymd(2000, 1, 1);
         let dummy_idx = StandardIndex::from_idx_first_gen(0);
 
-        let dest_posting = Input::from_posting(parse_posting(dest), dummy_date).unwrap();
-        let src_posting = Input::from_posting(parse_posting(src), dummy_date).unwrap();
+        let dest_posting =
+            Input::from_posting_internal(parse_posting_internal(dest), dummy_date).unwrap();
+        let src_posting =
+            Input::from_posting_internal(parse_posting_internal(src), dummy_date).unwrap();
         let (mut dest_holder, _) = Holder::from_input(dest_posting, dummy_idx);
         dest_holder.merge_from_input_posting(src_posting);
-        let mut result = dest_holder.into_posting();
-        normalize_comment(&mut result.comment);
+        let result = dest_holder.into_posting_internal();
 
-        assert_eq!(result, parse_posting(want));
+        assert_posting_internal_eq!(result, parse_posting_internal(want));
     }
 
     #[test_case(
@@ -470,8 +471,10 @@ mod tests {
         let dummy_date = NaiveDate::from_ymd(2000, 1, 1);
         let dummy_idx = StandardIndex::from_idx_first_gen(0);
 
-        let dest_posting = Input::from_posting(parse_posting(dest), dummy_date).unwrap();
-        let src_posting = Input::from_posting(parse_posting(src), dummy_date).unwrap();
+        let dest_posting =
+            Input::from_posting_internal(parse_posting_internal(dest), dummy_date).unwrap();
+        let src_posting =
+            Input::from_posting_internal(parse_posting_internal(src), dummy_date).unwrap();
         let (dest_holder, _) = Holder::from_input(dest_posting, dummy_idx);
         let got = dest_holder.matches(&src_posting);
 

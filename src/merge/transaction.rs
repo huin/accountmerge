@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use chrono::NaiveDate;
-use ledger_parser::{Posting, Transaction};
 use typed_generational_arena::{StandardArena, StandardIndex};
 
+use crate::internal::{PostingInternal, TransactionInternal, TransactionPostings};
 use crate::merge::posting;
 
 const BAD_TRANSACTION_INDEX: &str = "internal error: used invalid transaction::Index";
@@ -60,7 +60,7 @@ impl IndexedTransactions {
     }
 
     pub fn add(&mut self, trn: Holder) -> Index {
-        let date = trn.trn.date;
+        let date = trn.trn.trn.date;
         let idx = self.trn_arena.insert(trn);
         self.trns_by_date
             .entry(date)
@@ -75,9 +75,10 @@ impl IndexedTransactions {
     }
 }
 
-/// Contains a partially unpacked `Transaction`.
+/// Contains a partially unpacked `Transaction` with arena references to its
+/// `Postings`.
 pub struct Holder {
-    trn: Transaction,
+    pub trn: TransactionInternal,
 
     postings: Vec<posting::Index>,
 }
@@ -85,29 +86,18 @@ pub struct Holder {
 impl Holder {
     /// Moves trn into a new `Holder`, moving out any Postings
     /// inside.
-    pub fn from_transaction(mut trn: Transaction) -> (Self, Vec<Posting>) {
-        let mut posts: Vec<Posting> = Vec::new();
-        std::mem::swap(&mut posts, &mut trn.postings);
-        (
-            Holder {
-                trn,
-                postings: Vec::new(),
-            },
-            posts,
-        )
+    pub fn from_transaction_internal(trn: TransactionInternal) -> Self {
+        Holder {
+            trn,
+            postings: Vec::new(),
+        }
     }
 
-    pub fn get_date(&self) -> NaiveDate {
-        self.trn.date
-    }
-
-    pub fn get_description(&self) -> &str {
-        &self.trn.description
-    }
-
-    pub fn into_transaction(mut self, postings: Vec<Posting>) -> Transaction {
-        self.trn.postings = postings;
-        self.trn
+    pub fn into_transaction_postings(self, postings: Vec<PostingInternal>) -> TransactionPostings {
+        TransactionPostings {
+            trn: self.trn,
+            posts: postings,
+        }
     }
 
     pub fn iter_posting_indices<'a>(&'a self) -> impl Iterator<Item = posting::Index> + 'a {

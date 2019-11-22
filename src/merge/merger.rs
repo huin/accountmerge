@@ -1,15 +1,15 @@
 use std::collections::{HashMap, HashSet};
 
 use failure::Error;
-use ledger_parser::{Posting, Transaction};
 
+use crate::internal::{PostingInternal, TransactionPostings};
 use crate::merge::{posting, transaction, MergeError};
 use crate::mutcell::MutCell;
 use crate::tags;
 
 /// A newtype to return transactions that failed to merge and that need human
 /// intervention to resolve.
-pub struct UnmergedTransactions(pub Vec<Transaction>);
+pub struct UnmergedTransactions(pub Vec<TransactionPostings>);
 
 pub struct Merger {
     posts: posting::IndexedPostings,
@@ -26,7 +26,10 @@ impl Merger {
 
     /// This merging algorithm is described in README.md under "Matching
     /// algorithm".
-    pub fn merge(&mut self, src_trns: Vec<Transaction>) -> Result<UnmergedTransactions, Error> {
+    pub fn merge(
+        &mut self,
+        src_trns: Vec<TransactionPostings>,
+    ) -> Result<UnmergedTransactions, Error> {
         let pending = self.make_pending(src_trns)?;
         self.check_pending(&pending)?;
         self.apply_pending(pending)
@@ -34,7 +37,7 @@ impl Merger {
 
     fn make_pending(
         &self,
-        orig_trns: Vec<Transaction>,
+        orig_trns: Vec<TransactionPostings>,
     ) -> Result<Vec<TransactionMergeAction>, Error> {
         let mut pending = Vec::<TransactionMergeAction>::new();
 
@@ -93,7 +96,7 @@ impl Merger {
                     let inputs = itertools::join(
                         src_posts
                             .iter()
-                            .map(|src_post| format!("{}", src_post.get_posting())),
+                            .map(|src_post| format!("{}", src_post.posting.clone_into_posting())),
                         "\n",
                     );
                     let destination = self.posts.get(dest_idx_hash.0);
@@ -101,7 +104,7 @@ impl Merger {
                         "{} input postings match the same destination posting\ninputs:\n{}\n\ndestination:\n{}",
                         src_posts.len(),
                         inputs,
-                        destination.get_posting(),
+                        destination.posting.clone_into_posting(),
                     );
                     return Err(MergeError::Input { reason }.into());
                 }
@@ -115,7 +118,7 @@ impl Merger {
         &mut self,
         pending: Vec<TransactionMergeAction>,
     ) -> Result<UnmergedTransactions, Error> {
-        let mut unmerged = Vec::<Transaction>::new();
+        let mut unmerged = Vec::<TransactionPostings>::new();
 
         for trn_action in pending.into_iter() {
             use TransactionMergeAction::*;
@@ -163,23 +166,24 @@ impl Merger {
     fn to_transaction_merge_action(
         &self,
         fingerprints_seen: &mut HashSet<String>,
-        orig_trn: Transaction,
+        orig_trn_postings: TransactionPostings,
     ) -> Result<TransactionMergeAction, Error> {
-        let (src_trn, orig_posts) = transaction::Holder::from_transaction(orig_trn);
-
-        if orig_posts.is_empty() {
+        if orig_trn_postings.posts.is_empty() {
             // Because we have no postings to match against, we can't merge into
             // an existing transaction. But if we try to create a new
             // transaction, it won't match itself next time a merge happens, and
             // we'll keep added transactions.
-            return Ok(TransactionMergeAction::LeaveUnmerged(
-                src_trn.into_transaction(Vec::new()),
-            ));
+            // This could change if we put fingerprints on transactions as well.
+            return Ok(TransactionMergeAction::LeaveUnmerged(orig_trn_postings));
         }
+
+        let (orig_trn, orig_posts) = (orig_trn_postings.trn, orig_trn_postings.posts);
+        let src_trn = transaction::Holder::from_transaction_internal(orig_trn);
 
         let mut src_post_actions = MergeActionsAccumulator::new();
         for orig_post in orig_posts.into_iter() {
-            let mut src_post = posting::Input::from_posting(orig_post, src_trn.get_date())?;
+            let mut src_post =
+                posting::Input::from_posting_internal(orig_post, src_trn.trn.trn.date)?;
 
             for fp in src_post.iter_fingerprints().map(str::to_string) {
                 if fingerprints_seen.contains(&fp) {
@@ -196,12 +200,12 @@ impl Merger {
             MergeActions::LeaveUnmerged(input_postings) => {
                 // src_trn is to remain unmerged for a human to handle
                 // remaining problems.
-                let postings: Vec<Posting> = input_postings
+                let postings: Vec<PostingInternal> = input_postings
                     .into_iter()
-                    .map(posting::Input::into_posting)
+                    .map(posting::Input::into_posting_internal)
                     .collect();
                 Ok(TransactionMergeAction::LeaveUnmerged(
-                    src_trn.into_transaction(postings),
+                    src_trn.into_transaction_postings(postings),
                 ))
             }
             MergeActions::Actions(src_post_actions) => {
@@ -243,14 +247,14 @@ impl Merger {
                     // fingerprint(s) of the input posting, this is a
                     // fatal merge error.
                     let destinations = itertools::join(
-                        matched_idxs
-                            .iter()
-                            .map(|dest_idx| format!("{}", self.posts.get(*dest_idx).get_posting())),
+                        matched_idxs.iter().map(|dest_idx| {
+                            format!("{}", self.posts.get(*dest_idx).posting.clone_into_posting())
+                        }),
                         "\n",
                     );
                     let reason = format!(
                         "input posting matches multiple same destination postings by fingerprints\ninput:\n{}\nmatched ndestinations:\n{}",
-                        src_post.get_posting(),
+                        src_post.posting.clone_into_posting(),
                         destinations,
                     );
                     Err(MergeError::Input { reason }.into())
@@ -317,12 +321,15 @@ impl Merger {
             _ => Err(MergeError::Input {
                 reason: format!(
                     "input transaction on {} ({:?}) matches multiple existing transactions: {}",
-                    src_trn.get_date(),
-                    src_trn.get_description().to_string(),
+                    src_trn.trn.trn.date,
+                    src_trn.trn.trn.description,
                     itertools::join(
-                        candidate_trns
-                            .iter()
-                            .map(|trn_idx| self.trns.get(trn_idx.0).get_description()),
+                        candidate_trns.iter().map(|trn_idx| &self
+                            .trns
+                            .get(trn_idx.0)
+                            .trn
+                            .trn
+                            .description),
                         ", "
                     ),
                 ),
@@ -331,16 +338,16 @@ impl Merger {
         }
     }
 
-    pub fn build(self) -> Vec<Transaction> {
+    pub fn build(self) -> Vec<TransactionPostings> {
         let mut posts = self.posts.into_consume();
 
-        let mut out = Vec::<Transaction>::new();
+        let mut out = Vec::<TransactionPostings>::new();
         for trn_holder in self.trns.into_iter() {
             let posts = trn_holder
                 .iter_posting_indices()
                 .map(|post_idx| posts.take(post_idx))
                 .collect();
-            let trn = trn_holder.into_transaction(posts);
+            let trn = trn_holder.into_transaction_postings(posts);
             out.push(trn);
         }
 
@@ -417,7 +424,7 @@ enum TransactionMergeAction {
         dest_trn: transaction::Index,
     },
     /// Leave the transaction unmerged for a human to handle.
-    LeaveUnmerged(Transaction),
+    LeaveUnmerged(TransactionPostings),
 }
 
 #[derive(Eq)]
@@ -438,7 +445,7 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::testutil::parse_transactions;
+    use crate::testutil::parse_transaction_postings;
 
     #[test_case(
         r#"
@@ -456,7 +463,7 @@ mod tests {
     )]
     fn merge_error(first: &str) {
         let mut merger = Merger::new();
-        assert!(merger.merge(parse_transactions(first)).is_err());
+        assert!(merger.merge(parse_transaction_postings(first)).is_err());
     }
 
     #[test_case(
@@ -505,18 +512,20 @@ mod tests {
     )]
     fn merge_merge_error(first: &str, second: &str) {
         let mut merger = Merger::new();
-        let unmerged = merger.merge(parse_transactions(first)).unwrap();
+        let unmerged = merger.merge(parse_transaction_postings(first)).unwrap();
         assert!(unmerged.0.is_empty());
-        assert!(merger.merge(parse_transactions(second)).is_err());
+        assert!(merger.merge(parse_transaction_postings(second)).is_err());
 
         // The result should be the same as before attempting to merge the
         // second time.
         let mut merger_only_first = Merger::new();
-        merger_only_first.merge(parse_transactions(first)).unwrap();
+        merger_only_first
+            .merge(parse_transaction_postings(first))
+            .unwrap();
 
         let result = merger.build();
         let only_first = merger_only_first.build();
-        assert_transactions_eq!(&result, &only_first);
+        assert_transaction_postings_eq!(result, only_first);
     }
 
     #[test_case(
@@ -572,11 +581,11 @@ mod tests {
     fn merge_build(first: &str, want: &str) {
         let mut merger = Merger::new();
 
-        let unmerged = merger.merge(parse_transactions(first)).unwrap();
+        let unmerged = merger.merge(parse_transaction_postings(first)).unwrap();
         assert!(unmerged.0.is_empty());
 
         let result = merger.build();
-        assert_transactions_eq!(&result, parse_transactions(want));
+        assert_transaction_postings_eq!(result, parse_transaction_postings(want));
     }
 
     #[test_case(
@@ -708,13 +717,16 @@ mod tests {
     fn merge_merge_build(first: &str, second: &str, want_unmerged_second: &str, want: &str) {
         let mut merger = Merger::new();
 
-        let unmerged_first = merger.merge(parse_transactions(first)).unwrap();
+        let unmerged_first = merger.merge(parse_transaction_postings(first)).unwrap();
         assert!(unmerged_first.0.is_empty());
 
-        let unmerged_second = merger.merge(parse_transactions(second)).unwrap();
-        assert_transactions_eq!(unmerged_second.0, parse_transactions(want_unmerged_second));
+        let unmerged_second = merger.merge(parse_transaction_postings(second)).unwrap();
+        assert_transaction_postings_eq!(
+            unmerged_second.0,
+            parse_transaction_postings(want_unmerged_second)
+        );
 
         let result = merger.build();
-        assert_transactions_eq!(&result, parse_transactions(want));
+        assert_transaction_postings_eq!(result, parse_transaction_postings(want));
     }
 }
