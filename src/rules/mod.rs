@@ -4,6 +4,7 @@ use structopt::StructOpt;
 mod table;
 
 use crate::filespec::{self, FileSpec};
+use crate::internal::TransactionPostings;
 
 #[derive(Debug, StructOpt)]
 pub struct Command {
@@ -20,11 +21,13 @@ pub struct Command {
 
 impl Command {
     pub fn run(&self) -> Result<(), Error> {
-        let mut ledger = filespec::read_ledger_file(&self.input_journal)?;
         let rules = table::Table::from_filespec(&self.rules)?;
-        for trn in &mut ledger.transactions {
-            rules.update_transaction(trn)?;
-        }
+        let mut ledger = filespec::read_ledger_file(&self.input_journal)?;
+        let trns = TransactionPostings::take_from_ledger(&mut ledger);
+
+        let new_trns = rules.update_transactions(trns)?;
+
+        TransactionPostings::put_into_ledger(&mut ledger, new_trns);
         filespec::write_ledger_file(&self.output, &ledger)
     }
 }

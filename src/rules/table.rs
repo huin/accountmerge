@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
 use failure::Error;
-use ledger_parser::{Posting, Transaction};
 
-use crate::comment::Comment;
 use crate::filespec::FileSpec;
+use crate::internal::{PostingInternal, TransactionInternal, TransactionPostings};
 
 const START_CHAIN: &str = "start";
 
@@ -15,19 +14,8 @@ pub enum RuleError {
 }
 
 struct PostingContext<'a> {
-    trn: &'a mut Transaction,
-    posting_idx: usize,
-    posting_comment: Comment,
-}
-
-impl PostingContext<'_> {
-    fn posting(&self) -> &Posting {
-        &self.trn.postings[self.posting_idx]
-    }
-
-    fn mut_posting(&mut self) -> &mut Posting {
-        &mut self.trn.postings[self.posting_idx]
-    }
+    trn: &'a mut TransactionInternal,
+    post: &'a mut PostingInternal,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -48,20 +36,28 @@ impl Table {
         Ok(table)
     }
 
-    pub fn update_transaction(&self, trn: &mut Transaction) -> Result<(), RuleError> {
+    pub fn update_transactions(
+        &self,
+        trns: Vec<TransactionPostings>,
+    ) -> Result<Vec<TransactionPostings>, Error> {
+        trns.into_iter()
+            .map(|trn| self.update_transaction(trn))
+            .collect::<Result<Vec<TransactionPostings>, Error>>()
+    }
+
+    pub fn update_transaction(
+        &self,
+        mut trn: TransactionPostings,
+    ) -> Result<TransactionPostings, Error> {
         let start = self.get_chain(START_CHAIN)?;
-        for i in 0..trn.postings.len() {
-            let pc =
-                Comment::from_opt_comment(trn.postings[i].comment.as_ref().map(|s| s.as_ref()));
+        for post in &mut trn.posts {
             let mut ctx = PostingContext {
-                trn,
-                posting_idx: i,
-                posting_comment: pc,
+                trn: &mut trn.trn,
+                post: post,
             };
             start.apply(self, &mut ctx)?;
-            trn.postings[i].comment = ctx.posting_comment.into_opt_comment();
         }
-        Ok(())
+        Ok(trn)
     }
 
     fn get_chain(&self, name: &str) -> Result<&Chain, RuleError> {
@@ -146,7 +142,7 @@ impl Action {
 
         match self {
             AddPostingFlagTag(name) => {
-                ctx.posting_comment.tags.insert(name.to_string());
+                ctx.post.comment.tags.insert(name.to_string());
             }
             All(actions) => {
                 for action in actions {
@@ -158,13 +154,13 @@ impl Action {
                 table.get_chain(name)?.apply(table, ctx)?;
             }
             SetAccount(v) => {
-                ctx.mut_posting().account = v.clone();
+                ctx.post.raw.account = v.clone();
             }
             RemovePostingFlagTag(name) => {
-                ctx.posting_comment.tags.remove(name);
+                ctx.post.comment.tags.remove(name);
             }
             RemovePostingValueTag(name) => {
-                ctx.posting_comment.value_tags.remove(name);
+                ctx.post.comment.value_tags.remove(name);
             }
         }
 
@@ -201,16 +197,17 @@ impl Predicate {
             True => true,
             All(preds) => preds.iter().all(|p| p.is_match(ctx)),
             Any(preds) => preds.iter().any(|p| p.is_match(ctx)),
-            Account(matcher) => matcher.matches_string(&ctx.posting().account),
-            PostingHasFlagTag(tag_name) => ctx.posting_comment.tags.contains(tag_name),
-            PostingHasValueTag(tag_name) => ctx.posting_comment.value_tags.contains_key(tag_name),
+            Account(matcher) => matcher.matches_string(&ctx.post.raw.account),
+            PostingHasFlagTag(tag_name) => ctx.post.comment.tags.contains(tag_name),
+            PostingHasValueTag(tag_name) => ctx.post.comment.value_tags.contains_key(tag_name),
             PostingValueTag(tag_name, matcher) => ctx
-                .posting_comment
+                .post
+                .comment
                 .value_tags
                 .get(tag_name)
                 .map(|value| matcher.matches_string(&value))
                 .unwrap_or(false),
-            TransactionDescription(matcher) => matcher.matches_string(&ctx.trn.description),
+            TransactionDescription(matcher) => matcher.matches_string(&ctx.trn.raw.description),
             Not(pred) => !pred.is_match(ctx),
         }
     }
@@ -234,7 +231,7 @@ impl StringMatch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{format_transactions, parse_transactions};
+    use crate::testutil::{format_transaction_postings, parse_transaction_postings};
 
     struct TableBuilder {
         table: Table,
@@ -292,8 +289,8 @@ mod tests {
             cases: Vec<CompiledCase>,
         };
         struct CompiledCase {
-            input: Vec<Transaction>,
-            want: Vec<Transaction>,
+            input: Vec<TransactionPostings>,
+            want: Vec<TransactionPostings>,
         };
         struct Case {
             input: &'static str,
@@ -303,8 +300,8 @@ mod tests {
             cases
                 .into_iter()
                 .map(|case| CompiledCase {
-                    input: parse_transactions(case.input),
-                    want: parse_transactions(case.want),
+                    input: parse_transaction_postings(case.input),
+                    want: parse_transaction_postings(case.want),
                 })
                 .collect()
         }
@@ -659,19 +656,18 @@ mod tests {
         for test in &tests {
             let table = Table::from_str(test.table)
                 .expect(&format!("failed to parse table for test {}", test.name));
-            for (i, case) in test.cases.iter().enumerate() {
-                let mut got = case.input.clone();
-                for trn in &mut got {
-                    table.update_transaction(trn).unwrap();
-                }
+            for (case_idx, case) in test.cases.iter().enumerate() {
+                let got = table
+                    .update_transactions(case.input.clone())
+                    .expect("update_transactions");
 
-                assert_transactions_eq!(
-                    case.want,
+                assert_transaction_postings_eq!(
+                    case.want.clone(),
                     got,
                     "Test \"{}\" case #{}\nFor input:\n{}",
                     test.name,
-                    i,
-                    format_transactions(&case.input)
+                    case_idx,
+                    format_transaction_postings(case.input.clone())
                 );
             }
         }

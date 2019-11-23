@@ -3,32 +3,11 @@ use ledger_parser::{Posting, Transaction};
 use crate::comment::Comment;
 use crate::internal::{PostingInternal, TransactionPostings};
 
-pub fn parse_transactions(s: &str) -> Vec<Transaction> {
-    let mut trns = ledger_parser::parse(textwrap::dedent(s).as_ref())
-        .expect("test input did not parse")
-        .transactions;
-    // Reformat comments to normalize the format used in tests.
-    for trn in &mut trns {
-        for post in &mut trn.postings {
-            normalize_comment(&mut post.comment);
-        }
-    }
-    trns
-}
-
 pub fn parse_transaction_postings(s: &str) -> Vec<TransactionPostings> {
     let trns = ledger_parser::parse(textwrap::dedent(s).as_ref())
         .expect("test input did not parse")
         .transactions;
     trns.into_iter().map(Into::into).collect()
-}
-
-pub fn format_transactions(transactions: &Vec<Transaction>) -> String {
-    let mut result = String::new();
-    for trn in transactions {
-        result.push_str(&format!("{}", trn));
-    }
-    result
 }
 
 pub fn format_transaction_postings(transactions: Vec<TransactionPostings>) -> String {

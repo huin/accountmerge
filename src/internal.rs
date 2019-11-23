@@ -6,6 +6,7 @@ use crate::comment::Comment;
 
 /// TransactionInternal is a `Transaction` with the comment string (if any) moved
 /// out as a `Comment`.
+#[derive(Clone)]
 pub struct TransactionInternal {
     pub raw: Transaction,
     pub comment: Comment,
@@ -29,6 +30,7 @@ impl Into<Transaction> for TransactionInternal {
 /// A `TransactionInternal` paired with its `PostingInternal`s.
 ///
 /// Typically for use at the input/output boundary of processing a journal.
+#[derive(Clone)]
 pub struct TransactionPostings {
     pub trn: TransactionInternal,
     pub posts: Vec<PostingInternal>,
