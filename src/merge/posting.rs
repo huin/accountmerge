@@ -283,8 +283,8 @@ impl Holder {
 }
 
 fn matches(a: &PostingInternal, b: &PostingInternal) -> bool {
-    let (ap, ac) = (&a.post, &a.comment);
-    let (bp, bc) = (&b.post, &b.comment);
+    let (ap, ac) = (&a.raw, &a.comment);
+    let (bp, bc) = (&b.raw, &b.comment);
 
     let accounts_match =
         if !ac.tags.contains(UNKNOWN_ACCOUNT_TAG) && !bc.tags.contains(UNKNOWN_ACCOUNT_TAG) {
@@ -305,9 +305,9 @@ fn matches(a: &PostingInternal, b: &PostingInternal) -> bool {
 
 fn merge(dest: &mut PostingInternal, mut src: PostingInternal) {
     use ledger_parser::TransactionStatus::*;
-    match (dest.post.status.as_ref(), src.post.status) {
+    match (dest.raw.status.as_ref(), src.raw.status) {
         (None, src_status) => {
-            dest.post.status = src_status;
+            dest.raw.status = src_status;
         }
         (Some(_), None) => {
             // Don't update with less information.
@@ -316,18 +316,18 @@ fn merge(dest: &mut PostingInternal, mut src: PostingInternal) {
             // Only update towards cleared, assuming that the state can only
             // go from pending to cleared.
             if let (Pending, Cleared) = (dest_status, src_status) {
-                dest.post.status = Some(Cleared);
+                dest.raw.status = Some(Cleared);
             }
         }
     }
-    if dest.post.balance.is_none() {
-        dest.post.balance = src.post.balance.clone()
+    if dest.raw.balance.is_none() {
+        dest.raw.balance = src.raw.balance.clone()
     }
     if dest.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
         && !src.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
     {
         dest.comment.tags.remove(UNKNOWN_ACCOUNT_TAG);
-        dest.post.account = src.post.account;
+        dest.raw.account = src.raw.account;
     }
     src.comment.tags.remove(UNKNOWN_ACCOUNT_TAG);
 

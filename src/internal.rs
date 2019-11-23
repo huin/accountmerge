@@ -7,22 +7,22 @@ use crate::comment::Comment;
 /// TransactionInternal is a `Transaction` with the comment string (if any) moved
 /// out as a `Comment`.
 pub struct TransactionInternal {
-    pub trn: Transaction,
+    pub raw: Transaction,
     pub comment: Comment,
 }
 
 impl From<Transaction> for TransactionInternal {
-    fn from(mut trn: Transaction) -> Self {
-        let comment = Comment::from_opt_string(&trn.comment);
-        trn.comment = None;
-        Self { trn, comment }
+    fn from(mut raw: Transaction) -> Self {
+        let comment = Comment::from_opt_string(&raw.comment);
+        raw.comment = None;
+        Self { raw, comment }
     }
 }
 
 impl Into<Transaction> for TransactionInternal {
     fn into(mut self) -> Transaction {
-        self.trn.comment = self.comment.into_opt_comment();
-        self.trn
+        self.raw.comment = self.comment.into_opt_comment();
+        self.raw
     }
 }
 
@@ -67,7 +67,7 @@ impl Into<Transaction> for TransactionPostings {
 /// a `Comment`
 #[derive(Clone)]
 pub struct PostingInternal {
-    pub post: Posting,
+    pub raw: Posting,
     pub comment: Comment,
 }
 
@@ -83,16 +83,16 @@ impl PostingInternal {
 }
 
 impl From<Posting> for PostingInternal {
-    fn from(mut post: Posting) -> Self {
-        let comment = Comment::from_opt_string(&post.comment);
-        post.comment = None;
-        Self { post, comment }
+    fn from(mut raw: Posting) -> Self {
+        let comment = Comment::from_opt_string(&raw.comment);
+        raw.comment = None;
+        Self { raw, comment }
     }
 }
 
 impl Into<Posting> for PostingInternal {
     fn into(mut self) -> Posting {
-        self.post.comment = self.comment.into_opt_comment();
-        self.post
+        self.raw.comment = self.comment.into_opt_comment();
+        self.raw
     }
 }

@@ -183,7 +183,7 @@ impl Merger {
         let mut src_post_actions = MergeActionsAccumulator::new();
         for orig_post in orig_posts.into_iter() {
             let mut src_post =
-                posting::Input::from_posting_internal(orig_post, src_trn.trn.trn.date)?;
+                posting::Input::from_posting_internal(orig_post, src_trn.trn.raw.date)?;
 
             for fp in src_post.iter_fingerprints().map(str::to_string) {
                 if fingerprints_seen.contains(&fp) {
@@ -321,14 +321,14 @@ impl Merger {
             _ => Err(MergeError::Input {
                 reason: format!(
                     "input transaction on {} ({:?}) matches multiple existing transactions: {}",
-                    src_trn.trn.trn.date,
-                    src_trn.trn.trn.description,
+                    src_trn.trn.raw.date,
+                    src_trn.trn.raw.description,
                     itertools::join(
                         candidate_trns.iter().map(|trn_idx| &self
                             .trns
                             .get(trn_idx.0)
                             .trn
-                            .trn
+                            .raw
                             .description),
                         ", "
                     ),
