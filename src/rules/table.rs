@@ -182,7 +182,6 @@ impl Action {
 
 #[derive(Debug, Deserialize)]
 enum Predicate {
-    True,
     All(Vec<Predicate>),
     Any(Vec<Predicate>),
     Account(StringMatch),
@@ -191,6 +190,7 @@ enum Predicate {
     PostingValueTag(String, StringMatch),
     Not(Box<Predicate>),
     TransactionDescription(StringMatch),
+    True,
 }
 
 impl Predicate {
@@ -223,6 +223,8 @@ impl Predicate {
 
 #[derive(Debug, Deserialize)]
 enum StringMatch {
+    AsLower(Box<StringMatch>),
+    Contains(String),
     Eq(String),
 }
 
@@ -231,6 +233,8 @@ impl StringMatch {
         use StringMatch::*;
 
         match self {
+            AsLower(m) => m.matches_string(&s.to_lowercase()),
+            Contains(want) => s.contains(want),
             Eq(want) => want == s,
         }
     }
@@ -745,26 +749,31 @@ mod tests {
         }
     }
 
-    const POST_ACCOUNT_NAME_10: &str = r#"
+    const SIMPLE_POSTING: &str = r#"
         2000/01/01 Transaction description
             account:name  $10.00
             ; :flag-tag:
             ; value-tag: value-tag-value
+            ; shouty-key: SHOUTY-VALUE
     "#;
 
-    #[test_case("True", POST_ACCOUNT_NAME_10 => true)]
-    #[test_case("Account(Eq(\"account:name\"))", POST_ACCOUNT_NAME_10 => true)]
-    #[test_case("Account(Eq(\"account:other\"))", POST_ACCOUNT_NAME_10 => false)]
-    #[test_case("Not(True)", POST_ACCOUNT_NAME_10 => false)]
-    #[test_case("PostingHasFlagTag(\"flag-tag\")", POST_ACCOUNT_NAME_10 => true)]
-    #[test_case("PostingHasFlagTag(\"other-flag-tag\")", POST_ACCOUNT_NAME_10 => false)]
-    #[test_case("PostingHasValueTag(\"value-tag\")", POST_ACCOUNT_NAME_10 => true)]
-    #[test_case("PostingHasValueTag(\"other-value-tag\")", POST_ACCOUNT_NAME_10 => false)]
-    #[test_case("PostingValueTag(\"value-tag\", Eq(\"value-tag-value\"))", POST_ACCOUNT_NAME_10 => true)]
-    #[test_case("PostingValueTag(\"value-tag\", Eq(\"other-value-tag-value\"))", POST_ACCOUNT_NAME_10 => false)]
-    #[test_case("PostingValueTag(\"other-value-tag\", Eq(\"value-tag-value\"))", POST_ACCOUNT_NAME_10 => false)]
-    #[test_case("TransactionDescription(Eq(\"Transaction description\"))", POST_ACCOUNT_NAME_10 => true)]
-    #[test_case("TransactionDescription(Eq(\"non transaction description\"))", POST_ACCOUNT_NAME_10 => false)]
+    #[test_case("Account(Contains(\"name\"))", SIMPLE_POSTING => true)]
+    #[test_case("Account(Contains(\"other\"))", SIMPLE_POSTING => false)]
+    #[test_case("Account(Eq(\"account:name\"))", SIMPLE_POSTING => true)]
+    #[test_case("Account(Eq(\"account:other\"))", SIMPLE_POSTING => false)]
+    #[test_case("Not(True)", SIMPLE_POSTING => false)]
+    #[test_case("PostingHasFlagTag(\"flag-tag\")", SIMPLE_POSTING => true)]
+    #[test_case("PostingHasFlagTag(\"other-flag-tag\")", SIMPLE_POSTING => false)]
+    #[test_case("PostingHasValueTag(\"value-tag\")", SIMPLE_POSTING => true)]
+    #[test_case("PostingHasValueTag(\"other-value-tag\")", SIMPLE_POSTING => false)]
+    #[test_case("PostingValueTag(\"value-tag\", Eq(\"value-tag-value\"))", SIMPLE_POSTING => true)]
+    #[test_case("PostingValueTag(\"value-tag\", Eq(\"other-value-tag-value\"))", SIMPLE_POSTING => false)]
+    #[test_case("PostingValueTag(\"other-value-tag\", Eq(\"value-tag-value\"))", SIMPLE_POSTING => false)]
+    #[test_case("PostingValueTag(\"shouty-key\", AsLower(Contains(\"shouty-value\")))", SIMPLE_POSTING => true)]
+    #[test_case("PostingValueTag(\"shouty-key\", AsLower(Contains(\"SHOUTY-VALUE\")))", SIMPLE_POSTING => false)]
+    #[test_case("TransactionDescription(Eq(\"Transaction description\"))", SIMPLE_POSTING => true)]
+    #[test_case("TransactionDescription(Eq(\"non transaction description\"))", SIMPLE_POSTING => false)]
+    #[test_case("True", SIMPLE_POSTING => true)]
     fn predicate(pred: &str, trn: &str) -> bool {
         let mut trn_post_set = parse_transaction_postings(trn);
         assert_eq!(1, trn_post_set.len());
