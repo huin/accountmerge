@@ -60,13 +60,16 @@ impl Table {
         Ok(trn)
     }
 
-    fn get_chain(&self, name: &str) -> Result<&Chain, RuleError> {
-        self.0.get(name).ok_or_else(|| RuleError::ChainNotFound {
-            chain: name.to_string(),
+    fn get_chain(&self, name: &str) -> Result<&Chain, Error> {
+        self.0.get(name).ok_or_else(|| {
+            RuleError::ChainNotFound {
+                chain: name.to_string(),
+            }
+            .into()
         })
     }
 
-    fn validate(&self) -> Result<(), RuleError> {
+    fn validate(&self) -> Result<(), Error> {
         self.get_chain(START_CHAIN)?;
         for chain in self.0.values() {
             chain.validate(self)?;
@@ -79,7 +82,7 @@ impl Table {
 struct Chain(Vec<Rule>);
 
 impl Chain {
-    fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<(), RuleError> {
+    fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<(), Error> {
         for rule in &self.0 {
             match rule.apply(table, ctx)? {
                 RuleResult::Continue => {}
@@ -89,7 +92,7 @@ impl Chain {
         Ok(())
     }
 
-    fn validate(&self, table: &Table) -> Result<(), RuleError> {
+    fn validate(&self, table: &Table) -> Result<(), Error> {
         for r in &self.0 {
             r.validate(table)?;
         }
@@ -105,7 +108,7 @@ struct Rule {
 }
 
 impl Rule {
-    fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<RuleResult, RuleError> {
+    fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<RuleResult, Error> {
         if self.predicate.is_match(ctx) {
             self.action.apply(table, ctx)?;
             Ok(self.result)
@@ -114,7 +117,7 @@ impl Rule {
         }
     }
 
-    fn validate(&self, table: &Table) -> Result<(), RuleError> {
+    fn validate(&self, table: &Table) -> Result<(), Error> {
         self.action.validate(table)
     }
 }
@@ -137,7 +140,7 @@ enum Action {
 }
 
 impl Action {
-    fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<(), RuleError> {
+    fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<(), Error> {
         use Action::*;
 
         match self {
@@ -167,7 +170,7 @@ impl Action {
         Ok(())
     }
 
-    fn validate(&self, table: &Table) -> Result<(), RuleError> {
+    fn validate(&self, table: &Table) -> Result<(), Error> {
         use Action::*;
 
         match self {
