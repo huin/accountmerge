@@ -1,9 +1,9 @@
 use failure::Error;
-use ledger_parser::Transaction;
+
 use structopt::StructOpt;
 
-use crate::comment;
 use crate::filespec::{self, FileSpec};
+use crate::internal::TransactionPostings;
 use crate::tags::FINGERPRINT_TAG_PREFIX;
 
 #[derive(Debug, StructOpt)]
@@ -16,7 +16,9 @@ impl Command {
     pub fn run(&self) -> Result<(), Error> {
         for ledger_file in &self.journals {
             let mut ledger = filespec::read_ledger_file(ledger_file)?;
-            update_transactions(&mut ledger.transactions);
+            let mut trns = TransactionPostings::take_from_ledger(&mut ledger);
+            update_transactions(&mut trns);
+            TransactionPostings::put_into_ledger(&mut ledger, trns);
             filespec::write_ledger_file(ledger_file, &ledger)?;
         }
 
@@ -24,25 +26,22 @@ impl Command {
     }
 }
 
-fn update_transactions(trns: &mut Vec<Transaction>) {
+fn update_transactions(trns: &mut Vec<TransactionPostings>) {
     for trn in trns {
-        for post in &mut trn.postings {
-            let mut c =
-                comment::Comment::from_opt_comment(post.comment.as_ref().map(String::as_str));
-            if !c
+        for post in &mut trn.posts {
+            if !post
+                .comment
                 .tags
                 .iter()
                 .any(|tag| tag.starts_with(FINGERPRINT_TAG_PREFIX))
             {
                 // The post has no existing fingerprint tag. Add a
                 // randomly generated one as requested.
-                c.tags.insert(format!(
+                post.comment.tags.insert(format!(
                     "{}uuidb64-{}",
                     FINGERPRINT_TAG_PREFIX,
                     uuid_b64::UuidB64::new().to_istring()
                 ));
-
-                post.comment = c.into_opt_comment();
             }
         }
     }
