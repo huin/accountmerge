@@ -189,8 +189,8 @@ enum Predicate {
     PostingHasFlagTag(String),
     PostingHasValueTag(String),
     PostingValueTag(String, StringMatch),
-    TransactionDescription(StringMatch),
     Not(Box<Predicate>),
+    TransactionDescription(StringMatch),
 }
 
 impl Predicate {
@@ -201,6 +201,7 @@ impl Predicate {
             All(preds) => preds.iter().all(|p| p.is_match(ctx)),
             Any(preds) => preds.iter().any(|p| p.is_match(ctx)),
             Account(matcher) => matcher.matches_string(&ctx.post.raw.account),
+            Not(pred) => !pred.is_match(ctx),
             PostingHasFlagTag(tag_name) => ctx.post.comment.tags.contains(tag_name),
             PostingHasValueTag(tag_name) => ctx.post.comment.value_tags.contains_key(tag_name),
             PostingValueTag(tag_name, matcher) => ctx
@@ -211,8 +212,12 @@ impl Predicate {
                 .map(|value| matcher.matches_string(&value))
                 .unwrap_or(false),
             TransactionDescription(matcher) => matcher.matches_string(&ctx.trn.raw.description),
-            Not(pred) => !pred.is_match(ctx),
         }
+    }
+
+    #[cfg(test)]
+    pub fn from_str(s: &str) -> Result<Self, Error> {
+        ron::de::from_str(s).map_err(Into::into)
     }
 }
 
@@ -233,6 +238,8 @@ impl StringMatch {
 
 #[cfg(test)]
 mod tests {
+    use test_case::test_case;
+
     use super::*;
     use crate::testutil::{format_transaction_postings, parse_transaction_postings};
 
@@ -736,5 +743,37 @@ mod tests {
             t.1.validate()
                 .expect_err(&format!("{} => should fail", t.0));
         }
+    }
+
+    const POST_ACCOUNT_NAME_10: &str = r#"
+        2000/01/01 Transaction description
+            account:name  $10.00
+            ; :flag-tag:
+            ; value-tag: value-tag-value
+    "#;
+
+    #[test_case("True", POST_ACCOUNT_NAME_10 => true)]
+    #[test_case("Account(Eq(\"account:name\"))", POST_ACCOUNT_NAME_10 => true)]
+    #[test_case("Account(Eq(\"account:other\"))", POST_ACCOUNT_NAME_10 => false)]
+    #[test_case("Not(True)", POST_ACCOUNT_NAME_10 => false)]
+    #[test_case("PostingHasFlagTag(\"flag-tag\")", POST_ACCOUNT_NAME_10 => true)]
+    #[test_case("PostingHasFlagTag(\"other-flag-tag\")", POST_ACCOUNT_NAME_10 => false)]
+    #[test_case("PostingHasValueTag(\"value-tag\")", POST_ACCOUNT_NAME_10 => true)]
+    #[test_case("PostingHasValueTag(\"other-value-tag\")", POST_ACCOUNT_NAME_10 => false)]
+    #[test_case("PostingValueTag(\"value-tag\", Eq(\"value-tag-value\"))", POST_ACCOUNT_NAME_10 => true)]
+    #[test_case("PostingValueTag(\"value-tag\", Eq(\"other-value-tag-value\"))", POST_ACCOUNT_NAME_10 => false)]
+    #[test_case("PostingValueTag(\"other-value-tag\", Eq(\"value-tag-value\"))", POST_ACCOUNT_NAME_10 => false)]
+    #[test_case("TransactionDescription(Eq(\"Transaction description\"))", POST_ACCOUNT_NAME_10 => true)]
+    #[test_case("TransactionDescription(Eq(\"non transaction description\"))", POST_ACCOUNT_NAME_10 => false)]
+    fn predicate(pred: &str, trn: &str) -> bool {
+        let mut trn_post_set = parse_transaction_postings(trn);
+        assert_eq!(1, trn_post_set.len());
+        let trn_posts = &mut trn_post_set[0];
+        assert_eq!(1, trn_posts.posts.len());
+        let trn = &mut trn_posts.trn;
+        let post = &mut trn_posts.posts[0];
+        let ctx = PostingContext { trn, post };
+        let predicate = Predicate::from_str(pred).expect("Predicate::from_str");
+        predicate.is_match(&ctx)
     }
 }
