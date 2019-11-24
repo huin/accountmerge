@@ -754,6 +754,7 @@ mod tests {
             account:name  $10.00
             ; :flag-tag:
             ; value-tag: value-tag-value
+            ; non-shouty-key: shouty-value
             ; shouty-key: SHOUTY-VALUE
     "#;
 
@@ -769,6 +770,7 @@ mod tests {
     #[test_case("PostingValueTag(\"value-tag\", Eq(\"value-tag-value\"))", SIMPLE_POSTING => true)]
     #[test_case("PostingValueTag(\"value-tag\", Eq(\"other-value-tag-value\"))", SIMPLE_POSTING => false)]
     #[test_case("PostingValueTag(\"other-value-tag\", Eq(\"value-tag-value\"))", SIMPLE_POSTING => false)]
+    #[test_case("PostingValueTag(\"non-shouty-key\", AsLower(Contains(\"shouty-value\")))", SIMPLE_POSTING => true)]
     #[test_case("PostingValueTag(\"shouty-key\", AsLower(Contains(\"shouty-value\")))", SIMPLE_POSTING => true)]
     #[test_case("PostingValueTag(\"shouty-key\", AsLower(Contains(\"SHOUTY-VALUE\")))", SIMPLE_POSTING => false)]
     #[test_case("TransactionDescription(Eq(\"Transaction description\"))", SIMPLE_POSTING => true)]
