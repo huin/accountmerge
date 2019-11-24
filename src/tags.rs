@@ -2,6 +2,13 @@
 pub const ACCOUNT_TAG: &str = "account";
 /// Bank identifier/name, provided by the importer.
 pub const BANK_TAG: &str = "bank";
+/// Tag indicating that an importer has marked the posting as *not* being of the
+/// account whose data is being imported. That is, it's a posting for an amount
+/// against another account.
+pub const IMPORT_PEER_TAG: &str = "import-peer";
+/// Tag indicating that an importer has marked the posting as being of the
+/// account whose data is being imported.
+pub const IMPORT_SELF_TAG: &str = "import-self";
 /// Indicates that the posting's account name is unknown.
 pub const UNKNOWN_ACCOUNT_TAG: &str = "unknown-account";
 
