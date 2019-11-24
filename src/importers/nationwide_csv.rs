@@ -12,7 +12,7 @@ use crate::fingerprint::{make_prefix, FingerprintBuilder};
 use crate::importers::importer::TransactionImporter;
 use crate::importers::nationwide_csv::de::*;
 use crate::importers::util::{negate_amount, self_and_peer_account_amount};
-use crate::tags::{ACCOUNT_TAG, BANK_TAG, UNKNOWN_ACCOUNT_TAG};
+use crate::tags::{ACCOUNT_TAG, BANK_TAG, IMPORT_PEER_TAG, IMPORT_SELF_TAG, UNKNOWN_ACCOUNT_TAG};
 
 /// Transaction type field, provided by the bank.
 pub const TRANSACTION_TYPE_TAG: &str = "trn_type";
@@ -234,7 +234,9 @@ fn form_postings(
     let mut peer_comment = self_comment.clone();
 
     self_comment.tags.insert(self_fingerprint);
+    self_comment.tags.insert(IMPORT_SELF_TAG.to_string());
     peer_comment.tags.insert(peer_fingerprint);
+    peer_comment.tags.insert(IMPORT_PEER_TAG.to_string());
 
     Ok((
         Posting {
