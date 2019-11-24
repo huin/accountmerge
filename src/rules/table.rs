@@ -53,7 +53,7 @@ impl Table {
         for post in &mut trn.posts {
             let mut ctx = PostingContext {
                 trn: &mut trn.trn,
-                post: post,
+                post,
             };
             start.apply(self, &mut ctx)?;
         }
