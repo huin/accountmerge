@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::fmt;
 
 use failure::Error;
+use serde::de;
 
 use crate::filespec::FileSpec;
 use crate::internal::{PostingInternal, TransactionInternal, TransactionPostings};
@@ -221,11 +223,43 @@ impl Predicate {
     }
 }
 
+#[derive(Debug)]
+struct Regex(regex::Regex);
+
+impl<'de> de::Deserialize<'de> for Regex {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        deserializer.deserialize_str(RegexVisitor)
+    }
+}
+
+struct RegexVisitor;
+
+impl<'de> de::Visitor<'de> for RegexVisitor {
+    type Value = Regex;
+
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "a string containing a regular expression")
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        regex::Regex::new(v)
+            .map(Regex)
+            .map_err(|e| E::custom(format!("{}", e)))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 enum StringMatch {
     AsLower(Box<StringMatch>),
     Contains(String),
     Eq(String),
+    Matches(Regex),
 }
 
 impl StringMatch {
@@ -236,6 +270,7 @@ impl StringMatch {
             AsLower(m) => m.matches_string(&s.to_lowercase()),
             Contains(want) => s.contains(want),
             Eq(want) => want == s,
+            Matches(regex) => regex.0.is_match(s),
         }
     }
 }
@@ -762,6 +797,8 @@ mod tests {
     #[test_case("Account(Contains(\"other\"))", SIMPLE_POSTING => false)]
     #[test_case("Account(Eq(\"account:name\"))", SIMPLE_POSTING => true)]
     #[test_case("Account(Eq(\"account:other\"))", SIMPLE_POSTING => false)]
+    #[test_case("Account(Matches(\"name\"))", SIMPLE_POSTING => true)]
+    #[test_case("Account(Matches(\"^name\"))", SIMPLE_POSTING => false)]
     #[test_case("Not(True)", SIMPLE_POSTING => false)]
     #[test_case("PostingHasFlagTag(\"flag-tag\")", SIMPLE_POSTING => true)]
     #[test_case("PostingHasFlagTag(\"other-flag-tag\")", SIMPLE_POSTING => false)]
