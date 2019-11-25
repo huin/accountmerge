@@ -4,6 +4,7 @@ use structopt::StructOpt;
 
 mod importer;
 mod nationwide_csv;
+mod nationwide_pdf;
 mod paypal_csv;
 mod util;
 
@@ -19,6 +20,10 @@ pub enum Importer {
     /// transactions.
     #[structopt(name = "nationwide-csv")]
     NationwideCsv(nationwide_csv::NationwideCsv),
+    /// Converts from Nationwide (nationwide.co.uk) PDF format to Ledger
+    /// transactions.
+    #[structopt(name = "nationwide-pdf")]
+    NationwidePdf(nationwide_pdf::NationwidePdf),
     /// Converts from PayPal CSV format to Ledger transactions.
     #[structopt(name = "paypal-csv")]
     PaypalCsv(paypal_csv::PaypalCsv),
@@ -37,6 +42,7 @@ impl Importer {
         use Importer::*;
         match self {
             NationwideCsv(imp) => imp,
+            NationwidePdf(imp) => imp,
             PaypalCsv(imp) => imp,
         }
     }
@@ -48,8 +54,8 @@ pub struct Command {
     /// to stdout.
     #[structopt(short = "o", long = "output", default_value = "-")]
     output: FileSpec,
-    #[structopt(subcommand)]
     /// The importer type to use to read transactions.
+    #[structopt(subcommand)]
     importer: Importer,
 }
 
