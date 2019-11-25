@@ -53,7 +53,7 @@ struct AccountQuantity {
 pub struct NationwideCsv {
     /// Nationwide CSV file to read from. "-" reads from stdin.
     input: FileSpec,
-    #[structopt(long = "fingerprint-prefix", default_value = "generated")]
+
     /// The prefix of the fingerprints to generate (without "fp-" that will be
     /// prefixed to this value).
     ///
@@ -63,6 +63,7 @@ pub struct NationwideCsv {
     ///
     /// "generated" generates a hashed value based on the account name in the
     /// CSV file.
+    #[structopt(long = "fingerprint-prefix", default_value = "generated")]
     fp_prefix: FpPrefix,
 }
 
