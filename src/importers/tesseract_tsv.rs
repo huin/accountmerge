@@ -177,6 +177,13 @@ impl Document {
         }
         Ok(())
     }
+
+    pub fn iter_paragraphs(&self) -> impl Iterator<Item = &Paragraph> {
+        self.pages
+            .iter()
+            .flat_map(|page| page.blocks.iter())
+            .flat_map(|block| block.paragraphs.iter())
+    }
 }
 
 #[derive(Debug)]
