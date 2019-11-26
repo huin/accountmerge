@@ -164,7 +164,12 @@ impl Document {
                         writeln!(
                             w,
                             "          {}",
-                            itertools::join(line.words.iter().map(|word| &word.text), " "),
+                            itertools::join(
+                                line.words
+                                    .iter()
+                                    .map(|word| format!("{}(l:{})", &word.text, word.left)),
+                                " "
+                            ),
                         )?;
                     }
                 }
