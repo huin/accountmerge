@@ -206,7 +206,7 @@ mod de {
     impl From<Record> for Block {
         fn from(record: Record) -> Self {
             Self {
-                num: record.page_num,
+                num: record.block_num,
                 paragraphs: Vec::new(),
             }
         }
@@ -221,7 +221,7 @@ mod de {
     impl From<Record> for Paragraph {
         fn from(record: Record) -> Self {
             Self {
-                num: record.page_num,
+                num: record.par_num,
                 lines: Vec::new(),
             }
         }
@@ -236,7 +236,7 @@ mod de {
     impl From<Record> for Line {
         fn from(record: Record) -> Self {
             Self {
-                num: record.page_num,
+                num: record.line_num,
                 words: Vec::new(),
             }
         }
