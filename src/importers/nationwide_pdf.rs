@@ -18,7 +18,8 @@ pub struct NationwidePdf {
 impl TransactionImporter for NationwidePdf {
     fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
         let doc = tesseract_tsv::Document::from_reader(self.input.reader()?)?;
-        eprintln!("Document: {:?}", doc);
+
+        doc.debug_write_to(Box::new(std::io::stderr()))?;
 
         bail!("unimplemented")
     }

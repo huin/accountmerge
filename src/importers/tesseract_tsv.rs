@@ -150,6 +150,28 @@ impl Document {
             get_checked_mut(&mut paragraph.lines, record.line_num, "line_num")
         })
     }
+
+    pub fn debug_write_to(&self, mut w: Box<dyn std::io::Write>) -> Result<(), Error> {
+        writeln!(w, "Document")?;
+        for page in &self.pages {
+            writeln!(w, "  Page #{}", page.num)?;
+            for block in &page.blocks {
+                writeln!(w, "    Block #{}", block.num)?;
+                for para in &block.paragraphs {
+                    writeln!(w, "      Paragraph #{}", para.num)?;
+                    for line in &para.lines {
+                        writeln!(w, "        Line #{}", line.num)?;
+                        writeln!(
+                            w,
+                            "          {}",
+                            itertools::join(line.words.iter().map(|word| &word.text), " "),
+                        )?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
