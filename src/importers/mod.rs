@@ -6,6 +6,7 @@ mod importer;
 mod nationwide_csv;
 mod nationwide_pdf;
 mod paypal_csv;
+mod tesseract_tsv;
 mod util;
 
 #[cfg(test)]
