@@ -71,8 +71,8 @@ mod table {
 
     #[derive(Debug)]
     pub struct Table<'a> {
-        pub columns: Columns,
-        pub para: &'a Paragraph,
+        columns: Columns,
+        para: &'a Paragraph,
     }
 
     impl<'a> Table<'a> {
@@ -103,12 +103,12 @@ mod table {
     }
 
     #[derive(Debug)]
-    pub struct Columns {
-        pub date: ColumnPos,
-        pub details: ColumnPos,
-        pub payments: ColumnPos,
-        pub receipts: ColumnPos,
-        pub balance: ColumnPos,
+    struct Columns {
+        date: ColumnPos,
+        details: ColumnPos,
+        payments: ColumnPos,
+        receipts: ColumnPos,
+        balance: ColumnPos,
     }
 
     impl Columns {
@@ -221,7 +221,7 @@ mod table {
     }
 
     #[derive(Debug)]
-    pub struct ColumnPos {
+    struct ColumnPos {
         left: i32,
         right: i32,
     }
