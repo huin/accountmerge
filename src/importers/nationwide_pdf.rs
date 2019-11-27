@@ -102,6 +102,18 @@ mod table {
         }
     }
 
+    /// Line containing some transaction information. It may not encompass
+    /// complete information about the transaction, which may continue on
+    /// following rows.
+    #[derive(Debug)]
+    pub struct TransactionLine {
+        pub implied_date: Option<NaiveDate>,
+        pub detail: Option<String>,
+        pub payment: Option<String>,
+        pub receipt: Option<String>,
+        pub balance: Option<String>,
+    }
+
     #[derive(Debug)]
     struct Columns {
         date: ColumnPos,
@@ -253,17 +265,5 @@ mod table {
         fn includes(&self, horizontal_point: i32) -> bool {
             self.left <= horizontal_point && horizontal_point < self.right
         }
-    }
-
-    /// Line containing some transaction information. It may not encompass
-    /// complete information about the transaction, which may continue on
-    /// following rows.
-    #[derive(Debug)]
-    pub struct TransactionLine {
-        pub implied_date: Option<NaiveDate>,
-        pub detail: Option<String>,
-        pub payment: Option<String>,
-        pub receipt: Option<String>,
-        pub balance: Option<String>,
     }
 }
