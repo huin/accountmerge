@@ -151,6 +151,9 @@ impl Document {
         })
     }
 
+    /// Helper function for use when working out the structure output by
+    /// Tesseract OCR.
+    #[allow(dead_code)]
     pub fn debug_write_to(&self, mut w: Box<dyn std::io::Write>) -> Result<(), Error> {
         writeln!(w, "Document")?;
         for page in &self.pages {
