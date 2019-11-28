@@ -5,7 +5,8 @@ use failure::Error;
 use serde::de;
 
 use crate::filespec::FileSpec;
-use crate::internal::{PostingInternal, TransactionInternal, TransactionPostings};
+use crate::internal::TransactionPostings;
+use crate::rules::ctx::PostingContext;
 
 const START_CHAIN: &str = "start";
 
@@ -13,11 +14,6 @@ const START_CHAIN: &str = "start";
 pub enum RuleError {
     #[fail(display = "chain {} not found", chain)]
     ChainNotFound { chain: String },
-}
-
-struct PostingContext<'a> {
-    trn: &'a mut TransactionInternal,
-    post: &'a mut PostingInternal,
 }
 
 #[derive(Debug, Default, Deserialize)]
