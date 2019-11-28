@@ -9,6 +9,7 @@ extern crate encoding_rs_io;
 extern crate failure;
 #[macro_use]
 extern crate failure_derive;
+extern crate glob;
 extern crate itertools;
 #[macro_use]
 extern crate lazy_static;
@@ -21,6 +22,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate sha1;
 extern crate structopt;
+extern crate temporary;
 extern crate typed_generational_arena;
 extern crate uuid_b64;
 

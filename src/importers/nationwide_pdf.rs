@@ -1,3 +1,5 @@
+use std::ffi::OsStr;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use chrono::NaiveDate;
@@ -9,7 +11,6 @@ use structopt::StructOpt;
 
 use crate::accounts;
 use crate::comment::Comment;
-use crate::filespec::FileSpec;
 use crate::fingerprint::{make_prefix, FingerprintBuilder};
 use crate::importers::importer::TransactionImporter;
 use crate::importers::nationwide::{CommonOpts, BANK_NAME};
@@ -19,11 +20,17 @@ use crate::tags;
 
 #[derive(Debug, StructOpt)]
 /// Converts from Nationwide (nationwide.co.uk) PDF statements to Ledger
-/// transactions. It (currently) relies on external processes to have performed
-/// some OCR to Tesseract TSV files.
+/// transactions. It assumes that Graphics Magick and Tesseract v4 executables
+/// are installed.
 pub struct NationwidePdf {
-    /// Tesseract TSV output file to read. "-" reads from stdin.
-    input: FileSpec,
+    /// PDF file to read.
+    input: PathBuf,
+    /// Path to Graphics Magick binary to run.
+    #[structopt(default_value = "gm")]
+    graphics_magic_binary: PathBuf,
+    /// Path to Tesseract v4 binary to run.
+    #[structopt(default_value = "tesseract")]
+    tesseract_binary: PathBuf,
 
     #[structopt(flatten)]
     commonopts: CommonOpts,
@@ -31,11 +38,18 @@ pub struct NationwidePdf {
 
 #[derive(Debug, Fail)]
 enum ReadError {
+    #[fail(display = "general error: {}", reason)]
+    General { reason: String },
     #[fail(display = "bad input structure: {}", reason)]
     Structure { reason: String },
 }
 
 impl ReadError {
+    fn general<S: Into<String>>(reason: S) -> ReadError {
+        ReadError::General {
+            reason: reason.into(),
+        }
+    }
     fn structure<S: Into<String>>(reason: S) -> ReadError {
         ReadError::Structure {
             reason: reason.into(),
@@ -45,7 +59,8 @@ impl ReadError {
 
 impl TransactionImporter for NationwidePdf {
     fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
-        let doc = tesseract::Document::from_tsv_reader(self.input.reader()?)?;
+        let doc = self.ocr_document().context("OCR scanning PDF")?;
+
         let account_name = find_account_name(&doc)
             .ok_or_else(|| Error::from(ReadError::structure("account name not found")))?;
 
@@ -72,6 +87,84 @@ impl TransactionImporter for NationwidePdf {
 }
 
 impl NationwidePdf {
+    /// Performs OCR on the PDF file, extracting a `Document`.
+    fn ocr_document(&self) -> Result<tesseract::Document, Error> {
+        use std::fs::File;
+        use std::process::Command;
+
+        let tmpdir =
+            temporary::Directory::new("nationwide-pdf").context("creating temporary directory")?;
+        let png_pattern = tmpdir.path().join("page-*.png");
+        let png_pattern_str = png_pattern
+            .to_str()
+            .ok_or_else(|| ReadError::general("converting glob path to utf-8 string"))?;
+
+        {
+            let png_fmt = tmpdir.path().join("page-%02d.png");
+            let gm_args: [&OsStr; 6] = [
+                "convert".as_ref(),
+                // DPI of the PNG files.
+                "-density".as_ref(),
+                "300".as_ref(),
+                self.input.as_os_str(),
+                // Output a PNG file per page in the PDF, according to png_fmt.
+                "+adjoin".as_ref(),
+                png_fmt.as_os_str(),
+            ];
+
+            Command::new(self.graphics_magic_binary.as_os_str())
+                .args(&gm_args)
+                .status()
+                .context("converting PDF into PNG files")?;
+        }
+
+        let png_list_file_path = tmpdir.path().join("png-files.txt");
+        {
+            use std::io::Write;
+            let mut png_list_file =
+                File::create(&png_list_file_path).context("creating file to list PNG files")?;
+            let png_glob = glob::glob(png_pattern_str).context("globbing for PNG files")?;
+            for png_path_result in png_glob {
+                let png_path = png_path_result?;
+                let png_path_str = png_path.to_str().ok_or_else(|| {
+                    ReadError::general("converting PNG file path to utf-8 string")
+                })?;
+                png_list_file.write_all(png_path_str.as_bytes())?;
+                png_list_file.write_all("\n".as_bytes())?;
+            }
+        }
+
+        let output_base = tmpdir.path().join("ocr");
+        {
+            let tess_args: [&OsStr; 7] = [
+                // Language model to use (English).
+                "-l".as_ref(),
+                "eng".as_ref(),
+                // DPI of the PNG files.
+                "--dpi".as_ref(),
+                "300".as_ref(),
+                // Text file containing PNG filenames, which treats them each as
+                // a page of input in the OCR output.
+                png_list_file_path.as_os_str(),
+                // Base filename for the TSV output file.
+                output_base.as_os_str(),
+                // Configuration to use (i.e output format).
+                "tsv".as_ref(),
+            ];
+            Command::new(self.tesseract_binary.as_os_str())
+                .args(&tess_args)
+                .status()
+                .context("performing OCR on PNG files")?;
+        }
+
+        {
+            let output_path = output_base.with_extension("tsv");
+            let tsv_file = File::open(&output_path)
+                .with_context(|_| format!("opening TSV output file {:?}", output_path))?;
+            tesseract::Document::from_tsv_reader(tsv_file)
+        }
+    }
+
     fn lines_to_transactions(
         &self,
         acc: &mut TransactionsAccumulator,
