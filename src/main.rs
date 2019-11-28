@@ -63,7 +63,7 @@ struct Command {
 enum SubCommand {
     #[structopt(name = "apply-rules")]
     /// Applies a rules file to an input file and dumps the results to stdout,
-    ApplyRules(rules::Command),
+    ApplyRules(rules::cmd::Command),
     #[structopt(name = "generate-fingerprints")]
     /// Generates random fingerprints to the postings in the input file and
     /// writes them back out.
