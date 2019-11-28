@@ -126,7 +126,7 @@ impl NationwidePdf {
 }
 
 fn flush_transaction(trns: &mut Vec<Transaction>, opt_builder: &mut Option<TransactionBuilder>) {
-    if let Some(pending) = std::mem::replace(opt_builder, None) {
+    if let Some(pending) = opt_builder.take() {
         trns.push(pending.build());
     }
 }
@@ -194,7 +194,7 @@ impl TransactionBuilder {
                 Posting {
                     account: halves.self_.account,
                     amount: halves.self_.amount,
-                    balance: self.balance.map(|amt| ledger_parser::Balance::Amount(amt)),
+                    balance: self.balance.map(ledger_parser::Balance::Amount),
                     status: None,
                     comment: None,
                 },
@@ -211,7 +211,7 @@ impl TransactionBuilder {
 }
 
 fn parse_amount(s: &str) -> Result<Amount, Error> {
-    let quantity = if s.contains(",") {
+    let quantity = if s.contains(',') {
         Decimal::from_str(&s.replace(",", ""))?
     } else {
         Decimal::from_str(s)?
