@@ -33,7 +33,7 @@ pub struct Record {
 
 #[derive(Debug)]
 pub struct Document {
-    pages: Vec<Page>,
+    pub pages: Vec<Page>,
 }
 
 impl Document {
@@ -169,9 +169,12 @@ impl Document {
                             w,
                             "          {}",
                             itertools::join(
-                                line.words
-                                    .iter()
-                                    .map(|word| format!("{}(l:{})", &word.text, word.left)),
+                                line.words.iter().map(|word| format!(
+                                    "{}({}-{})",
+                                    &word.text,
+                                    word.left,
+                                    word.left + word.width
+                                )),
                                 " "
                             ),
                         )?;
@@ -238,6 +241,8 @@ impl From<Record> for Paragraph {
 #[derive(Debug)]
 pub struct Line {
     pub num: i32,
+    pub top: i32,
+    pub height: i32,
     pub words: Vec<Word>,
 }
 
@@ -245,6 +250,8 @@ impl From<Record> for Line {
     fn from(record: Record) -> Self {
         Self {
             num: record.line_num,
+            top: record.top,
+            height: record.height,
             words: Vec::new(),
         }
     }
@@ -258,6 +265,15 @@ pub struct Word {
     pub text: String,
 }
 
+impl Word {
+    pub fn horiz_bounds(&self) -> Bounds {
+        Bounds {
+            min: self.left,
+            max: self.left + self.width,
+        }
+    }
+}
+
 impl From<Record> for Word {
     fn from(record: Record) -> Self {
         Self {
@@ -266,6 +282,18 @@ impl From<Record> for Word {
             width: record.width,
             text: record.text,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Bounds {
+    pub min: i32,
+    pub max: i32,
+}
+
+impl Bounds {
+    pub fn overlaps(self, other: Self) -> bool {
+        self.max > other.min && self.min < other.max
     }
 }
 

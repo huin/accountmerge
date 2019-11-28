@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use chrono::NaiveDate;
-use failure::Error;
+use failure::{Error, ResultExt};
 use ledger_parser::{Amount, Posting, Transaction};
 use regex::Regex;
 use rust_decimal::Decimal;
@@ -46,122 +46,166 @@ impl ReadError {
 impl TransactionImporter for NationwidePdf {
     fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
         let doc = tesseract::Document::from_tsv_reader(self.input.reader()?)?;
-
         let account_name = find_account_name(&doc)
             .ok_or_else(|| Error::from(ReadError::structure("account name not found")))?;
 
         let fp_prefix = make_prefix(&self.commonopts.fp_prefix.to_prefix(&account_name));
 
-        // Find the table and positions of its columns.
-        let table: table::Table = table::Table::find_in_document(&doc).ok_or_else(|| {
-            Error::from(ReadError::structure("transaction table header not found"))
-        })?;
+        let mut acc = TransactionsAccumulator::new(fp_prefix.to_string());
+        for page in &doc.pages {
+            for table in table::Table::find_in_page(page) {
+                let trn_lines = table.read_lines().with_context(|_| {
+                    format!(
+                        "failed to read transaction lines from table on page #{}",
+                        page.num
+                    )
+                })?;
+                self.lines_to_transactions(&mut acc, trn_lines)
+                    .with_context(|_| {
+                        format!("failed to process transaction lines on page #{}", page.num)
+                    })?;
+            }
+        }
 
-        let trn_lines = table.read_lines()?;
-
-        self.lines_to_transactions(trn_lines, &fp_prefix)
+        Ok(acc.build())
     }
 }
 
 impl NationwidePdf {
     fn lines_to_transactions(
         &self,
+        acc: &mut TransactionsAccumulator,
         trn_lines: Vec<table::TransactionLine>,
-        fp_prefix: &str,
-    ) -> Result<Vec<Transaction>, Error> {
-        let mut trns = Vec::<Transaction>::new();
-        let mut cur_trn_opt: Option<TransactionBuilder> = None;
-        let mut prev_date: Option<NaiveDate> = None;
-        let mut date_counter = 0i32;
-        for trn_line in trn_lines {
-            match (trn_line.payment, trn_line.receipt) {
-                (Some(payment), Some(receipt)) => {
-                    // Should not happen.
-                    return Err(ReadError::structure(format!(
-                        "transaction line has values for both payment ({:?}) and receipt ({:?})",
-                        payment, receipt,
-                    ))
-                    .into());
-                }
-                (Some(payment), None) => {
-                    // Start of new payment transaction.
-                    flush_transaction(&mut trns, &mut cur_trn_opt, fp_prefix);
-                    if trn_line.implied_date != prev_date {
-                        date_counter = 0;
-                    } else {
-                        date_counter += 1;
-                    }
-                    cur_trn_opt = Some(TransactionBuilder::new(
-                        trn_line.implied_date,
-                        date_counter,
-                        parse_amount(&payment)?,
-                        TransactionType::Payment,
-                        trn_line.detail,
-                    )?);
-                }
-                (None, Some(receipt)) => {
-                    // Start of new receipt transaction.
-                    flush_transaction(&mut trns, &mut cur_trn_opt, fp_prefix);
-                    if trn_line.implied_date != prev_date {
-                        date_counter = 0;
-                    } else {
-                        date_counter += 1;
-                    }
-                    cur_trn_opt = Some(TransactionBuilder::new(
-                        trn_line.implied_date,
-                        date_counter,
-                        parse_amount(&receipt)?,
-                        TransactionType::Receipt,
-                        trn_line.detail,
-                    )?);
-                }
-                (None, None) => {
-                    // Continuation of prior transaction.
-                    // Use this to amend cur_trn_opt.
-                    let cur_trn: &mut TransactionBuilder = if let Some(cur_trn) = &mut cur_trn_opt {
-                        cur_trn
-                    } else {
-                        continue;
-                    };
+    ) -> Result<(), Error> {
+        let mut prev_trn_line: Option<&table::TransactionLine> = None;
 
-                    if trn_line.detail.is_empty() {
-                        // No use for empty detail
-                    } else if trn_line.detail.starts_with("Effective Date ") {
-                        let edate =
-                            NaiveDate::parse_from_str(&trn_line.detail, "Effective Date %d %b %Y")?;
-                        cur_trn.effective_date = Some(edate);
-                    } else {
-                        cur_trn.description.push_str(" ");
-                        cur_trn.description.push_str(&trn_line.detail);
-                    }
+        for trn_line in &trn_lines {
+            if let Some(prev_trn_line) = prev_trn_line {
+                if trn_line.top > prev_trn_line.top + prev_trn_line.height * 2 {
+                    // There have been blank lines, this is probably the end of
+                    // the transactions.
+                    break;
                 }
             }
 
-            prev_date = trn_line.implied_date;
+            acc.feed_line(trn_line)
+                .with_context(|_| format!("for transaction line {}", trn_line))?;
 
-            let cur_trn: &mut TransactionBuilder = if let Some(cur_trn) = &mut cur_trn_opt {
-                cur_trn
-            } else {
-                continue;
-            };
-
-            if let Some(balance) = trn_line.balance {
-                cur_trn.balance = Some(parse_amount(&balance)?);
-            }
+            prev_trn_line = Some(trn_line);
         }
 
-        flush_transaction(&mut trns, &mut cur_trn_opt, fp_prefix);
-        Ok(trns)
+        Ok(())
     }
 }
 
-fn flush_transaction(
-    trns: &mut Vec<Transaction>,
-    opt_builder: &mut Option<TransactionBuilder>,
-    fp_prefix: &str,
-) {
-    if let Some(pending) = opt_builder.take() {
-        trns.push(pending.build(fp_prefix));
+struct TransactionsAccumulator {
+    fp_prefix: String,
+    cur_trn_opt: Option<TransactionBuilder>,
+    prev_date: Option<NaiveDate>,
+    date_counter: i32,
+    trns: Vec<Transaction>,
+}
+
+impl TransactionsAccumulator {
+    fn new(fp_prefix: String) -> Self {
+        Self {
+            fp_prefix,
+            cur_trn_opt: None,
+            prev_date: None,
+            date_counter: 0,
+            trns: Vec::new(),
+        }
+    }
+
+    fn feed_line(&mut self, trn_line: &table::TransactionLine) -> Result<(), Error> {
+        match (&trn_line.payment, &trn_line.receipt) {
+            (Some(payment), Some(receipt)) => {
+                // Should not happen.
+                return Err(ReadError::structure(format!(
+                    "transaction line has values for both payment ({:?}) and receipt ({:?})",
+                    payment, receipt,
+                ))
+                .into());
+            }
+            (Some(payment), None) => {
+                // Start of new payment transaction.
+                self.flush_transaction();
+                if trn_line.implied_date != self.prev_date {
+                    self.date_counter = 0;
+                } else {
+                    self.date_counter += 1;
+                }
+                self.cur_trn_opt = Some(TransactionBuilder::new(
+                    trn_line.implied_date,
+                    self.date_counter,
+                    parse_amount(&payment)?,
+                    TransactionType::Payment,
+                    trn_line.detail.clone(),
+                )?);
+            }
+            (None, Some(receipt)) => {
+                // Start of new receipt transaction.
+                self.flush_transaction();
+                if trn_line.implied_date != self.prev_date {
+                    self.date_counter = 0;
+                } else {
+                    self.date_counter += 1;
+                }
+                self.cur_trn_opt = Some(TransactionBuilder::new(
+                    trn_line.implied_date,
+                    self.date_counter,
+                    parse_amount(&receipt)?,
+                    TransactionType::Receipt,
+                    trn_line.detail.clone(),
+                )?);
+            }
+            (None, None) => {
+                // Continuation of prior transaction.
+                // Use this to amend cur_trn_opt.
+                let cur_trn: &mut TransactionBuilder = if let Some(cur_trn) = &mut self.cur_trn_opt
+                {
+                    cur_trn
+                } else {
+                    return Ok(());
+                };
+
+                if trn_line.detail.is_empty() {
+                    // No use for empty detail
+                } else if trn_line.detail.starts_with("Effective Date ") {
+                    let edate =
+                        NaiveDate::parse_from_str(&trn_line.detail, "Effective Date %d %b %Y")?;
+                    cur_trn.effective_date = Some(edate);
+                } else {
+                    cur_trn.description.push_str(" ");
+                    cur_trn.description.push_str(&trn_line.detail);
+                }
+            }
+        }
+
+        self.prev_date = trn_line.implied_date;
+
+        let cur_trn: &mut TransactionBuilder = if let Some(cur_trn) = &mut self.cur_trn_opt {
+            cur_trn
+        } else {
+            return Ok(());
+        };
+
+        if let Some(balance) = &trn_line.balance {
+            cur_trn.balance = Some(parse_amount(balance)?);
+        }
+
+        Ok(())
+    }
+
+    fn flush_transaction(&mut self) {
+        if let Some(pending) = self.cur_trn_opt.take() {
+            self.trns.push(pending.build(&self.fp_prefix));
+        }
+    }
+
+    fn build(mut self) -> Vec<Transaction> {
+        self.flush_transaction();
+        self.trns
     }
 }
 
@@ -289,12 +333,14 @@ fn parse_amount(s: &str) -> Result<Amount, Error> {
 }
 
 mod table {
+    use std::fmt;
+
     use chrono::format as date_fmt;
     use chrono::NaiveDate;
     use failure::Error;
 
     use super::ReadError;
-    use crate::importers::tesseract::{self, Document, Paragraph, Word};
+    use crate::importers::tesseract::{self, Line, Page, Paragraph, Word};
 
     const DATE: &str = "Date";
     const DETAILS: &str = "Details";
@@ -306,39 +352,70 @@ mod table {
     const EARLIEST_YEAR: i32 = 1980;
     const LATEST_YEAR: i32 = 2100;
 
-    #[derive(Debug)]
     pub struct Table<'a> {
         columns: Columns,
         para: &'a Paragraph,
     }
 
     impl<'a> Table<'a> {
-        pub fn find_in_document(doc: &'a Document) -> Option<Self> {
-            doc.iter_paragraphs().find_map(|para| {
-                Columns::find_in_paragraph(para).map(|columns| Table { columns, para })
-            })
+        pub fn find_in_page(page: &'a Page) -> impl Iterator<Item = Table<'a>> + 'a {
+            page.blocks
+                .iter()
+                .flat_map(|block| block.paragraphs.iter())
+                .filter_map(|para| {
+                    Columns::find_in_paragraph(para).map(|columns| Table { columns, para })
+                })
         }
 
         pub fn read_lines(&self) -> Result<Vec<TransactionLine>, Error> {
             let mut trn_lines = Vec::<TransactionLine>::new();
             let mut date_parts: chrono::format::Parsed = Default::default();
             let mut date: Option<NaiveDate> = None;
-            // Skip first line that contains the header that we already found.
-            for line in self.para.lines.iter().skip(1) {
-                self.columns
-                    .update_date_from_line(&mut date_parts, &mut date, line)?;
-                let detail = self.columns.details.join_words_in(line).ok_or_else(|| {
-                    Error::from(ReadError::structure("missing detail for transaction"))
-                })?;
-                trn_lines.push(TransactionLine {
-                    implied_date: date,
-                    detail,
-                    payment: self.columns.payments.join_words_in(line),
-                    receipt: self.columns.receipts.join_words_in(line),
-                    balance: self.columns.balance.join_words_in(line),
-                });
+            // Skip lines up to and including the line that contains the header
+            // that we already found.
+            for line in self
+                .para
+                .lines
+                .iter()
+                .skip(self.columns.header_line_idx + 1)
+            {
+                match self
+                    .columns
+                    .update_date_from_line(&mut date_parts, &mut date, line)?
+                {
+                    DateField::Year => {
+                        // A transaction will not start on this line.
+                        // Lines starting with years only specify the year, and
+                        // maybe a carry-over balance.
+                    }
+                    _ => {
+                        // Lines that start with day and month or nothing at all
+                        // can be part of a transaction.
+                        if let Some(detail) = self.columns.details.join_words_in(line) {
+                            trn_lines.push(TransactionLine {
+                                implied_date: date,
+                                detail,
+                                payment: self.columns.payments.join_words_in(line),
+                                receipt: self.columns.receipts.join_words_in(line),
+                                balance: self.columns.balance.join_words_in(line),
+                                top: line.top,
+                                height: line.height,
+                            });
+                        }
+                    }
+                }
             }
             Ok(trn_lines)
+        }
+    }
+
+    impl<'a> fmt::Debug for Table<'a> {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(
+                f,
+                "Table with columns {:?} in paragraph #{}",
+                self.columns, self.para.num
+            )
         }
     }
 
@@ -352,10 +429,35 @@ mod table {
         pub payment: Option<String>,
         pub receipt: Option<String>,
         pub balance: Option<String>,
+
+        // Spatial position of the line on the page.
+        pub top: i32,
+        pub height: i32,
+    }
+
+    impl fmt::Display for TransactionLine {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            if let Some(implied_date) = &self.implied_date {
+                write!(f, "{}", implied_date)?;
+            }
+            write!(f, " {}", self.detail)?;
+            if let Some(payment) = &self.payment {
+                write!(f, " {}", payment)?;
+            }
+            if let Some(receipt) = &self.receipt {
+                write!(f, " {}", receipt)?;
+            }
+            if let Some(balance) = &self.balance {
+                write!(f, " {}", balance)?;
+            }
+
+            Ok(())
+        }
     }
 
     #[derive(Debug)]
     struct Columns {
+        header_line_idx: usize,
         date: ColumnPos,
         details: ColumnPos,
         payments: ColumnPos,
@@ -365,7 +467,15 @@ mod table {
 
     impl Columns {
         fn find_in_paragraph(paragraph: &Paragraph) -> Option<Self> {
-            let line = paragraph.lines.get(0)?;
+            for (line_idx, line) in paragraph.lines.iter().enumerate() {
+                if let Some(columns) = Self::find_in_line(line_idx, line) {
+                    return Some(columns);
+                }
+            }
+            None
+        }
+
+        fn find_in_line(line_idx: usize, line: &Line) -> Option<Self> {
             if line.words.len() < 5 {
                 return None;
             }
@@ -380,31 +490,15 @@ mod table {
             }
 
             Some(Self {
+                header_line_idx: line_idx,
                 date: ColumnPos {
-                    // Date column contains values that extend left of the
-                    // header a little. Use the "Date" header width as a fudge
-                    // to include that.
-                    left: line.words[0].left - line.words[0].width / 2,
-                    right: line.words[1].left,
+                    horiz_bounds: line.words[0].horiz_bounds(),
                 },
-                details: ColumnPos {
-                    left: line.words[1].left,
-                    right: line.words[2].left,
-                },
-                payments: ColumnPos {
-                    left: line.words[2].left,
-                    right: line.words[3].left,
-                },
-                receipts: ColumnPos {
-                    left: line.words[3].left,
-                    right: line.words[4].left,
-                },
+                details: ColumnPos::new(line.words[1].left, line.words[2].left),
+                payments: ColumnPos::new(line.words[2].left, line.words[3].left),
+                receipts: ColumnPos::new(line.words[3].left, line.words[4].left),
                 balance: ColumnPos {
-                    left: line.words[4].left,
-                    // Similarly to "Date", the contents of the "Balance" column
-                    // extend slightly to the right of the header itself. Use
-                    // the "Balance" header width as a fudge to include that.
-                    right: line.words[4].left + line.words[4].width * 2,
+                    horiz_bounds: line.words[4].horiz_bounds(),
                 },
             })
         }
@@ -414,7 +508,7 @@ mod table {
             date_parts: &mut date_fmt::Parsed,
             date: &mut Option<NaiveDate>,
             line: &tesseract::Line,
-        ) -> Result<(), Error> {
+        ) -> Result<DateField, Error> {
             const DAY_PART: date_fmt::Item =
                 date_fmt::Item::Numeric(date_fmt::Numeric::Day, date_fmt::Pad::Zero);
             const MONTH_PART: date_fmt::Item =
@@ -426,7 +520,7 @@ mod table {
             match date_words.len() {
                 0 => {
                     // No date information, this can be okay at this stage.
-                    Ok(())
+                    Ok(DateField::Nothing)
                 }
                 1 => {
                     date_parts.year = None;
@@ -445,7 +539,7 @@ mod table {
                     // invalidate those values.
                     date_parts.month = None;
                     date_parts.day = None;
-                    Ok(())
+                    Ok(DateField::Year)
                 }
                 2 => {
                     // Typically the dates comprised of two "words" are the
@@ -460,7 +554,7 @@ mod table {
                     parse_date_component(date_parts, DAY_PART, date_words[0])?;
                     parse_date_component(date_parts, MONTH_PART, date_words[1])?;
                     *date = Some(date_parts.to_naive_date()?);
-                    Ok(())
+                    Ok(DateField::DayMonth)
                 }
                 _ => Err(ReadError::structure(format!(
                     "date had unexpected set of components: {}",
@@ -482,11 +576,19 @@ mod table {
 
     #[derive(Debug)]
     struct ColumnPos {
-        left: i32,
-        right: i32,
+        horiz_bounds: tesseract::Bounds,
     }
 
     impl ColumnPos {
+        fn new(left: i32, right: i32) -> Self {
+            Self {
+                horiz_bounds: tesseract::Bounds {
+                    min: left,
+                    max: right,
+                },
+            }
+        }
+
         fn join_words_in(&self, line: &tesseract::Line) -> Option<String> {
             let s = itertools::join(self.collect_words_in(line), " ");
             if s.is_empty() {
@@ -502,17 +604,19 @@ mod table {
         ) -> impl Iterator<Item = &'a str> + 'a {
             line.words
                 .iter()
-                .filter(move |word| self.contains_left(word))
+                .filter(move |word| self.overlaps(word))
                 .map(|word| word.text.as_str())
         }
 
-        fn contains_left(&self, word: &Word) -> bool {
-            self.includes(word.left)
+        fn overlaps(&self, word: &Word) -> bool {
+            self.horiz_bounds.overlaps(word.horiz_bounds())
         }
+    }
 
-        fn includes(&self, horizontal_point: i32) -> bool {
-            self.left <= horizontal_point && horizontal_point < self.right
-        }
+    enum DateField {
+        Nothing,
+        Year,
+        DayMonth,
     }
 }
 
