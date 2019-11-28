@@ -1,12 +1,16 @@
-use std::fmt;
+use std::str::FromStr;
 
+use chrono::NaiveDate;
 use failure::Error;
-use ledger_parser::Transaction;
+use ledger_parser::{Amount, Posting, Transaction};
+use rust_decimal::Decimal;
 use structopt::StructOpt;
 
+use crate::accounts;
 use crate::filespec::FileSpec;
 use crate::importers::importer::TransactionImporter;
 use crate::importers::tesseract_tsv;
+use crate::importers::util;
 
 #[derive(Debug, StructOpt)]
 /// Converts from Nationwide (nationwide.co.uk) PDF statements to Ledger
@@ -19,17 +23,14 @@ pub struct NationwidePdf {
 
 #[derive(Debug, Fail)]
 enum ReadError {
-    #[fail(display = "header not found in document")]
-    HeaderNotFound {},
-    #[fail(display = "bad value {} for {}", value, field)]
-    BadValue { value: String, field: &'static str },
+    #[fail(display = "bad input structure: {}", reason)]
+    Structure { reason: String },
 }
 
 impl ReadError {
-    fn bad_value<V: fmt::Debug>(value: V, field: &'static str) -> ReadError {
-        ReadError::BadValue {
-            value: format!("{:?}", value),
-            field,
+    fn structure<S: Into<String>>(reason: S) -> ReadError {
+        ReadError::Structure {
+            reason: reason.into(),
         }
     }
 }
@@ -39,16 +40,189 @@ impl TransactionImporter for NationwidePdf {
         let doc = tesseract_tsv::Document::from_reader(self.input.reader()?)?;
 
         // Find the table and positions of its columns.
-        let table: table::Table = table::Table::find_in_document(&doc)
-            .ok_or_else(|| Error::from(ReadError::HeaderNotFound {}))?;
+        let table: table::Table = table::Table::find_in_document(&doc).ok_or_else(|| {
+            Error::from(ReadError::structure("transaction table header not found"))
+        })?;
 
         let trn_lines = table.read_lines()?;
+
+        self.lines_to_transactions(trn_lines)
+    }
+}
+
+impl NationwidePdf {
+    fn lines_to_transactions(
+        &self,
+        trn_lines: Vec<table::TransactionLine>,
+    ) -> Result<Vec<Transaction>, Error> {
+        let mut trns = Vec::<Transaction>::new();
+        let mut cur_trn_opt: Option<TransactionBuilder> = None;
         for trn_line in trn_lines {
-            eprintln!("Transaction line: {:?}", trn_line);
+            match (trn_line.payment, trn_line.receipt) {
+                (Some(payment), Some(receipt)) => {
+                    // Should not happen.
+                    return Err(ReadError::structure(format!(
+                        "transaction line has values for both payment ({:?}) and receipt ({:?})",
+                        payment, receipt,
+                    ))
+                    .into());
+                }
+                (Some(payment), None) => {
+                    // Start of new payment transaction.
+                    flush_transaction(&mut trns, &mut cur_trn_opt);
+                    cur_trn_opt = Some(TransactionBuilder::new(
+                        trn_line.implied_date,
+                        parse_amount(&payment)?,
+                        TransactionType::Payment,
+                        trn_line.detail,
+                    )?);
+                }
+                (None, Some(receipt)) => {
+                    // Start of new receipt transaction.
+                    flush_transaction(&mut trns, &mut cur_trn_opt);
+                    cur_trn_opt = Some(TransactionBuilder::new(
+                        trn_line.implied_date,
+                        parse_amount(&receipt)?,
+                        TransactionType::Receipt,
+                        trn_line.detail,
+                    )?);
+                }
+                (None, None) => {
+                    // Continuation of prior transaction.
+                    // Use this to amend cur_trn_opt.
+                    let cur_trn: &mut TransactionBuilder = if let Some(cur_trn) = &mut cur_trn_opt {
+                        cur_trn
+                    } else {
+                        continue;
+                    };
+
+                    if trn_line.detail.is_empty() {
+                        // No use for empty detail
+                    } else if trn_line.detail.starts_with("Effective Date ") {
+                        let edate =
+                            NaiveDate::parse_from_str(&trn_line.detail, "Effective Date %d %b %Y")?;
+                        cur_trn.effective_date = Some(edate);
+                    } else {
+                        cur_trn.description.push_str(" ");
+                        cur_trn.description.push_str(&trn_line.detail);
+                    }
+                }
+            }
+
+            let cur_trn: &mut TransactionBuilder = if let Some(cur_trn) = &mut cur_trn_opt {
+                cur_trn
+            } else {
+                continue;
+            };
+
+            if let Some(balance) = trn_line.balance {
+                cur_trn.balance = Some(parse_amount(&balance)?);
+            }
         }
 
-        bail!("unimplemented")
+        flush_transaction(&mut trns, &mut cur_trn_opt);
+        Ok(trns)
     }
+}
+
+fn flush_transaction(trns: &mut Vec<Transaction>, opt_builder: &mut Option<TransactionBuilder>) {
+    if let Some(pending) = std::mem::replace(opt_builder, None) {
+        trns.push(pending.build());
+    }
+}
+
+struct TransactionBuilder {
+    date: NaiveDate,
+    amount: Amount,
+    type_: TransactionType,
+    effective_date: Option<NaiveDate>,
+    description: String,
+    balance: Option<Amount>,
+}
+
+enum TransactionType {
+    Payment,
+    Receipt,
+}
+
+impl TransactionBuilder {
+    fn new(
+        date: Option<NaiveDate>,
+        amount: Amount,
+        type_: TransactionType,
+        description: String,
+    ) -> Result<Self, Error> {
+        let date = date.ok_or_else(|| {
+            ReadError::structure(format!("missing date for transaction {:?}", description))
+        })?;
+        if amount.quantity.is_sign_negative() {
+            // Negative values should not appear on input, income vs expense is
+            // signalled via the "Payments" vs "Receipts" columns.
+            return Err(ReadError::structure(format!(
+                "encountered negative amount for payment or receipt: {}",
+                amount.quantity
+            ))
+            .into());
+        }
+
+        Ok(TransactionBuilder {
+            date,
+            amount,
+            type_,
+            effective_date: None,
+            description,
+            balance: None,
+        })
+    }
+
+    fn build(self) -> Transaction {
+        let halves = util::self_and_peer_account_amount(
+            match self.type_ {
+                TransactionType::Payment => util::negate_amount(self.amount),
+                TransactionType::Receipt => self.amount,
+            },
+            accounts::ASSETS_UNKNOWN.to_string(),
+        );
+        Transaction {
+            date: self.date,
+            effective_date: self.effective_date,
+            status: None,
+            code: None,
+            description: self.description,
+            comment: None,
+            postings: vec![
+                Posting {
+                    account: halves.self_.account,
+                    amount: halves.self_.amount,
+                    balance: self.balance.map(|amt| ledger_parser::Balance::Amount(amt)),
+                    status: None,
+                    comment: None,
+                },
+                Posting {
+                    account: halves.peer.account,
+                    amount: halves.peer.amount,
+                    balance: None,
+                    status: None,
+                    comment: None,
+                },
+            ],
+        }
+    }
+}
+
+fn parse_amount(s: &str) -> Result<Amount, Error> {
+    let quantity = if s.contains(",") {
+        Decimal::from_str(&s.replace(",", ""))?
+    } else {
+        Decimal::from_str(s)?
+    };
+    Ok(Amount {
+        quantity,
+        commodity: ledger_parser::Commodity {
+            name: "GBP".to_string(),
+            position: ledger_parser::CommodityPosition::Left,
+        },
+    })
 }
 
 mod table {
@@ -90,9 +264,12 @@ mod table {
             for line in self.para.lines.iter().skip(1) {
                 self.columns
                     .update_date_from_line(&mut date_parts, &mut date, line)?;
+                let detail = self.columns.details.join_words_in(line).ok_or_else(|| {
+                    Error::from(ReadError::structure("missing detail for transaction"))
+                })?;
                 trn_lines.push(TransactionLine {
                     implied_date: date,
-                    detail: self.columns.details.join_words_in(line),
+                    detail,
                     payment: self.columns.payments.join_words_in(line),
                     receipt: self.columns.receipts.join_words_in(line),
                     balance: self.columns.balance.join_words_in(line),
@@ -108,7 +285,7 @@ mod table {
     #[derive(Debug)]
     pub struct TransactionLine {
         pub implied_date: Option<NaiveDate>,
-        pub detail: Option<String>,
+        pub detail: String,
         pub payment: Option<String>,
         pub receipt: Option<String>,
         pub balance: Option<String>,
@@ -193,7 +370,11 @@ mod table {
                     parse_date_component(date_parts, YEAR_PART, date_words[0])?;
                     let new_year = date_parts.year.expect("year must be set");
                     if new_year < EARLIEST_YEAR || new_year > LATEST_YEAR {
-                        return Err(ReadError::bad_value(new_year, "year").into());
+                        return Err(ReadError::structure(format!(
+                            "found year {} which is out of the expected range",
+                            new_year
+                        ))
+                        .into());
                     }
 
                     // Changing the year typically implies that we are
@@ -218,7 +399,11 @@ mod table {
                     *date = Some(date_parts.to_naive_date()?);
                     Ok(())
                 }
-                _ => Err(ReadError::bad_value(date_parts, "date").into()),
+                _ => Err(ReadError::structure(format!(
+                    "date had unexpected set of components: {}",
+                    date_words.join(" ")
+                ))
+                .into()),
             }
         }
     }

@@ -166,7 +166,7 @@ pub struct CommentBuilder {
     comment: Comment,
 }
 impl CommentBuilder {
-    fn new() -> Self {
+    pub fn new() -> Self {
         CommentBuilder {
             comment: Comment::new(),
         }
