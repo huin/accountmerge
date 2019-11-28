@@ -74,7 +74,7 @@ enum SubCommand {
     Import(importers::cmd::Command),
     #[structopt(name = "merge")]
     /// Merges multiple Ledger journals together.
-    Merge(merge::Command),
+    Merge(merge::cmd::Command),
 }
 
 fn main() -> Result<(), Error> {
