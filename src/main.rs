@@ -71,7 +71,7 @@ enum SubCommand {
     #[structopt(name = "import")]
     /// Reads financial transaction data from a given source, converts them to
     /// Ledger transactions, and dumps them to stdout.
-    Import(importers::Command),
+    Import(importers::cmd::Command),
     #[structopt(name = "merge")]
     /// Merges multiple Ledger journals together.
     Merge(merge::Command),
