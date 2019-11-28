@@ -41,7 +41,8 @@ impl Document {
         Self { pages: Vec::new() }
     }
 
-    pub fn from_reader<R: std::io::Read>(reader: R) -> Result<Self, Error> {
+    /// Reads the `Document` from a reader of a Tesseract TSV file.
+    pub fn from_tsv_reader<R: std::io::Read>(reader: R) -> Result<Self, Error> {
         let r = csv::ReaderBuilder::new()
             .delimiter(b'\t')
             .has_headers(true)

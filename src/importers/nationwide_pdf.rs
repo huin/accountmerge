@@ -13,7 +13,7 @@ use crate::filespec::FileSpec;
 use crate::fingerprint::{make_prefix, FingerprintBuilder};
 use crate::importers::importer::TransactionImporter;
 use crate::importers::nationwide::{CommonOpts, BANK_NAME};
-use crate::importers::tesseract_tsv;
+use crate::importers::tesseract;
 use crate::importers::util;
 use crate::tags;
 
@@ -45,7 +45,7 @@ impl ReadError {
 
 impl TransactionImporter for NationwidePdf {
     fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
-        let doc = tesseract_tsv::Document::from_reader(self.input.reader()?)?;
+        let doc = tesseract::Document::from_tsv_reader(self.input.reader()?)?;
 
         let account_name = find_account_name(&doc)
             .ok_or_else(|| Error::from(ReadError::structure("account name not found")))?;
@@ -294,7 +294,7 @@ mod table {
     use failure::Error;
 
     use super::ReadError;
-    use crate::importers::tesseract_tsv::{self, Document, Paragraph, Word};
+    use crate::importers::tesseract::{self, Document, Paragraph, Word};
 
     const DATE: &str = "Date";
     const DETAILS: &str = "Details";
@@ -413,7 +413,7 @@ mod table {
             &self,
             date_parts: &mut date_fmt::Parsed,
             date: &mut Option<NaiveDate>,
-            line: &tesseract_tsv::Line,
+            line: &tesseract::Line,
         ) -> Result<(), Error> {
             const DAY_PART: date_fmt::Item =
                 date_fmt::Item::Numeric(date_fmt::Numeric::Day, date_fmt::Pad::Zero);
@@ -487,7 +487,7 @@ mod table {
     }
 
     impl ColumnPos {
-        fn join_words_in(&self, line: &tesseract_tsv::Line) -> Option<String> {
+        fn join_words_in(&self, line: &tesseract::Line) -> Option<String> {
             let s = itertools::join(self.collect_words_in(line), " ");
             if s.is_empty() {
                 None
@@ -498,7 +498,7 @@ mod table {
 
         fn collect_words_in<'a>(
             &'a self,
-            line: &'a tesseract_tsv::Line,
+            line: &'a tesseract::Line,
         ) -> impl Iterator<Item = &'a str> + 'a {
             line.words
                 .iter()
@@ -524,7 +524,7 @@ mod table {
 ///
 /// ... and returns the sort code and account number as a string (separated by a
 /// space).
-fn find_account_name(doc: &tesseract_tsv::Document) -> Option<String> {
+fn find_account_name(doc: &tesseract::Document) -> Option<String> {
     lazy_static! {
         static ref SORT_CODE_RX: Regex = Regex::new(r"^\d{2}-\d{2}-\d{2}$").unwrap();
     }
