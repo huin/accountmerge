@@ -3,6 +3,7 @@ use failure::Error;
 use structopt::StructOpt;
 
 use crate::filespec::{self, FileSpec};
+use crate::fingerprint;
 use crate::internal::TransactionPostings;
 use crate::tags;
 
@@ -33,7 +34,8 @@ fn update_transactions(trns: &mut Vec<TransactionPostings>) {
                 .comment
                 .tags
                 .iter()
-                .any(|tag| tag.starts_with(tags::FINGERPRINT_PREFIX))
+                .map(String::as_str)
+                .any(fingerprint::is_fingerprint)
             {
                 // The post has no existing fingerprint tag. Add a
                 // randomly generated one as requested.

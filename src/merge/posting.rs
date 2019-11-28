@@ -5,6 +5,7 @@ use failure::Error;
 use typed_generational_arena::{StandardArena, StandardIndex};
 
 use crate::comment::Comment;
+use crate::fingerprint;
 use crate::internal::PostingInternal;
 use crate::merge::matchset::MatchSet;
 use crate::merge::transaction;
@@ -217,7 +218,8 @@ impl Input {
             .comment
             .tags
             .iter()
-            .any(|tag| tag.starts_with(tags::FINGERPRINT_PREFIX))
+            .map(String::as_str)
+            .any(fingerprint::is_fingerprint)
         {
             return Err(MergeError::Input {
                 reason: format!(
@@ -346,7 +348,7 @@ fn fingerprints_from_comment(comment: &Comment) -> impl Iterator<Item = &str> {
         .tags
         .iter()
         .map(String::as_str)
-        .filter(|t| t.starts_with(tags::FINGERPRINT_PREFIX))
+        .filter(|tag| fingerprint::is_fingerprint(tag))
 }
 
 #[cfg(test)]

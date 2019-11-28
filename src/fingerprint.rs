@@ -7,8 +7,14 @@ use sha1::{Digest, Sha1};
 
 use crate::tags;
 
+/// Creates a fingerprint tag by prefixing it.
 pub fn make_prefix(value: &str) -> String {
     format!("{}{}-", tags::FINGERPRINT_PREFIX, value)
+}
+
+/// Returns `true` if the tag is a fingerprint.
+pub fn is_fingerprint(tag: &str) -> bool {
+    tag.starts_with(tags::FINGERPRINT_PREFIX)
 }
 
 pub trait Fingerprintable {
