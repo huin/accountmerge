@@ -3,6 +3,7 @@ use std::str::FromStr;
 use chrono::NaiveDate;
 use failure::Error;
 use ledger_parser::{Amount, Posting, Transaction};
+use regex::Regex;
 use rust_decimal::Decimal;
 use structopt::StructOpt;
 
@@ -55,8 +56,10 @@ impl TransactionImporter for NationwidePdf {
     fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
         let doc = tesseract_tsv::Document::from_reader(self.input.reader()?)?;
 
-        // TODO: Get account name and feed it in here.
-        let fp_prefix = make_prefix(&self.fp_prefix.to_prefix("dummy-account-name"));
+        let account_name = find_account_name(&doc)
+            .ok_or_else(|| Error::from(ReadError::structure("account name not found")))?;
+
+        let fp_prefix = make_prefix(&self.fp_prefix.to_prefix(&account_name));
 
         // Find the table and positions of its columns.
         let table: table::Table = table::Table::find_in_document(&doc).ok_or_else(|| {
@@ -520,4 +523,46 @@ mod table {
             self.left <= horizontal_point && horizontal_point < self.right
         }
     }
+}
+
+/// Looks for a line starting with text like:
+///
+/// ```
+/// Account Number 12-34-56 12345678
+/// ```
+///
+/// ... and returns the sort code and account number as a string (separated by a
+/// space).
+fn find_account_name(doc: &tesseract_tsv::Document) -> Option<String> {
+    lazy_static! {
+        static ref SORT_CODE_RX: Regex = Regex::new(r"^\d{2}-\d{2}-\d{2}$").unwrap();
+    }
+    lazy_static! {
+        static ref ACCT_NUM_RX: Regex = Regex::new(r"^\d{8}$").unwrap();
+    }
+
+    for para in doc.iter_paragraphs() {
+        for line in &para.lines {
+            if line.words.len() < 4 {
+                continue;
+            }
+            let word_account = &line.words[0].text;
+            let word_number = &line.words[1].text;
+            let sort_code = &line.words[2].text;
+            let acct_num = &line.words[3].text;
+            if word_account != "Account" || word_number != "Number" {
+                continue;
+            }
+            if !SORT_CODE_RX.is_match(sort_code) {
+                continue;
+            }
+            if !ACCT_NUM_RX.is_match(acct_num) {
+                continue;
+            }
+
+            return Some(format!("{} {}", sort_code, acct_num));
+        }
+    }
+
+    None
 }
