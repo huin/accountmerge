@@ -1,10 +1,27 @@
 use std::str::FromStr;
 
 use failure::Error;
+use structopt::StructOpt;
 
 use crate::fingerprint::FingerprintBuilder;
 
 pub const BANK_NAME: &str = "Nationwide";
+
+/// Common options for Nationwide importers.
+#[derive(Debug, StructOpt)]
+pub struct CommonOpts {
+    /// The prefix of the fingerprints to generate (without "fp-" that will be
+    /// prefixed to this value).
+    ///
+    /// "account-name" uses the account name from the CSV file.
+    ///
+    /// "fixed:<prefix>" uses the given fixed prefix.
+    ///
+    /// "generated" generates a hashed value based on the account name in the
+    /// CSV file.
+    #[structopt(long = "fingerprint-prefix", default_value = "generated")]
+    pub fp_prefix: FpPrefix,
+}
 
 #[derive(Debug)]
 pub enum FpPrefix {

@@ -8,7 +8,7 @@ use crate::comment::Comment;
 use crate::filespec::FileSpec;
 use crate::fingerprint::{make_prefix, FingerprintBuilder};
 use crate::importers::importer::TransactionImporter;
-use crate::importers::nationwide::{FpPrefix, BANK_NAME};
+use crate::importers::nationwide::{CommonOpts, BANK_NAME};
 use crate::importers::nationwide_csv::de::*;
 use crate::importers::util::{negate_amount, self_and_peer_account_amount};
 use crate::tags::{ACCOUNT_TAG, BANK_TAG, IMPORT_PEER_TAG, IMPORT_SELF_TAG, UNKNOWN_ACCOUNT_TAG};
@@ -49,17 +49,8 @@ pub struct NationwideCsv {
     /// Nationwide CSV file to read from. "-" reads from stdin.
     input: FileSpec,
 
-    /// The prefix of the fingerprints to generate (without "fp-" that will be
-    /// prefixed to this value).
-    ///
-    /// "account-name" uses the account name from the CSV file.
-    ///
-    /// "fixed:<prefix>" uses the given fixed prefix.
-    ///
-    /// "generated" generates a hashed value based on the account name in the
-    /// CSV file.
-    #[structopt(long = "fingerprint-prefix", default_value = "generated")]
-    fp_prefix: FpPrefix,
+    #[structopt(flatten)]
+    commonopts: CommonOpts,
 }
 
 impl TransactionImporter for NationwideCsv {
@@ -84,7 +75,7 @@ impl TransactionImporter for NationwideCsv {
             .ok_or_else(|| ReadError::bad_file_format("missing available balance"))?;
         check_header("Available Balance:", &available.header)?;
 
-        let fp_prefix = make_prefix(&self.fp_prefix.to_prefix(&acct_name.account_name));
+        let fp_prefix = make_prefix(&self.commonopts.fp_prefix.to_prefix(&acct_name.account_name));
 
         read_transactions(&mut csv_records, &fp_prefix, &acct_name.account_name)
     }
@@ -343,6 +334,7 @@ mod de {
 mod tests {
     use std::str::FromStr;
 
+    use crate::importers::nationwide::{CommonOpts, FpPrefix};
     use crate::importers::testutil::golden_test;
 
     use super::*;
@@ -352,7 +344,9 @@ mod tests {
         golden_test(
             &NationwideCsv {
                 input: FileSpec::from_str("testdata/importers/nationwide_csv.csv").unwrap(),
-                fp_prefix: FpPrefix::Generated,
+                commonopts: CommonOpts {
+                    fp_prefix: FpPrefix::Generated,
+                },
             },
             "nationwide_csv.golden.journal",
         );

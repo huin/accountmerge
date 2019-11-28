@@ -12,7 +12,7 @@ use crate::comment::Comment;
 use crate::filespec::FileSpec;
 use crate::fingerprint::{make_prefix, FingerprintBuilder};
 use crate::importers::importer::TransactionImporter;
-use crate::importers::nationwide::{FpPrefix, BANK_NAME};
+use crate::importers::nationwide::{CommonOpts, BANK_NAME};
 use crate::importers::tesseract_tsv;
 use crate::importers::util;
 use crate::tags;
@@ -25,17 +25,8 @@ pub struct NationwidePdf {
     /// Tesseract TSV output file to read. "-" reads from stdin.
     input: FileSpec,
 
-    /// The prefix of the fingerprints to generate (without "fp-" that will be
-    /// prefixed to this value).
-    ///
-    /// "account-name" uses the account name from the CSV file.
-    ///
-    /// "fixed:<prefix>" uses the given fixed prefix.
-    ///
-    /// "generated" generates a hashed value based on the account name in the
-    /// CSV file.
-    #[structopt(long = "fingerprint-prefix", default_value = "generated")]
-    fp_prefix: FpPrefix,
+    #[structopt(flatten)]
+    commonopts: CommonOpts,
 }
 
 #[derive(Debug, Fail)]
@@ -59,7 +50,7 @@ impl TransactionImporter for NationwidePdf {
         let account_name = find_account_name(&doc)
             .ok_or_else(|| Error::from(ReadError::structure("account name not found")))?;
 
-        let fp_prefix = make_prefix(&self.fp_prefix.to_prefix(&account_name));
+        let fp_prefix = make_prefix(&self.commonopts.fp_prefix.to_prefix(&account_name));
 
         // Find the table and positions of its columns.
         let table: table::Table = table::Table::find_in_document(&doc).ok_or_else(|| {
