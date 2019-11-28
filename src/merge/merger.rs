@@ -274,7 +274,7 @@ impl Merger {
                         let candidate_dest_post = self.posts.get(idx);
                         src_post.add_tag(format!(
                             "{}{}",
-                            tags::CANDIDATE_FP_TAG_PREFIX,
+                            tags::CANDIDATE_FP_PREFIX,
                             candidate_dest_post.primary_fingerprint()
                         ));
                     }

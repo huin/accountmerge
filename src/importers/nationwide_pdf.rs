@@ -226,8 +226,8 @@ impl TransactionBuilder {
             accounts::ASSETS_UNKNOWN.to_string(),
         );
         let comment_base = Comment::builder()
-            .with_value_tag(tags::BANK_TAG, BANK_NAME)
-            .with_tag(tags::UNKNOWN_ACCOUNT_TAG);
+            .with_value_tag(tags::BANK, BANK_NAME)
+            .with_tag(tags::UNKNOWN_ACCOUNT);
 
         let self_fp = record_fpb
             .clone()
@@ -252,7 +252,7 @@ impl TransactionBuilder {
                     status: None,
                     comment: comment_base
                         .clone()
-                        .with_tag(tags::IMPORT_SELF_TAG)
+                        .with_tag(tags::IMPORT_SELF)
                         .with_tag(self_fp.build_with_prefix(fp_prefix))
                         .build()
                         .into_opt_comment(),
@@ -263,7 +263,7 @@ impl TransactionBuilder {
                     balance: None,
                     status: None,
                     comment: comment_base
-                        .with_tag(tags::IMPORT_PEER_TAG)
+                        .with_tag(tags::IMPORT_PEER)
                         .with_tag(peer_fp.build_with_prefix(fp_prefix))
                         .build()
                         .into_opt_comment(),

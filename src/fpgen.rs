@@ -4,7 +4,7 @@ use structopt::StructOpt;
 
 use crate::filespec::{self, FileSpec};
 use crate::internal::TransactionPostings;
-use crate::tags::FINGERPRINT_TAG_PREFIX;
+use crate::tags;
 
 #[derive(Debug, StructOpt)]
 pub struct Command {
@@ -33,13 +33,13 @@ fn update_transactions(trns: &mut Vec<TransactionPostings>) {
                 .comment
                 .tags
                 .iter()
-                .any(|tag| tag.starts_with(FINGERPRINT_TAG_PREFIX))
+                .any(|tag| tag.starts_with(tags::FINGERPRINT_PREFIX))
             {
                 // The post has no existing fingerprint tag. Add a
                 // randomly generated one as requested.
                 post.comment.tags.insert(format!(
                     "{}uuidb64-{}",
-                    FINGERPRINT_TAG_PREFIX,
+                    tags::FINGERPRINT_PREFIX,
                     uuid_b64::UuidB64::new().to_istring()
                 ));
             }

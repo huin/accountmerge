@@ -9,7 +9,7 @@ use crate::internal::PostingInternal;
 use crate::merge::matchset::MatchSet;
 use crate::merge::transaction;
 use crate::merge::MergeError;
-use crate::tags::{CANDIDATE_FP_TAG_PREFIX, FINGERPRINT_TAG_PREFIX, UNKNOWN_ACCOUNT_TAG};
+use crate::tags;
 
 const BAD_POSTING_INDEX: &str = "internal error: used invalid posting::Index";
 
@@ -199,7 +199,7 @@ impl Input {
             .comment
             .tags
             .iter()
-            .any(|tag| tag.starts_with(CANDIDATE_FP_TAG_PREFIX))
+            .any(|tag| tag.starts_with(tags::CANDIDATE_FP_PREFIX))
         {
             return Err(MergeError::Input {
                 reason: format!(
@@ -217,7 +217,7 @@ impl Input {
             .comment
             .tags
             .iter()
-            .any(|tag| tag.starts_with(FINGERPRINT_TAG_PREFIX))
+            .any(|tag| tag.starts_with(tags::FINGERPRINT_PREFIX))
         {
             return Err(MergeError::Input {
                 reason: format!(
@@ -287,7 +287,7 @@ fn matches(a: &PostingInternal, b: &PostingInternal) -> bool {
     let (bp, bc) = (&b.raw, &b.comment);
 
     let accounts_match =
-        if !ac.tags.contains(UNKNOWN_ACCOUNT_TAG) && !bc.tags.contains(UNKNOWN_ACCOUNT_TAG) {
+        if !ac.tags.contains(tags::UNKNOWN_ACCOUNT) && !bc.tags.contains(tags::UNKNOWN_ACCOUNT) {
             ap.account == bp.account
         } else {
             true
@@ -323,13 +323,13 @@ fn merge(dest: &mut PostingInternal, mut src: PostingInternal) {
     if dest.raw.balance.is_none() {
         dest.raw.balance = src.raw.balance.clone()
     }
-    if dest.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
-        && !src.comment.tags.contains(UNKNOWN_ACCOUNT_TAG)
+    if dest.comment.tags.contains(tags::UNKNOWN_ACCOUNT)
+        && !src.comment.tags.contains(tags::UNKNOWN_ACCOUNT)
     {
-        dest.comment.tags.remove(UNKNOWN_ACCOUNT_TAG);
+        dest.comment.tags.remove(tags::UNKNOWN_ACCOUNT);
         dest.raw.account = src.raw.account;
     }
-    src.comment.tags.remove(UNKNOWN_ACCOUNT_TAG);
+    src.comment.tags.remove(tags::UNKNOWN_ACCOUNT);
 
     dest.comment.merge_from(src.comment);
 }
@@ -346,7 +346,7 @@ fn fingerprints_from_comment(comment: &Comment) -> impl Iterator<Item = &str> {
         .tags
         .iter()
         .map(String::as_str)
-        .filter(|t| t.starts_with(FINGERPRINT_TAG_PREFIX))
+        .filter(|t| t.starts_with(tags::FINGERPRINT_PREFIX))
 }
 
 #[cfg(test)]

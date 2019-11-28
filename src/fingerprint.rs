@@ -5,10 +5,10 @@ use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 use ledger_parser::Amount;
 use sha1::{Digest, Sha1};
 
-use crate::tags::FINGERPRINT_TAG_PREFIX;
+use crate::tags;
 
 pub fn make_prefix(value: &str) -> String {
-    format!("{}{}-", FINGERPRINT_TAG_PREFIX, value)
+    format!("{}{}-", tags::FINGERPRINT_PREFIX, value)
 }
 
 pub trait Fingerprintable {

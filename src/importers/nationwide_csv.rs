@@ -11,7 +11,7 @@ use crate::importers::importer::TransactionImporter;
 use crate::importers::nationwide::{CommonOpts, BANK_NAME};
 use crate::importers::nationwide_csv::de::*;
 use crate::importers::util::{negate_amount, self_and_peer_account_amount};
-use crate::tags::{ACCOUNT_TAG, BANK_TAG, IMPORT_PEER_TAG, IMPORT_SELF_TAG, UNKNOWN_ACCOUNT_TAG};
+use crate::tags;
 
 /// Transaction type field, provided by the bank.
 pub const TRANSACTION_TYPE_TAG: &str = "trn_type";
@@ -166,18 +166,18 @@ fn form_postings(
         .build_with_prefix(&fp_prefix);
 
     let mut self_comment = Comment::builder()
-        .with_tag(UNKNOWN_ACCOUNT_TAG)
-        .with_value_tag(ACCOUNT_TAG, account_name)
-        .with_value_tag(BANK_TAG, BANK_NAME)
+        .with_tag(tags::UNKNOWN_ACCOUNT)
+        .with_value_tag(tags::ACCOUNT, account_name)
+        .with_value_tag(tags::BANK, BANK_NAME)
         .with_value_tag(TRANSACTION_TYPE_TAG, record.type_.clone())
         .build();
 
     let mut peer_comment = self_comment.clone();
 
     self_comment.tags.insert(self_fingerprint);
-    self_comment.tags.insert(IMPORT_SELF_TAG.to_string());
+    self_comment.tags.insert(tags::IMPORT_SELF.to_string());
     peer_comment.tags.insert(peer_fingerprint);
-    peer_comment.tags.insert(IMPORT_PEER_TAG.to_string());
+    peer_comment.tags.insert(tags::IMPORT_PEER.to_string());
 
     Ok((
         Posting {
