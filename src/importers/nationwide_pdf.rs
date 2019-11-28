@@ -7,10 +7,14 @@ use rust_decimal::Decimal;
 use structopt::StructOpt;
 
 use crate::accounts;
+use crate::comment::Comment;
 use crate::filespec::FileSpec;
+use crate::fingerprint::{make_prefix, FingerprintBuilder};
 use crate::importers::importer::TransactionImporter;
+use crate::importers::nationwide::{FpPrefix, BANK_NAME};
 use crate::importers::tesseract_tsv;
 use crate::importers::util;
+use crate::tags;
 
 #[derive(Debug, StructOpt)]
 /// Converts from Nationwide (nationwide.co.uk) PDF statements to Ledger
@@ -19,6 +23,18 @@ use crate::importers::util;
 pub struct NationwidePdf {
     /// Tesseract TSV output file to read. "-" reads from stdin.
     input: FileSpec,
+
+    /// The prefix of the fingerprints to generate (without "fp-" that will be
+    /// prefixed to this value).
+    ///
+    /// "account-name" uses the account name from the CSV file.
+    ///
+    /// "fixed:<prefix>" uses the given fixed prefix.
+    ///
+    /// "generated" generates a hashed value based on the account name in the
+    /// CSV file.
+    #[structopt(long = "fingerprint-prefix", default_value = "generated")]
+    fp_prefix: FpPrefix,
 }
 
 #[derive(Debug, Fail)]
@@ -39,6 +55,9 @@ impl TransactionImporter for NationwidePdf {
     fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
         let doc = tesseract_tsv::Document::from_reader(self.input.reader()?)?;
 
+        // TODO: Get account name and feed it in here.
+        let fp_prefix = make_prefix(&self.fp_prefix.to_prefix("dummy-account-name"));
+
         // Find the table and positions of its columns.
         let table: table::Table = table::Table::find_in_document(&doc).ok_or_else(|| {
             Error::from(ReadError::structure("transaction table header not found"))
@@ -46,7 +65,7 @@ impl TransactionImporter for NationwidePdf {
 
         let trn_lines = table.read_lines()?;
 
-        self.lines_to_transactions(trn_lines)
+        self.lines_to_transactions(trn_lines, &fp_prefix)
     }
 }
 
@@ -54,9 +73,12 @@ impl NationwidePdf {
     fn lines_to_transactions(
         &self,
         trn_lines: Vec<table::TransactionLine>,
+        fp_prefix: &str,
     ) -> Result<Vec<Transaction>, Error> {
         let mut trns = Vec::<Transaction>::new();
         let mut cur_trn_opt: Option<TransactionBuilder> = None;
+        let mut prev_date: Option<NaiveDate> = None;
+        let mut date_counter = 0i32;
         for trn_line in trn_lines {
             match (trn_line.payment, trn_line.receipt) {
                 (Some(payment), Some(receipt)) => {
@@ -69,9 +91,15 @@ impl NationwidePdf {
                 }
                 (Some(payment), None) => {
                     // Start of new payment transaction.
-                    flush_transaction(&mut trns, &mut cur_trn_opt);
+                    flush_transaction(&mut trns, &mut cur_trn_opt, fp_prefix);
+                    if trn_line.implied_date != prev_date {
+                        date_counter = 0;
+                    } else {
+                        date_counter += 1;
+                    }
                     cur_trn_opt = Some(TransactionBuilder::new(
                         trn_line.implied_date,
+                        date_counter,
                         parse_amount(&payment)?,
                         TransactionType::Payment,
                         trn_line.detail,
@@ -79,9 +107,15 @@ impl NationwidePdf {
                 }
                 (None, Some(receipt)) => {
                     // Start of new receipt transaction.
-                    flush_transaction(&mut trns, &mut cur_trn_opt);
+                    flush_transaction(&mut trns, &mut cur_trn_opt, fp_prefix);
+                    if trn_line.implied_date != prev_date {
+                        date_counter = 0;
+                    } else {
+                        date_counter += 1;
+                    }
                     cur_trn_opt = Some(TransactionBuilder::new(
                         trn_line.implied_date,
+                        date_counter,
                         parse_amount(&receipt)?,
                         TransactionType::Receipt,
                         trn_line.detail,
@@ -109,6 +143,8 @@ impl NationwidePdf {
                 }
             }
 
+            prev_date = trn_line.implied_date;
+
             let cur_trn: &mut TransactionBuilder = if let Some(cur_trn) = &mut cur_trn_opt {
                 cur_trn
             } else {
@@ -120,19 +156,24 @@ impl NationwidePdf {
             }
         }
 
-        flush_transaction(&mut trns, &mut cur_trn_opt);
+        flush_transaction(&mut trns, &mut cur_trn_opt, fp_prefix);
         Ok(trns)
     }
 }
 
-fn flush_transaction(trns: &mut Vec<Transaction>, opt_builder: &mut Option<TransactionBuilder>) {
+fn flush_transaction(
+    trns: &mut Vec<Transaction>,
+    opt_builder: &mut Option<TransactionBuilder>,
+    fp_prefix: &str,
+) {
     if let Some(pending) = opt_builder.take() {
-        trns.push(pending.build());
+        trns.push(pending.build(fp_prefix));
     }
 }
 
 struct TransactionBuilder {
     date: NaiveDate,
+    date_counter: i32,
     amount: Amount,
     type_: TransactionType,
     effective_date: Option<NaiveDate>,
@@ -148,6 +189,7 @@ enum TransactionType {
 impl TransactionBuilder {
     fn new(
         date: Option<NaiveDate>,
+        date_counter: i32,
         amount: Amount,
         type_: TransactionType,
         description: String,
@@ -167,6 +209,7 @@ impl TransactionBuilder {
 
         Ok(TransactionBuilder {
             date,
+            date_counter,
             amount,
             type_,
             effective_date: None,
@@ -175,7 +218,12 @@ impl TransactionBuilder {
         })
     }
 
-    fn build(self) -> Transaction {
+    fn build(self, fp_prefix: &str) -> Transaction {
+        let record_fpb = FingerprintBuilder::new()
+            .with(self.date)
+            .with(self.date_counter)
+            .with(self.description.as_str());
+
         let halves = util::self_and_peer_account_amount(
             match self.type_ {
                 TransactionType::Payment => util::negate_amount(self.amount),
@@ -183,6 +231,18 @@ impl TransactionBuilder {
             },
             accounts::ASSETS_UNKNOWN.to_string(),
         );
+        let comment_base = Comment::builder()
+            .with_value_tag(tags::BANK_TAG, BANK_NAME)
+            .with_tag(tags::UNKNOWN_ACCOUNT_TAG);
+
+        let self_fp = record_fpb
+            .clone()
+            .with(halves.self_.account.as_str())
+            .with(&halves.self_.amount);
+        let peer_fp = record_fpb
+            .with(halves.peer.account.as_str())
+            .with(&halves.peer.amount);
+
         Transaction {
             date: self.date,
             effective_date: self.effective_date,
@@ -196,14 +256,23 @@ impl TransactionBuilder {
                     amount: halves.self_.amount,
                     balance: self.balance.map(ledger_parser::Balance::Amount),
                     status: None,
-                    comment: None,
+                    comment: comment_base
+                        .clone()
+                        .with_tag(tags::IMPORT_SELF_TAG)
+                        .with_tag(self_fp.build_with_prefix(fp_prefix))
+                        .build()
+                        .into_opt_comment(),
                 },
                 Posting {
                     account: halves.peer.account,
                     amount: halves.peer.amount,
                     balance: None,
                     status: None,
-                    comment: None,
+                    comment: comment_base
+                        .with_tag(tags::IMPORT_PEER_TAG)
+                        .with_tag(peer_fp.build_with_prefix(fp_prefix))
+                        .build()
+                        .into_opt_comment(),
                 },
             ],
         }

@@ -162,11 +162,13 @@ fn trim_string(s: String) -> String {
 }
 
 /// Helper to declaratively define a `Comment`.
+#[derive(Clone)]
 pub struct CommentBuilder {
     comment: Comment,
 }
+
 impl CommentBuilder {
-    pub fn new() -> Self {
+    fn new() -> Self {
         CommentBuilder {
             comment: Comment::new(),
         }

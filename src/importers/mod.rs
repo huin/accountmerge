@@ -3,6 +3,7 @@ use ledger_parser::Ledger;
 use structopt::StructOpt;
 
 mod importer;
+mod nationwide;
 mod nationwide_csv;
 mod nationwide_pdf;
 mod paypal_csv;

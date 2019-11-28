@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use chrono::NaiveDate;
 use failure::Error;
 use ledger_parser::{Amount, Balance, Posting, Transaction};
@@ -10,6 +8,7 @@ use crate::comment::Comment;
 use crate::filespec::FileSpec;
 use crate::fingerprint::{make_prefix, FingerprintBuilder};
 use crate::importers::importer::TransactionImporter;
+use crate::importers::nationwide::{FpPrefix, BANK_NAME};
 use crate::importers::nationwide_csv::de::*;
 use crate::importers::util::{negate_amount, self_and_peer_account_amount};
 use crate::tags::{ACCOUNT_TAG, BANK_TAG, IMPORT_PEER_TAG, IMPORT_SELF_TAG, UNKNOWN_ACCOUNT_TAG};
@@ -17,16 +16,12 @@ use crate::tags::{ACCOUNT_TAG, BANK_TAG, IMPORT_PEER_TAG, IMPORT_SELF_TAG, UNKNO
 /// Transaction type field, provided by the bank.
 pub const TRANSACTION_TYPE_TAG: &str = "trn_type";
 
-const BANK_NAME: &str = "Nationwide";
-
 #[derive(Debug, Fail)]
 enum ReadError {
     #[fail(display = "bad file format: {}", reason)]
     FileFormat { reason: &'static str },
     #[fail(display = "bad header record, want {:?}, got {:?}", want, got)]
     HeaderRecord { want: &'static str, got: String },
-    #[fail(display = "invalid value for flag {}: {:?}", flag, value)]
-    FlagValue { flag: &'static str, value: String },
 }
 
 impl ReadError {
@@ -65,52 +60,6 @@ pub struct NationwideCsv {
     /// CSV file.
     #[structopt(long = "fingerprint-prefix", default_value = "generated")]
     fp_prefix: FpPrefix,
-}
-
-#[derive(Debug)]
-enum FpPrefix {
-    AccountName,
-    Fixed(String),
-    Generated,
-}
-
-impl FpPrefix {
-    fn to_prefix(&self, account_name: &str) -> String {
-        use FpPrefix::*;
-
-        match self {
-            AccountName => account_name.to_string(),
-            Fixed(s) => s.clone(),
-            Generated => {
-                let mut s = FingerprintBuilder::new()
-                    .with(BANK_NAME)
-                    .with(account_name)
-                    .build();
-                s.truncate(8);
-                s
-            }
-        }
-    }
-}
-
-const FIXED_PREFIX: &str = "fixed:";
-
-impl FromStr for FpPrefix {
-    type Err = Error;
-    fn from_str(s: &str) -> Result<Self, Error> {
-        use FpPrefix::*;
-
-        match s {
-            "account-name" => Ok(AccountName),
-            "generated" => Ok(Generated),
-            s if s.starts_with(FIXED_PREFIX) => Ok(Fixed(s[FIXED_PREFIX.len()..].to_string())),
-            _ => Err(ReadError::FlagValue {
-                flag: "fingerprint-prefix",
-                value: s.to_string(),
-            }
-            .into()),
-        }
-    }
 }
 
 impl TransactionImporter for NationwideCsv {
@@ -392,6 +341,8 @@ mod de {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use crate::importers::testutil::golden_test;
 
     use super::*;
