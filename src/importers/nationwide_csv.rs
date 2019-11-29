@@ -182,14 +182,14 @@ fn form_postings(
     Ok((
         Posting {
             account: halves.self_.account,
-            amount: halves.self_.amount,
+            amount: Some(halves.self_.amount),
             balance: Some(Balance::Amount(record.balance.0)),
             comment: self_comment.into_opt_comment(),
             status: None,
         },
         Posting {
             account: halves.peer.account,
-            amount: halves.peer.amount,
+            amount: Some(halves.peer.amount),
             balance: None,
             comment: peer_comment.into_opt_comment(),
             status: None,

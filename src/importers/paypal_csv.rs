@@ -173,14 +173,14 @@ fn form_postings(record: Record, fp_prefix: &str) -> (Posting, Posting) {
     (
         Posting {
             account: halves.self_.account,
-            amount: halves.self_.amount,
+            amount: Some(halves.self_.amount),
             balance: Some(Balance::Amount(record.balance)),
             comment: self_comment.into_opt_comment(),
             status: status.clone(),
         },
         Posting {
             account: halves.peer.account,
-            amount: halves.peer.amount,
+            amount: Some(halves.peer.amount),
             balance: None,
             comment: peer_comment.into_opt_comment(),
             status,

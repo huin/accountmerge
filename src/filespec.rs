@@ -10,12 +10,6 @@ use std::str::FromStr;
 use failure::{Error, ResultExt};
 use ledger_parser::Ledger;
 
-#[derive(Debug, Fail)]
-enum FileError {
-    #[fail(display = "parse error: {}", reason)]
-    ParseError { reason: String },
-}
-
 /// Specifies a file to read from to write to (depending on context).
 #[derive(Debug)]
 pub enum FileSpec {
@@ -81,7 +75,7 @@ pub fn read_file(file_spec: &FileSpec) -> Result<String, Error> {
 
 pub fn read_ledger_file(file_spec: &FileSpec) -> Result<Ledger, Error> {
     let content: String = read_file(file_spec)?;
-    ledger_parser::parse(&content).map_err(|e| FileError::ParseError { reason: e }.into())
+    ledger_parser::parse(&content).map_err(Into::into)
 }
 
 pub fn write_file(file_spec: &FileSpec, content: &str) -> Result<(), Error> {

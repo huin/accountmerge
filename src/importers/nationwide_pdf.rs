@@ -384,7 +384,7 @@ impl TransactionBuilder {
             postings: vec![
                 Posting {
                     account: halves.self_.account,
-                    amount: halves.self_.amount,
+                    amount: Some(halves.self_.amount),
                     balance: self.balance.map(ledger_parser::Balance::Amount),
                     status: None,
                     comment: comment_base
@@ -396,7 +396,7 @@ impl TransactionBuilder {
                 },
                 Posting {
                     account: halves.peer.account,
-                    amount: halves.peer.amount,
+                    amount: Some(halves.peer.amount),
                     balance: None,
                     status: None,
                     comment: comment_base
