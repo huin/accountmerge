@@ -71,12 +71,12 @@ impl Accumulator {
         format!(
             "{}{}",
             prefix,
-            Base64Display::with_config(&self.hasher.result(), base64::STANDARD_NO_PAD)
+            Base64Display::with_config(&self.hasher.finalize(), base64::STANDARD_NO_PAD)
         )
     }
 
     fn add_bytes(&mut self, v: &[u8]) {
-        self.hasher.input(v);
+        self.hasher.update(v);
     }
 }
 
