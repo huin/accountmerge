@@ -217,7 +217,7 @@ impl TryFrom<de::Record> for Record {
             .with(v.date.0)
             .with(v.time.0)
             .with(v.time_zone.as_str())
-            .with(v.name.as_ref().map(String::as_str))
+            .with(v.name.as_deref())
             .with(v.type_.as_str())
             // Deliberately not including `v.status`, as this may change on a
             // future import.

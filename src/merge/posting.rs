@@ -338,7 +338,7 @@ fn merge(dest: &mut PostingInternal, mut src: PostingInternal) {
 
 fn primary_fingerprint(comment: &Comment) -> &str {
     fingerprints_from_comment(comment)
-        .nth(0)
+        .next()
         .expect("must always have a fingerprint tag")
 }
 

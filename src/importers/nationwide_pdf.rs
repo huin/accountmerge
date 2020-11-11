@@ -66,7 +66,7 @@ impl TransactionImporter for NationwidePdf {
 
         let fp_prefix = make_prefix(&self.commonopts.fp_prefix.to_prefix(&account_name));
 
-        let mut acc = TransactionsAccumulator::new(fp_prefix.to_string());
+        let mut acc = TransactionsAccumulator::new(fp_prefix);
         for page in &doc.pages {
             for table in table::Table::find_in_page(page) {
                 let trn_lines = table.read_lines().with_context(|_| {
@@ -130,7 +130,7 @@ impl NationwidePdf {
                     ReadError::general("converting PNG file path to utf-8 string")
                 })?;
                 png_list_file.write_all(png_path_str.as_bytes())?;
-                png_list_file.write_all("\n".as_bytes())?;
+                png_list_file.write_all(b"\n")?;
             }
         }
 

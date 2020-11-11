@@ -317,7 +317,7 @@ impl Merger {
 
         // Check that only one destination transaction matches.
         match candidate_trns.len() {
-            n if n <= 1 => Ok(candidate_trns.iter().nth(0).map(|i| i.0)),
+            n if n <= 1 => Ok(candidate_trns.iter().next().map(|i| i.0)),
             _ => Err(MergeError::Input {
                 reason: format!(
                     "input transaction on {} ({:?}) matches multiple existing transactions: {}",
