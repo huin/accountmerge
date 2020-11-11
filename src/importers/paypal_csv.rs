@@ -1,9 +1,6 @@
-use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 
-use std::str::FromStr;
-
-use chrono::{DateTime, NaiveDateTime, TimeZone};
+use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
 use failure::Error;
 use itertools::Itertools;
@@ -17,6 +14,7 @@ use crate::fingerprint::{make_prefix, FingerprintBuilder};
 use crate::importers::importer::TransactionImporter;
 use crate::importers::util::self_and_peer_account_amount;
 use crate::tags;
+use crate::tzabbr::TzAbbrDB;
 
 /// Transaction name field, provided by PayPal.
 const TRANSACTION_NAME_TAG: &str = "trn_name";
@@ -31,7 +29,7 @@ enum ReadError {
     )]
     AmbiguousTime {
         datetime: NaiveDateTime,
-        timezone: TzDisplay,
+        timezone: FixedOffset,
     },
     #[fail(
         display = "nonexistant combination of date time {} and timezone: {}",
@@ -39,13 +37,13 @@ enum ReadError {
     )]
     NonexistantTime {
         datetime: NaiveDateTime,
-        timezone: TzDisplay,
+        timezone: FixedOffset,
     },
     #[fail(
         display = "no record has a name for transactions at date time {}",
         datetime
     )]
-    NoNameForGroup { datetime: DateTime<Tz> },
+    NoNameForGroup { datetime: DateTime<FixedOffset> },
     #[fail(display = "unknown timezone {:?}", timezone)]
     UnknownTimezone { timezone: String },
 }
@@ -71,6 +69,8 @@ pub struct PaypalCsv {
     /// The prefix of the fingerprints to generate (without "fp-" that will be
     /// prefixed to this value).
     fp_prefix: String,
+    /// Timezone abbreviations CSV file to use.
+    timezone_abbr_file: FileSpec,
 }
 
 impl TransactionImporter for PaypalCsv {
@@ -83,7 +83,9 @@ impl TransactionImporter for PaypalCsv {
         let headers = csv_rdr.headers()?.clone();
         let mut csv_records = csv_rdr.records();
 
-        self.read_transactions(&headers, &mut csv_records)
+        let tz_abbrs = TzAbbrDB::from_reader(self.timezone_abbr_file.reader()?)?;
+
+        self.read_transactions(&headers, &mut csv_records, &tz_abbrs)
     }
 }
 
@@ -92,9 +94,10 @@ impl PaypalCsv {
         &self,
         headers: &csv::StringRecord,
         csv_records: &mut csv::StringRecordsIter<R>,
+        tz_abbrs: &TzAbbrDB,
     ) -> Result<Vec<Transaction>, Error> {
         let records: Vec<Record> = csv_records
-            .map(|row| deserialize_row(row, headers))
+            .map(|row| deserialize_row(row, headers, tz_abbrs))
             .collect::<Result<Vec<Record>, Error>>()?;
 
         let record_groups = records.into_iter().group_by(|record| record.datetime);
@@ -111,7 +114,7 @@ impl PaypalCsv {
 
     fn form_transaction(
         &self,
-        dt: DateTime<Tz>,
+        dt: DateTime<FixedOffset>,
         records: Vec<Record>,
         fp_prefix: &str,
     ) -> Result<Transaction, Error> {
@@ -189,7 +192,7 @@ fn form_postings(record: Record, fp_prefix: &str) -> (Posting, Posting) {
 }
 
 struct Record {
-    datetime: DateTime<Tz>,
+    datetime: DateTime<FixedOffset>,
     name: Option<String>,
     type_: String,
     status: de::Status,
@@ -198,9 +201,8 @@ struct Record {
     partial_fp: FingerprintBuilder,
 }
 
-impl TryFrom<de::Record> for Record {
-    type Error = Error;
-    fn try_from(v: de::Record) -> Result<Self, Error> {
+impl Record {
+    fn from_csv_record(v: de::Record, tz_abbrs: &TzAbbrDB) -> Result<Self, Error> {
         let commodity = Commodity {
             name: v.currency,
             position: CommodityPosition::Left,
@@ -226,17 +228,17 @@ impl TryFrom<de::Record> for Record {
 
         let naive_datetime = chrono::NaiveDateTime::new(v.date.0, v.time.0);
 
-        let tz = parse_timezone(&v.time_zone)?;
+        let tz = parse_timezone(tz_abbrs, &v.time_zone)?;
 
         use chrono::LocalResult;
-        let datetime: DateTime<Tz> = match tz.from_local_datetime(&naive_datetime) {
+        let datetime: DateTime<FixedOffset> = match tz.from_local_datetime(&naive_datetime) {
             LocalResult::None => Err(ReadError::NonexistantTime {
                 datetime: naive_datetime,
-                timezone: TzDisplay(tz),
+                timezone: tz,
             }),
             LocalResult::Ambiguous(_, _) => Err(ReadError::AmbiguousTime {
                 datetime: naive_datetime,
-                timezone: TzDisplay(tz),
+                timezone: tz,
             }),
             LocalResult::Single(dt) => Ok(dt),
         }?;
@@ -255,9 +257,10 @@ impl TryFrom<de::Record> for Record {
 fn deserialize_row(
     sr: csv::Result<csv::StringRecord>,
     headers: &csv::StringRecord,
+    tz_abbrs: &TzAbbrDB,
 ) -> Result<Record, Error> {
     let de_record: de::Record = sr?.deserialize(Some(headers))?;
-    de_record.try_into()
+    Record::from_csv_record(de_record, tz_abbrs)
 }
 
 mod de {
@@ -358,30 +361,20 @@ mod de {
     }
 }
 
-fn parse_timezone(s: &str) -> Result<Tz, Error> {
-    if let Some(tz) = parse_timezone_abbr(s) {
+fn parse_timezone(tz_abbr: &TzAbbrDB, s: &str) -> Result<FixedOffset, Error> {
+    if let Some(tz) = tz_abbr.abbr_to_tz(s) {
         return Ok(tz);
     }
-    <Tz as FromStr>::from_str(s).map_err(|_| {
-        ReadError::UnknownTimezone {
-            timezone: s.to_string(),
-        }
-        .into()
-    })
-}
-
-fn parse_timezone_abbr(s: &str) -> Option<Tz> {
-    use Tz::*;
-    // TODO: Need a better database of timezone abbreviations.
-    match s {
-        "BST" => Some(Etc__GMTPlus1),
-        _ => None,
+    Err(ReadError::UnknownTimezone {
+        timezone: s.to_string(),
     }
+    .into())
 }
 
 #[cfg(test)]
 mod tests {
     use crate::importers::testutil::golden_test;
+    use std::str::FromStr;
 
     use super::*;
 
@@ -392,6 +385,10 @@ mod tests {
                 input: FileSpec::from_str("testdata/importers/paypal_csv.csv").unwrap(),
                 output_timezone: Tz::UTC,
                 fp_prefix: "paypal".to_string(),
+                timezone_abbr_file: FileSpec::from_str(
+                    "testdata/importers/paypal_csv_tz_abbrs.csv",
+                )
+                .unwrap(),
             },
             "paypal_csv.golden.journal",
         );

@@ -53,6 +53,7 @@ mod merge;
 mod mutcell;
 mod rules;
 mod tags;
+mod tzabbr;
 
 #[derive(Debug, StructOpt)]
 /// Utilities for working with Ledger journals.
