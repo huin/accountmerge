@@ -2,6 +2,20 @@
 
 Tools for managing Ledger journals.
 
+## Disclaimer
+
+This code hasn't been substantially battle-tested. It may well corrupt
+accounting files. As such, it's best to:
+
+-   keep backups of your account journals,
+-   preview change made to your journal made by this utility before committing
+    to them,
+-   make use of balance assertions where possible to help catch mistakes (such
+    as duplicated transactions/postings).
+
+The first two recommendations naturally suggest using a version control tool
+(such as Git, Mercurial).
+
 ## Matching algorithm
 
 For each transaction in the source, scan over each of its postings in turn to
