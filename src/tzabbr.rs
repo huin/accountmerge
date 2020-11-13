@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::io::Read;
 
+use anyhow::Result;
 use chrono::FixedOffset;
-use failure::Error;
 use regex::Regex;
 
 /// Carries a single row from the input CSV file of timezone abbreviations.
@@ -18,7 +18,7 @@ pub struct TzAbbrDB {
 }
 
 impl TzAbbrDB {
-    pub fn from_reader<R: Read>(r: R) -> Result<Self, Error> {
+    pub fn from_reader<R: Read>(r: R) -> Result<Self> {
         use std::collections::hash_map::Entry::*;
 
         let mut map = HashMap::new();
@@ -50,7 +50,7 @@ impl TzAbbrDB {
     }
 }
 
-fn parse_utc_offset(s: &str) -> Result<FixedOffset, Error> {
+fn parse_utc_offset(s: &str) -> Result<FixedOffset> {
     lazy_static! {
         static ref UTC_HOURS_RX: Regex = Regex::new("^UTC([-+])([0-9]{2})$").unwrap();
         static ref UTC_HOURS_MINS_RX: Regex =
@@ -79,8 +79,8 @@ fn parse_utc_offset(s: &str) -> Result<FixedOffset, Error> {
 #[cfg(test)]
 mod tests {
     use super::{parse_utc_offset, TzAbbrDB};
+    use anyhow::Result;
     use chrono::FixedOffset;
-    use failure::Error;
     use test_case::test_case;
 
     #[test_case("BST" => Some(FixedOffset::east(3600)))]
@@ -141,7 +141,7 @@ mod tests {
         }
     }
 
-    fn parse_string_db(s: &str) -> Result<TzAbbrDB, Error> {
+    fn parse_string_db(s: &str) -> Result<TzAbbrDB> {
         TzAbbrDB::from_reader(textwrap::dedent(s).as_bytes())
     }
 

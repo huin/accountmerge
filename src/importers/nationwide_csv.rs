@@ -1,5 +1,5 @@
+use anyhow::Result;
 use chrono::NaiveDate;
-use failure::Error;
 use ledger_parser::{Amount, Balance, Posting, Transaction};
 use structopt::StructOpt;
 
@@ -15,20 +15,6 @@ use crate::tags;
 
 /// Transaction type field, provided by the bank.
 pub const TRANSACTION_TYPE_TAG: &str = "trn_type";
-
-#[derive(Debug, Fail)]
-enum ReadError {
-    #[fail(display = "bad file format: {}", reason)]
-    FileFormat { reason: &'static str },
-    #[fail(display = "bad header record, want {:?}, got {:?}", want, got)]
-    HeaderRecord { want: &'static str, got: String },
-}
-
-impl ReadError {
-    fn bad_file_format(reason: &'static str) -> ReadError {
-        ReadError::FileFormat { reason }
-    }
-}
 
 #[derive(Debug, Deserialize)]
 struct AccountName {
@@ -54,7 +40,7 @@ pub struct NationwideCsv {
 }
 
 impl TransactionImporter for NationwideCsv {
-    fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
+    fn get_transactions(&self) -> Result<Vec<Transaction>> {
         let reader = encoding_rs_io::DecodeReaderBytesBuilder::new()
             .encoding(Some(encoding_rs::WINDOWS_1252))
             .build(self.input.reader()?);
@@ -66,13 +52,13 @@ impl TransactionImporter for NationwideCsv {
         let mut csv_records = csv_rdr.records();
 
         let acct_name: AccountName = deserialize_required_record(&mut csv_records)?
-            .ok_or_else(|| ReadError::bad_file_format("missing account name"))?;
+            .ok_or_else(|| anyhow!("bad file format: missing account name"))?;
         check_header("Account Name:", &acct_name.header)?;
         let balance: AccountQuantity = deserialize_required_record(&mut csv_records)?
-            .ok_or_else(|| ReadError::bad_file_format("missing account balance"))?;
+            .ok_or_else(|| anyhow!("bad file format: missing account balance"))?;
         check_header("Account Balance:", &balance.header)?;
         let available: AccountQuantity = deserialize_required_record(&mut csv_records)?
-            .ok_or_else(|| ReadError::bad_file_format("missing available balance"))?;
+            .ok_or_else(|| anyhow!("bad file format: missing available balance"))?;
         check_header("Available Balance:", &available.header)?;
 
         let fp_prefix = make_prefix(&self.commonopts.fp_prefix.to_prefix(&acct_name.account_name));
@@ -85,11 +71,11 @@ fn read_transactions<R: std::io::Read>(
     csv_records: &mut csv::StringRecordsIter<R>,
     fp_prefix: &str,
     account_name: &str,
-) -> Result<Vec<Transaction>, Error> {
+) -> Result<Vec<Transaction>> {
     let headers: Vec<String> = deserialize_required_record(csv_records)?
-        .ok_or_else(|| ReadError::bad_file_format("missing transaction headers"))?;
+        .ok_or_else(|| anyhow!("bad file format: missing transaction headers"))?;
     if headers.len() != 6 {
-        return Err(ReadError::bad_file_format("expected 6 headers for transactions").into());
+        bail!("bad file format: expected 6 headers for transactions");
     }
     check_header("Date", &headers[0])?;
     check_header("Transaction type", &headers[1])?;
@@ -140,7 +126,7 @@ fn form_postings(
     fp_prefix: &str,
     account_name: &str,
     date_counter: i32,
-) -> Result<(Posting, Posting), Error> {
+) -> Result<(Posting, Posting)> {
     let record_fpb = FingerprintBuilder::new().with(&record).with(date_counter);
 
     let self_amount: Amount = match (record.paid_in, record.paid_out) {
@@ -149,7 +135,7 @@ fn form_postings(
         // Paid out only.
         (None, Some(GbpValue(amt))) => negate_amount(amt),
         // Paid in and out or neither - both are errors.
-        _ => return Err(ReadError::bad_file_format("expected either paid in or paid out").into()),
+        _ => bail!("expected *either* paid in or paid out"),
     };
 
     let halves = self_and_peer_account_amount(self_amount, ASSETS_UNKNOWN.to_string());
@@ -201,14 +187,13 @@ mod de {
     use std::fmt;
     use std::str::FromStr;
 
+    use anyhow::Result;
     use chrono::NaiveDate;
-    use failure::Error;
     use ledger_parser::{Amount, Commodity, CommodityPosition};
     use regex::Regex;
     use rust_decimal::Decimal;
     use serde::de::{self, Deserialize, DeserializeOwned, Deserializer};
 
-    use super::ReadError;
     use crate::fingerprint::{FingerprintBuilder, Fingerprintable};
 
     #[derive(Debug, Deserialize)]
@@ -290,16 +275,11 @@ mod de {
         }
     }
 
-    pub fn check_header(want: &'static str, got: &str) -> Result<(), Error> {
+    pub fn check_header(want: &'static str, got: &str) -> Result<()> {
         if want != got {
-            Err(ReadError::HeaderRecord {
-                want,
-                got: got.to_string(),
-            }
-            .into())
-        } else {
-            Ok(())
+            bail!("bad header record, want {:?}, got {:?}", want, got);
         }
+        Ok(())
     }
 
     fn deserialize_captured_number<T, E>(c: &regex::Captures, i: usize) -> Result<T, E>
@@ -317,7 +297,7 @@ mod de {
 
     pub fn deserialize_required_record<T, R>(
         csv_records: &mut csv::StringRecordsIter<R>,
-    ) -> Result<Option<T>, Error>
+    ) -> Result<Option<T>>
     where
         T: DeserializeOwned,
         R: std::io::Read,

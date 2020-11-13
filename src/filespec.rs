@@ -7,7 +7,7 @@ use std::io::{stdin, stdout, Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use failure::{Error, ResultExt};
+use anyhow::{Context, Error, Result};
 use ledger_parser::Ledger;
 
 /// Specifies a file to read from to write to (depending on context).
@@ -20,7 +20,7 @@ pub enum FileSpec {
 }
 
 impl fmt::Display for FileSpec {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use FileSpec::*;
         match self {
             Stdio => f.write_str("<stdio>"),
@@ -30,24 +30,22 @@ impl fmt::Display for FileSpec {
 }
 
 impl FileSpec {
-    pub fn reader(&self) -> Result<Box<dyn Read>, Error> {
+    pub fn reader(&self) -> Result<Box<dyn Read>> {
         use FileSpec::*;
         Ok(match self {
             Stdio => Box::new(stdin()),
             Path(path) => Box::new(
-                File::open(path)
-                    .with_context(|e| format!("opening {:?} for reading: {}", path, e))?,
+                File::open(path).with_context(|| format!("opening {:?} for reading", path))?,
             ),
         })
     }
 
-    pub fn writer(&self) -> Result<Box<dyn Write>, Error> {
+    pub fn writer(&self) -> Result<Box<dyn Write>> {
         use FileSpec::*;
         Ok(match self {
             Stdio => Box::new(stdout()),
             Path(path) => Box::new(
-                File::create(path)
-                    .with_context(|e| format!("opening {:?} for writing: {}", path, e))?,
+                File::create(path).with_context(|| format!("opening {:?} for writing", path))?,
             ),
         })
     }
@@ -56,7 +54,7 @@ impl FileSpec {
 impl FromStr for FileSpec {
     type Err = Error;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self> {
         use FileSpec::*;
         if s == "-" {
             Ok(Stdio)
@@ -66,25 +64,25 @@ impl FromStr for FileSpec {
     }
 }
 
-pub fn read_file(file_spec: &FileSpec) -> Result<String, Error> {
+pub fn read_file(file_spec: &FileSpec) -> Result<String> {
     let mut f = file_spec.reader()?;
     let mut content = String::new();
     f.read_to_string(&mut content)?;
     Ok(content)
 }
 
-pub fn read_ledger_file(file_spec: &FileSpec) -> Result<Ledger, Error> {
+pub fn read_ledger_file(file_spec: &FileSpec) -> Result<Ledger> {
     let content: String = read_file(file_spec)?;
     ledger_parser::parse(&content).map_err(Into::into)
 }
 
-pub fn write_file(file_spec: &FileSpec, content: &str) -> Result<(), Error> {
+pub fn write_file(file_spec: &FileSpec, content: &str) -> Result<()> {
     let mut f = file_spec.writer()?;
     f.write_all(content.as_bytes())?;
     Ok(())
 }
 
-pub fn write_ledger_file(file_spec: &FileSpec, ledger: &Ledger) -> Result<(), Error> {
+pub fn write_ledger_file(file_spec: &FileSpec, ledger: &Ledger) -> Result<()> {
     let content: String = format!("{}", ledger);
     write_file(file_spec, &content)
 }

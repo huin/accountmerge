@@ -1,4 +1,4 @@
-use failure::Error;
+use anyhow::Result;
 use structopt::StructOpt;
 
 use crate::filespec::{self, FileSpec};
@@ -19,7 +19,7 @@ pub struct Command {
 }
 
 impl Command {
-    pub fn run(&self) -> Result<(), Error> {
+    pub fn run(&self) -> Result<()> {
         let rules = table::Table::from_filespec(&self.rules)?;
         let mut ledger = filespec::read_ledger_file(&self.input_journal)?;
         let trns = TransactionPostings::take_from_ledger(&mut ledger);
@@ -27,6 +27,7 @@ impl Command {
         let new_trns = rules.update_transactions(trns)?;
 
         TransactionPostings::put_into_ledger(&mut ledger, new_trns);
-        filespec::write_ledger_file(&self.output, &ledger)
+        filespec::write_ledger_file(&self.output, &ledger)?;
+        Ok(())
     }
 }

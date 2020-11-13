@@ -1,18 +1,7 @@
 //! Reads Tesseract OCR TSV files into a hierarchical structure for further
 //! processing.
 
-use failure::Error;
-
-#[derive(Debug, Fail)]
-enum ReadError {
-    #[fail(display = "TSV field {} has bad TSV value {:?}", field, value)]
-    TsvField { field: &'static str, value: i32 },
-    #[fail(display = "TSV {} is missing its parent {}", type_, parent_type)]
-    TsvParent {
-        type_: &'static str,
-        parent_type: &'static str,
-    },
-}
+use anyhow::Result;
 
 /// A Tesseract TSV file record.
 #[derive(Debug, Deserialize)]
@@ -42,7 +31,7 @@ impl Document {
     }
 
     /// Reads the `Document` from a reader of a Tesseract TSV file.
-    pub fn from_tsv_reader<R: std::io::Read>(reader: R) -> Result<Self, Error> {
+    pub fn from_tsv_reader<R: std::io::Read>(reader: R) -> Result<Self> {
         let r = csv::ReaderBuilder::new()
             .delimiter(b'\t')
             .has_headers(true)
@@ -59,7 +48,7 @@ impl Document {
         Ok(doc)
     }
 
-    fn feed_record(&mut self, record: Record) -> Result<(), Error> {
+    fn feed_record(&mut self, record: Record) -> Result<()> {
         match record.level {
             1 => {
                 // New page.
@@ -121,32 +110,28 @@ impl Document {
                 )?;
             }
             _ => {
-                return Err(ReadError::TsvField {
-                    field: "level",
-                    value: record.level,
-                }
-                .into());
+                bail!("TSV field level has bad TSV value {:?}", record.level);
             }
         }
 
         Ok(())
     }
 
-    fn page_mut(&mut self, record: &Record) -> Result<&mut Page, Error> {
+    fn page_mut(&mut self, record: &Record) -> Result<&mut Page> {
         get_checked_mut(&mut self.pages, record.page_num, "page_num")
     }
 
-    fn block_mut(&mut self, record: &Record) -> Result<&mut Block, Error> {
+    fn block_mut(&mut self, record: &Record) -> Result<&mut Block> {
         self.page_mut(record)
             .and_then(|page| get_checked_mut(&mut page.blocks, record.block_num, "block_num"))
     }
 
-    fn paragraph_mut(&mut self, record: &Record) -> Result<&mut Paragraph, Error> {
+    fn paragraph_mut(&mut self, record: &Record) -> Result<&mut Paragraph> {
         self.block_mut(record)
             .and_then(|block| get_checked_mut(&mut block.paragraphs, record.par_num, "par_num"))
     }
 
-    fn line_mut(&mut self, record: &Record) -> Result<&mut Line, Error> {
+    fn line_mut(&mut self, record: &Record) -> Result<&mut Line> {
         self.paragraph_mut(record).and_then(|paragraph| {
             get_checked_mut(&mut paragraph.lines, record.line_num, "line_num")
         })
@@ -155,7 +140,7 @@ impl Document {
     /// Helper function for use when working out the structure output by
     /// Tesseract OCR.
     #[allow(dead_code)]
-    pub fn debug_write_to(&self, mut w: Box<dyn std::io::Write>) -> Result<(), Error> {
+    pub fn debug_write_to(&self, mut w: Box<dyn std::io::Write>) -> Result<()> {
         writeln!(w, "Document")?;
         for page in &self.pages {
             writeln!(w, "  Page #{}", page.num)?;
@@ -301,15 +286,10 @@ fn get_checked_mut<'a, T>(
     v: &'a mut Vec<T>,
     num: i32,
     num_field: &'static str,
-) -> Result<&'a mut T, Error> {
+) -> Result<&'a mut T> {
     let idx = num_to_idx(num, num_field)?;
-    v.get_mut(idx).ok_or_else(|| {
-        ReadError::TsvField {
-            field: num_field,
-            value: num,
-        }
-        .into()
-    })
+    v.get_mut(idx)
+        .ok_or_else(|| anyhow!("TSV field {} has bad TSV value {:?}", num_field, num))
 }
 
 fn push_checked<T>(
@@ -319,26 +299,21 @@ fn push_checked<T>(
     record: Record,
     type_: &'static str,
     parent_type: &'static str,
-) -> Result<(), Error>
+) -> Result<()>
 where
     T: From<Record>,
 {
     let idx = num_to_idx(num, num_field)?;
     if idx != v.len() {
-        return Err(ReadError::TsvParent { type_, parent_type }.into());
+        bail!("TSV {} is missing its parent {}", type_, parent_type);
     }
     v.push(record.into());
     Ok(())
 }
 
-fn num_to_idx(num: i32, num_field: &'static str) -> Result<usize, Error> {
+fn num_to_idx(num: i32, num_field: &'static str) -> Result<usize> {
     if num < 1 {
-        Err(ReadError::TsvField {
-            field: num_field,
-            value: num,
-        }
-        .into())
-    } else {
-        Ok(num as usize - 1)
+        bail!("TSV field {} has bad TSV value {:?}", num_field, num);
     }
+    Ok(num as usize - 1)
 }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use failure::Error;
+use anyhow::Result;
 
 use crate::filespec::FileSpec;
 use crate::internal::TransactionPostings;
@@ -9,29 +9,23 @@ use crate::rules::predicate::Predicate;
 
 const START_CHAIN: &str = "start";
 
-#[derive(Debug, Fail)]
-pub enum RuleError {
-    #[fail(display = "chain {} not found", chain)]
-    ChainNotFound { chain: String },
-}
-
 #[derive(Debug, Default, Deserialize)]
 pub struct Table(HashMap<String, Chain>);
 
 impl Table {
     #[cfg(test)]
-    fn from_str(s: &str) -> Result<Self, Error> {
+    fn from_str(s: &str) -> Result<Self> {
         let table: Table = Self::from_str_unvalidated(s)?;
         table.validate()?;
         Ok(table)
     }
 
     #[cfg(test)]
-    fn from_str_unvalidated(s: &str) -> Result<Self, Error> {
+    fn from_str_unvalidated(s: &str) -> Result<Self> {
         ron::de::from_str(s).map_err(Into::into)
     }
 
-    pub fn from_filespec(file_spec: &FileSpec) -> Result<Self, Error> {
+    pub fn from_filespec(file_spec: &FileSpec) -> Result<Self> {
         let reader = file_spec.reader()?;
         let table: Table = ron::de::from_reader(reader)?;
         table.validate()?;
@@ -41,16 +35,13 @@ impl Table {
     pub fn update_transactions(
         &self,
         trns: Vec<TransactionPostings>,
-    ) -> Result<Vec<TransactionPostings>, Error> {
+    ) -> Result<Vec<TransactionPostings>> {
         trns.into_iter()
             .map(|trn| self.update_transaction(trn))
-            .collect::<Result<Vec<TransactionPostings>, Error>>()
+            .collect::<Result<Vec<TransactionPostings>>>()
     }
 
-    pub fn update_transaction(
-        &self,
-        mut trn: TransactionPostings,
-    ) -> Result<TransactionPostings, Error> {
+    pub fn update_transaction(&self, mut trn: TransactionPostings) -> Result<TransactionPostings> {
         let start = self.get_chain(START_CHAIN)?;
         for post in &mut trn.posts {
             let mut ctx = PostingContext {
@@ -62,16 +53,13 @@ impl Table {
         Ok(trn)
     }
 
-    fn get_chain(&self, name: &str) -> Result<&Chain, Error> {
-        self.0.get(name).ok_or_else(|| {
-            RuleError::ChainNotFound {
-                chain: name.to_string(),
-            }
-            .into()
-        })
+    fn get_chain(&self, name: &str) -> Result<&Chain> {
+        self.0
+            .get(name)
+            .ok_or_else(|| anyhow!("chain {} not found", name))
     }
 
-    fn validate(&self) -> Result<(), Error> {
+    fn validate(&self) -> Result<()> {
         self.get_chain(START_CHAIN)?;
         for chain in self.0.values() {
             chain.validate(self)?;
@@ -84,7 +72,7 @@ impl Table {
 struct Chain(Vec<Rule>);
 
 impl Chain {
-    fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<(), Error> {
+    fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<()> {
         for rule in &self.0 {
             match rule.apply(table, ctx)? {
                 RuleResult::Continue => {}
@@ -94,7 +82,7 @@ impl Chain {
         Ok(())
     }
 
-    fn validate(&self, table: &Table) -> Result<(), Error> {
+    fn validate(&self, table: &Table) -> Result<()> {
         for r in &self.0 {
             r.validate(table)?;
         }
@@ -110,7 +98,7 @@ struct Rule {
 }
 
 impl Rule {
-    fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<RuleResult, Error> {
+    fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<RuleResult> {
         if self.predicate.is_match(ctx) {
             self.action.apply(table, ctx)?;
             Ok(self.result)
@@ -119,7 +107,7 @@ impl Rule {
         }
     }
 
-    fn validate(&self, table: &Table) -> Result<(), Error> {
+    fn validate(&self, table: &Table) -> Result<()> {
         self.action.validate(table)
     }
 }
@@ -142,7 +130,7 @@ enum Action {
 }
 
 impl Action {
-    fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<(), Error> {
+    fn apply(&self, table: &Table, ctx: &mut PostingContext) -> Result<()> {
         use Action::*;
 
         match self {
@@ -172,7 +160,7 @@ impl Action {
         Ok(())
     }
 
-    fn validate(&self, table: &Table) -> Result<(), Error> {
+    fn validate(&self, table: &Table) -> Result<()> {
         use Action::*;
 
         match self {
@@ -475,9 +463,8 @@ mod tests {
                         ),
                     ]),
                 })"#,
-                cases: compile_cases(vec![
-                    Case {
-                        input: r"
+                cases: compile_cases(vec![Case {
+                    input: r"
                             2001/01/02 description1  ; name1: transaction tag not removed
                                 someaccount  $10.00
                                 ; name1: posting tag removed
@@ -485,15 +472,14 @@ mod tests {
                             2001/01/03 description2
                                 someaccount  $20.00
                         ",
-                        want: r"
+                    want: r"
                             2001/01/02 description1  ; name1: transaction tag not removed
                                 someaccount  $10.00
                                 ; name2: unrelated tag not removed
                             2001/01/03 description2
                                 someaccount  $20.00
                         ",
-                    },
-                ]),
+                }]),
             },
             Test {
                 name: "set based on flag tag",
@@ -506,24 +492,22 @@ mod tests {
                         ),
                     ]),
                 })"#,
-                cases: compile_cases(vec![
-                    Case {
-                        input: r"
+                cases: compile_cases(vec![Case {
+                    input: r"
                             2001/01/02 description1
                                 someaccount  $10.00
                                 ; :tag1: posting tag matches
                             2001/01/03 description2  ; :tag1: transaction tag not matched
                                 someaccount  $20.00
                         ",
-                        want: r"
+                    want: r"
                             2001/01/02 description1
                                 matched  $10.00
                                 ; :tag1: posting tag matches
                             2001/01/03 description2  ; :tag1: transaction tag not matched
                                 someaccount  $20.00
                         ",
-                    },
-                ]),
+                }]),
             },
             Test {
                 name: "remove flag tag",
@@ -536,9 +520,8 @@ mod tests {
                         ),
                     ]),
                 })"#,
-                cases: compile_cases(vec![
-                    Case {
-                        input: r"
+                cases: compile_cases(vec![Case {
+                    input: r"
                             2001/01/02 description1  ; :tag1: transaction tag not matched
                                 someaccount  $10.00
                                 ; :tag1: posting tag removed
@@ -546,7 +529,7 @@ mod tests {
                             2001/01/03 description2
                                 someaccount  $20.00
                         ",
-                        want: r"
+                    want: r"
                             2001/01/02 description1  ; :tag1: transaction tag not matched
                                 someaccount  $10.00
                                 ; :tag2: posting tag removed
@@ -554,8 +537,7 @@ mod tests {
                             2001/01/03 description2
                                 someaccount  $20.00
                         ",
-                    },
-                ]),
+                }]),
             },
         ];
 

@@ -1,8 +1,6 @@
-use std::fmt::Display;
-
+use anyhow::Result;
 use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
-use failure::Error;
 use itertools::Itertools;
 use ledger_parser::{Amount, Balance, Commodity, CommodityPosition, Posting, Transaction};
 use structopt::StructOpt;
@@ -21,42 +19,6 @@ const TRANSACTION_NAME_TAG: &str = "trn_name";
 /// Transaction type field, provided by PayPal.
 const TRANSACTION_TYPE_TAG: &str = "trn_type";
 
-#[derive(Debug, Fail)]
-enum ReadError {
-    #[fail(
-        display = "ambiguous combination of date time {} and timezone: {}",
-        datetime, timezone
-    )]
-    AmbiguousTime {
-        datetime: NaiveDateTime,
-        timezone: FixedOffset,
-    },
-    #[fail(
-        display = "nonexistant combination of date time {} and timezone: {}",
-        datetime, timezone
-    )]
-    NonexistantTime {
-        datetime: NaiveDateTime,
-        timezone: FixedOffset,
-    },
-    #[fail(
-        display = "no record has a name for transactions at date time {}",
-        datetime
-    )]
-    NoNameForGroup { datetime: DateTime<FixedOffset> },
-    #[fail(display = "unknown timezone {:?}", timezone)]
-    UnknownTimezone { timezone: String },
-}
-
-#[derive(Debug)]
-struct TzDisplay(pub Tz);
-
-impl Display for TzDisplay {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        f.write_str(self.0.name())
-    }
-}
-
 #[derive(Debug, StructOpt)]
 /// Converts from PayPal CSV format to Ledger transactions.
 pub struct PaypalCsv {
@@ -74,7 +36,7 @@ pub struct PaypalCsv {
 }
 
 impl TransactionImporter for PaypalCsv {
-    fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
+    fn get_transactions(&self) -> Result<Vec<Transaction>> {
         let mut csv_rdr = csv::ReaderBuilder::new()
             .has_headers(true)
             .flexible(false)
@@ -95,10 +57,10 @@ impl PaypalCsv {
         headers: &csv::StringRecord,
         csv_records: &mut csv::StringRecordsIter<R>,
         tz_abbrs: &TzAbbrDB,
-    ) -> Result<Vec<Transaction>, Error> {
+    ) -> Result<Vec<Transaction>> {
         let records: Vec<Record> = csv_records
             .map(|row| deserialize_row(row, headers, tz_abbrs))
-            .collect::<Result<Vec<Record>, Error>>()?;
+            .collect::<Result<Vec<Record>>>()?;
 
         let record_groups = records.into_iter().group_by(|record| record.datetime);
 
@@ -109,7 +71,7 @@ impl PaypalCsv {
             .map(|(dt, group)| {
                 self.form_transaction(dt, group.collect::<Vec<Record>>(), &fp_prefix)
             })
-            .collect::<Result<Vec<Transaction>, Error>>()
+            .collect::<Result<Vec<Transaction>>>()
     }
 
     fn form_transaction(
@@ -117,13 +79,13 @@ impl PaypalCsv {
         dt: DateTime<FixedOffset>,
         records: Vec<Record>,
         fp_prefix: &str,
-    ) -> Result<Transaction, Error> {
+    ) -> Result<Transaction> {
         let date = dt.with_timezone(&self.output_timezone).naive_local().date();
 
         let description = records
             .iter()
             .find_map(|record| record.name.clone())
-            .ok_or_else(|| ReadError::NoNameForGroup { datetime: dt })?;
+            .ok_or_else(|| anyhow!("no record has a name for transactions at date time {}", dt))?;
 
         let mut postings = Vec::new();
         for (i, mut record) in records.into_iter().enumerate() {
@@ -202,7 +164,7 @@ struct Record {
 }
 
 impl Record {
-    fn from_csv_record(v: de::Record, tz_abbrs: &TzAbbrDB) -> Result<Self, Error> {
+    fn from_csv_record(v: de::Record, tz_abbrs: &TzAbbrDB) -> Result<Self> {
         let commodity = Commodity {
             name: v.currency,
             position: CommodityPosition::Left,
@@ -226,22 +188,24 @@ impl Record {
             .with(&amount)
             .with(&balance);
 
-        let naive_datetime = chrono::NaiveDateTime::new(v.date.0, v.time.0);
+        let naive_datetime = NaiveDateTime::new(v.date.0, v.time.0);
 
         let tz = parse_timezone(tz_abbrs, &v.time_zone)?;
 
         use chrono::LocalResult;
         let datetime: DateTime<FixedOffset> = match tz.from_local_datetime(&naive_datetime) {
-            LocalResult::None => Err(ReadError::NonexistantTime {
-                datetime: naive_datetime,
-                timezone: tz,
-            }),
-            LocalResult::Ambiguous(_, _) => Err(ReadError::AmbiguousTime {
-                datetime: naive_datetime,
-                timezone: tz,
-            }),
-            LocalResult::Single(dt) => Ok(dt),
-        }?;
+            LocalResult::None => bail!(
+                "nonexistant combination of date time {} and timezone: {}",
+                naive_datetime,
+                tz
+            ),
+            LocalResult::Ambiguous(_, _) => bail!(
+                "ambiguous combination of date time {} and timezone: {}",
+                naive_datetime,
+                tz
+            ),
+            LocalResult::Single(dt) => dt,
+        };
         Ok(Self {
             datetime,
             name: v.name,
@@ -258,7 +222,7 @@ fn deserialize_row(
     sr: csv::Result<csv::StringRecord>,
     headers: &csv::StringRecord,
     tz_abbrs: &TzAbbrDB,
-) -> Result<Record, Error> {
+) -> Result<Record> {
     let de_record: de::Record = sr?.deserialize(Some(headers))?;
     Record::from_csv_record(de_record, tz_abbrs)
 }
@@ -361,14 +325,11 @@ mod de {
     }
 }
 
-fn parse_timezone(tz_abbr: &TzAbbrDB, s: &str) -> Result<FixedOffset, Error> {
+fn parse_timezone(tz_abbr: &TzAbbrDB, s: &str) -> Result<FixedOffset> {
     if let Some(tz) = tz_abbr.abbr_to_tz(s) {
         return Ok(tz);
     }
-    Err(ReadError::UnknownTimezone {
-        timezone: s.to_string(),
-    }
-    .into())
+    bail!("unknown timezone {:?}", s);
 }
 
 #[cfg(test)]

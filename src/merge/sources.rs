@@ -1,17 +1,17 @@
 use std::collections::HashMap;
 
-use failure::Error;
+use anyhow::Result;
 
 use crate::filespec::{self, FileSpec};
 use crate::internal::TransactionPostings;
 use crate::tags::TRANSACTION_SOURCE_KEY;
 
 /// Reads a Ledger file, and yields sets of `TransactionPostings` according to
-/// how the transactions declare  where they came from based on their source
+/// how the transactions declare where they came from based on their source
 /// tags.
 pub fn read_ledger_file(
     ledger_file: &FileSpec,
-) -> Result<impl Iterator<Item = Vec<TransactionPostings>>, Error> {
+) -> Result<impl Iterator<Item = Vec<TransactionPostings>>> {
     let mut ledger = filespec::read_ledger_file(ledger_file)?;
     let trns = TransactionPostings::take_from_ledger(&mut ledger);
     let default_source = format!("{}", ledger_file);

@@ -1,3 +1,5 @@
+#[macro_use]
+extern crate anyhow;
 extern crate base64;
 extern crate byteorder;
 extern crate chrono;
@@ -5,10 +7,6 @@ extern crate chrono_tz;
 extern crate csv;
 extern crate encoding_rs;
 extern crate encoding_rs_io;
-#[macro_use]
-extern crate failure;
-#[macro_use]
-extern crate failure_derive;
 extern crate glob;
 extern crate itertools;
 #[macro_use]
@@ -35,7 +33,7 @@ extern crate text_diff;
 #[cfg(test)]
 extern crate textwrap;
 
-use failure::Error;
+use anyhow::Result;
 use structopt::StructOpt;
 
 #[cfg(test)]
@@ -80,7 +78,7 @@ enum SubCommand {
     Merge(merge::cmd::Command),
 }
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<()> {
     let cmd = Command::from_args();
     use SubCommand::*;
     match cmd.subcmd {

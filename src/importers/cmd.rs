@@ -1,4 +1,4 @@
-use failure::Error;
+use anyhow::Result;
 use ledger_parser::Ledger;
 use structopt::StructOpt;
 
@@ -22,7 +22,7 @@ pub enum Importer {
 }
 
 impl Importer {
-    pub fn do_import(&self) -> Result<Ledger, Error> {
+    pub fn do_import(&self) -> Result<Ledger> {
         let transactions = self.get_importer().get_transactions()?;
         Ok(Ledger {
             transactions,
@@ -52,7 +52,7 @@ pub struct Command {
 }
 
 impl Command {
-    pub fn run(&self) -> Result<(), Error> {
+    pub fn run(&self) -> Result<()> {
         let ledger = self.importer.do_import()?;
         filespec::write_ledger_file(&self.output, &ledger)
     }

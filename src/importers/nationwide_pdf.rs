@@ -2,8 +2,8 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use anyhow::{Context, Result};
 use chrono::NaiveDate;
-use failure::{Error, ResultExt};
 use ledger_parser::{Amount, Posting, Transaction};
 use regex::Regex;
 use rust_decimal::Decimal;
@@ -36,47 +36,26 @@ pub struct NationwidePdf {
     commonopts: CommonOpts,
 }
 
-#[derive(Debug, Fail)]
-enum ReadError {
-    #[fail(display = "general error: {}", reason)]
-    General { reason: String },
-    #[fail(display = "bad input structure: {}", reason)]
-    Structure { reason: String },
-}
-
-impl ReadError {
-    fn general<S: Into<String>>(reason: S) -> ReadError {
-        ReadError::General {
-            reason: reason.into(),
-        }
-    }
-    fn structure<S: Into<String>>(reason: S) -> ReadError {
-        ReadError::Structure {
-            reason: reason.into(),
-        }
-    }
-}
-
 impl TransactionImporter for NationwidePdf {
-    fn get_transactions(&self) -> Result<Vec<Transaction>, Error> {
+    fn get_transactions(&self) -> Result<Vec<Transaction>> {
         let doc = self.ocr_document().context("OCR scanning PDF")?;
 
         let account_name = find_account_name(&doc)
-            .ok_or_else(|| Error::from(ReadError::structure("account name not found")))?;
+            .ok_or_else(|| anyhow!("bad input structure: account name not found"))?;
 
         let fp_prefix = make_prefix(&self.commonopts.fp_prefix.to_prefix(&account_name));
 
         let mut acc = TransactionsAccumulator::new(fp_prefix);
         for page in &doc.pages {
             for table in table::Table::find_in_page(page) {
-                let trn_lines = table.read_lines().with_context(|_| {
+                let trn_lines = table.read_lines().with_context(|| {
                     format!(
                         "failed to read transaction lines from table on page #{}",
                         page.num
                     )
                 })?;
                 self.lines_to_transactions(&mut acc, trn_lines)
-                    .with_context(|_| {
+                    .with_context(|| {
                         format!("failed to process transaction lines on page #{}", page.num)
                     })?;
             }
@@ -88,7 +67,7 @@ impl TransactionImporter for NationwidePdf {
 
 impl NationwidePdf {
     /// Performs OCR on the PDF file, extracting a `Document`.
-    fn ocr_document(&self) -> Result<tesseract::Document, Error> {
+    fn ocr_document(&self) -> Result<tesseract::Document> {
         use std::fs::File;
         use std::process::Command;
 
@@ -97,7 +76,7 @@ impl NationwidePdf {
         let png_pattern = tmpdir.path().join("page-*.png");
         let png_pattern_str = png_pattern
             .to_str()
-            .ok_or_else(|| ReadError::general("converting glob path to utf-8 string"))?;
+            .ok_or_else(|| anyhow!("converting glob path to utf-8 string"))?;
 
         {
             let png_fmt = tmpdir.path().join("page-%02d.png");
@@ -126,9 +105,9 @@ impl NationwidePdf {
             let png_glob = glob::glob(png_pattern_str).context("globbing for PNG files")?;
             for png_path_result in png_glob {
                 let png_path = png_path_result?;
-                let png_path_str = png_path.to_str().ok_or_else(|| {
-                    ReadError::general("converting PNG file path to utf-8 string")
-                })?;
+                let png_path_str = png_path
+                    .to_str()
+                    .ok_or_else(|| anyhow!("converting PNG file path to utf-8 string"))?;
                 png_list_file.write_all(png_path_str.as_bytes())?;
                 png_list_file.write_all(b"\n")?;
             }
@@ -160,7 +139,7 @@ impl NationwidePdf {
         {
             let output_path = output_base.with_extension("tsv");
             let tsv_file = File::open(&output_path)
-                .with_context(|_| format!("opening TSV output file {:?}", output_path))?;
+                .with_context(|| format!("opening TSV output file {:?}", output_path))?;
             tesseract::Document::from_tsv_reader(tsv_file)
         }
     }
@@ -169,7 +148,7 @@ impl NationwidePdf {
         &self,
         acc: &mut TransactionsAccumulator,
         trn_lines: Vec<table::TransactionLine>,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut prev_trn_line: Option<&table::TransactionLine> = None;
 
         for trn_line in &trn_lines {
@@ -182,7 +161,7 @@ impl NationwidePdf {
             }
 
             acc.feed_line(trn_line)
-                .with_context(|_| format!("for transaction line {}", trn_line))?;
+                .with_context(|| format!("for transaction line {}", trn_line))?;
 
             prev_trn_line = Some(trn_line);
         }
@@ -210,15 +189,15 @@ impl TransactionsAccumulator {
         }
     }
 
-    fn feed_line(&mut self, trn_line: &table::TransactionLine) -> Result<(), Error> {
+    fn feed_line(&mut self, trn_line: &table::TransactionLine) -> Result<()> {
         match (&trn_line.payment, &trn_line.receipt) {
             (Some(payment), Some(receipt)) => {
                 // Should not happen.
-                return Err(ReadError::structure(format!(
+                bail!(
                     "transaction line has values for both payment ({:?}) and receipt ({:?})",
-                    payment, receipt,
-                ))
-                .into());
+                    payment,
+                    receipt
+                );
             }
             (Some(payment), None) => {
                 // Start of new payment transaction.
@@ -324,18 +303,15 @@ impl TransactionBuilder {
         amount: Amount,
         type_: TransactionType,
         description: String,
-    ) -> Result<Self, Error> {
-        let date = date.ok_or_else(|| {
-            ReadError::structure(format!("missing date for transaction {:?}", description))
-        })?;
+    ) -> Result<Self> {
+        let date = date.ok_or_else(|| anyhow!("missing date for transaction {:?}", description))?;
         if amount.quantity.is_sign_negative() {
             // Negative values should not appear on input, income vs expense is
             // signalled via the "Payments" vs "Receipts" columns.
-            return Err(ReadError::structure(format!(
+            bail!(
                 "encountered negative amount for payment or receipt: {}",
                 amount.quantity
-            ))
-            .into());
+            );
         }
 
         Ok(TransactionBuilder {
@@ -410,7 +386,7 @@ impl TransactionBuilder {
     }
 }
 
-fn parse_amount(s: &str) -> Result<Amount, Error> {
+fn parse_amount(s: &str) -> Result<Amount> {
     let quantity = if s.contains(',') {
         Decimal::from_str(&s.replace(",", ""))?
     } else {
@@ -428,11 +404,10 @@ fn parse_amount(s: &str) -> Result<Amount, Error> {
 mod table {
     use std::fmt;
 
+    use anyhow::Result;
     use chrono::format as date_fmt;
     use chrono::NaiveDate;
-    use failure::Error;
 
-    use super::ReadError;
     use crate::importers::tesseract::{self, Line, Page, Paragraph, Word};
 
     const DATE: &str = "Date";
@@ -460,7 +435,7 @@ mod table {
                 })
         }
 
-        pub fn read_lines(&self) -> Result<Vec<TransactionLine>, Error> {
+        pub fn read_lines(&self) -> Result<Vec<TransactionLine>> {
             let mut trn_lines = Vec::<TransactionLine>::new();
             let mut date_parts: chrono::format::Parsed = Default::default();
             let mut date: Option<NaiveDate> = None;
@@ -601,7 +576,7 @@ mod table {
             date_parts: &mut date_fmt::Parsed,
             date: &mut Option<NaiveDate>,
             line: &tesseract::Line,
-        ) -> Result<DateField, Error> {
+        ) -> Result<DateField> {
             const DAY_PART: date_fmt::Item =
                 date_fmt::Item::Numeric(date_fmt::Numeric::Day, date_fmt::Pad::Zero);
             const MONTH_PART: date_fmt::Item =
@@ -620,11 +595,7 @@ mod table {
                     parse_date_component(date_parts, YEAR_PART, date_words[0])?;
                     let new_year = date_parts.year.expect("year must be set");
                     if new_year < EARLIEST_YEAR || new_year > LATEST_YEAR {
-                        return Err(ReadError::structure(format!(
-                            "found year {} which is out of the expected range",
-                            new_year
-                        ))
-                        .into());
+                        bail!("found year {} which is out of the expected range", new_year);
                     }
 
                     // Changing the year typically implies that we are
@@ -649,11 +620,10 @@ mod table {
                     *date = Some(date_parts.to_naive_date()?);
                     Ok(DateField::DayMonth)
                 }
-                _ => Err(ReadError::structure(format!(
+                _ => Err(anyhow!(
                     "date had unexpected set of components: {}",
                     date_words.join(" ")
-                ))
-                .into()),
+                )),
             }
         }
     }
@@ -662,7 +632,7 @@ mod table {
         parsed: &mut date_fmt::Parsed,
         component: date_fmt::Item,
         value: &str,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let parts: [date_fmt::Item; 1] = [component];
         date_fmt::parse(parsed, value, parts.iter().cloned()).map_err(Into::into)
     }

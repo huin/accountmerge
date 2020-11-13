@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
+use anyhow::Result;
 use chrono::NaiveDate;
-use failure::Error;
 use typed_generational_arena::{StandardArena, StandardIndex};
 
 use crate::comment::Comment;
@@ -9,7 +9,7 @@ use crate::fingerprint;
 use crate::internal::PostingInternal;
 use crate::merge::matchset::MatchSet;
 use crate::merge::transaction;
-use crate::merge::MergeError;
+
 use crate::tags;
 
 const BAD_POSTING_INDEX: &str = "internal error: used invalid posting::Index";
@@ -51,7 +51,7 @@ impl IndexedPostings {
     }
 
     /// Adds a new posting, updating the fingerprint index.
-    pub fn add(&mut self, input: Input, parent_trn: transaction::Index) -> Result<Index, Error> {
+    pub fn add(&mut self, input: Input, parent_trn: transaction::Index) -> Result<Index> {
         let fingerprints: Vec<String> = fingerprints_from_comment(&input.posting.comment)
             .map(str::to_string)
             .collect();
@@ -86,11 +86,7 @@ impl IndexedPostings {
     }
 
     /// Updates an existing posting, updating the fingerprint index.
-    pub fn merge_into(
-        &mut self,
-        existing_post_idx: Index,
-        input_posting: Input,
-    ) -> Result<(), Error> {
+    pub fn merge_into(&mut self, existing_post_idx: Index, input_posting: Input) -> Result<()> {
         self.register_fingerprints(
             fingerprints_from_comment(&input_posting.posting.comment).map(str::to_string),
             existing_post_idx,
@@ -105,17 +101,13 @@ impl IndexedPostings {
         &mut self,
         fingerprints: impl Iterator<Item = String>,
         post_idx: Index,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         for fp in fingerprints {
             use std::collections::hash_map::Entry::*;
             match self.post_by_fingerprint.entry(fp.to_string()) {
                 Occupied(e) => {
                     if e.get() != &post_idx {
-                        let reason = format!(
-                            "multiple posts claiming fingerprint {:?} added or merged",
-                            fp
-                        );
-                        return Err(MergeError::Internal { reason }.into());
+                        bail!("internal merge error: multiple posts claiming fingerprint {:?} added or merged", fp);
                     }
                 }
                 Vacant(e) => {
@@ -190,10 +182,7 @@ pub struct Input {
 }
 
 impl Input {
-    pub fn from_posting_internal(
-        posting: PostingInternal,
-        trn_date: NaiveDate,
-    ) -> Result<Self, Error> {
+    pub fn from_posting_internal(posting: PostingInternal, trn_date: NaiveDate) -> Result<Self> {
         // Error if any src_post has a candidate tag on it. The user should have
         // removed it.
         if posting
@@ -202,13 +191,10 @@ impl Input {
             .iter()
             .any(|tag| tag.starts_with(tags::CANDIDATE_FP_PREFIX))
         {
-            return Err(MergeError::Input {
-                reason: format!(
-                    "posting \"{}\" has a candidate tag",
-                    posting.clone_into_posting()
-                ),
-            }
-            .into());
+            bail!(
+                "bad input to merge: posting \"{}\" has a candidate tag",
+                posting.clone_into_posting()
+            );
         }
 
         // Ensure that there is at least one fingerprint to serve as the
@@ -221,13 +207,10 @@ impl Input {
             .map(String::as_str)
             .any(fingerprint::is_fingerprint)
         {
-            return Err(MergeError::Input {
-                reason: format!(
-                    "posting \"{}\" does not have a fingerprint tag",
-                    posting.clone_into_posting()
-                ),
-            }
-            .into());
+            bail!(
+                "posting \"{}\" does not have a fingerprint tag",
+                posting.clone_into_posting()
+            );
         }
 
         Ok(Self { trn_date, posting })

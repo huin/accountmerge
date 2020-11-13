@@ -1,4 +1,4 @@
-use failure::Error;
+use anyhow::Result;
 use structopt::StructOpt;
 
 use crate::filespec::{self, FileSpec};
@@ -20,7 +20,7 @@ pub struct Command {
 }
 
 impl Command {
-    pub fn run(&self) -> Result<(), Error> {
+    pub fn run(&self) -> Result<()> {
         let mut merger = merger::Merger::new();
 
         let mut unmerged = Vec::<TransactionPostings>::new();
@@ -50,10 +50,8 @@ impl Command {
                     filespec::write_ledger_file(fs, &ledger)?;
                 }
                 None => {
-                    return Err(format_err!(
-                    "{} input transactions have gone unmerged and no --unmerged output file was specified",
-                    unmerged.len(),
-                ));
+                    bail!("{} input transactions have gone unmerged and no --unmerged output file was specified",
+                    unmerged.len());
                 }
             }
         }

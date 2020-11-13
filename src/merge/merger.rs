@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use failure::Error;
+use anyhow::Result;
 
 use crate::internal::{PostingInternal, TransactionPostings};
-use crate::merge::{posting, transaction, MergeError};
+use crate::merge::{posting, transaction};
 use crate::mutcell::MutCell;
 use crate::tags;
 
@@ -26,10 +26,7 @@ impl Merger {
 
     /// This merging algorithm is described in README.md under "Matching
     /// algorithm".
-    pub fn merge(
-        &mut self,
-        src_trns: Vec<TransactionPostings>,
-    ) -> Result<UnmergedTransactions, Error> {
+    pub fn merge(&mut self, src_trns: Vec<TransactionPostings>) -> Result<UnmergedTransactions> {
         let pending = self.make_pending(src_trns)?;
         self.check_pending(&pending)?;
         self.apply_pending(pending)
@@ -38,7 +35,7 @@ impl Merger {
     fn make_pending(
         &self,
         orig_trns: Vec<TransactionPostings>,
-    ) -> Result<Vec<TransactionMergeAction>, Error> {
+    ) -> Result<Vec<TransactionMergeAction>> {
         let mut pending = Vec::<TransactionMergeAction>::new();
 
         // Set of fingerprints found in `pending.posts` so far.
@@ -53,7 +50,7 @@ impl Merger {
         Ok(pending)
     }
 
-    fn check_pending(&self, pending: &[TransactionMergeAction]) -> Result<(), Error> {
+    fn check_pending(&self, pending: &[TransactionMergeAction]) -> Result<()> {
         // Check if multiple source postings have matched against the same
         // destination posting.
         // TODO: Should we do the same for merging into the same destination
@@ -100,13 +97,12 @@ impl Merger {
                         "\n",
                     );
                     let destination = self.posts.get(dest_idx_hash.0);
-                    let reason = format!(
-                        "{} input postings match the same destination posting\ninputs:\n{}\n\ndestination:\n{}",
+                    bail!(
+                        "bad input to merge: {} input postings match the same destination posting\ninputs:\n{}\n\ndestination:\n{}",
                         src_posts.len(),
                         inputs,
                         destination.posting.clone_into_posting(),
                     );
-                    return Err(MergeError::Input { reason }.into());
                 }
             }
         }
@@ -117,7 +113,7 @@ impl Merger {
     fn apply_pending(
         &mut self,
         pending: Vec<TransactionMergeAction>,
-    ) -> Result<UnmergedTransactions, Error> {
+    ) -> Result<UnmergedTransactions> {
         let mut unmerged = Vec::<TransactionPostings>::new();
 
         for trn_action in pending.into_iter() {
@@ -148,7 +144,7 @@ impl Merger {
         &mut self,
         dest_trn_idx: transaction::Index,
         post_actions: Vec<(posting::Input, PostingMergeAction)>,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         for (post, action) in post_actions {
             match action {
                 PostingMergeAction::New => {
@@ -167,7 +163,7 @@ impl Merger {
         &self,
         fingerprints_seen: &mut HashSet<String>,
         orig_trn_postings: TransactionPostings,
-    ) -> Result<TransactionMergeAction, Error> {
+    ) -> Result<TransactionMergeAction> {
         if orig_trn_postings.posts.is_empty() {
             // Because we have no postings to match against, we can't merge into
             // an existing transaction. But if we try to create a new
@@ -187,7 +183,7 @@ impl Merger {
 
             for fp in src_post.iter_fingerprints().map(str::to_string) {
                 if fingerprints_seen.contains(&fp) {
-                    return Err(MergeError::Input{reason: format!("multiple postings with same fingerprint ({:?}) found within a single input transaction set", fp)}.into());
+                    bail!("bad input to merge: multiple postings with same fingerprint ({:?}) found within a single input transaction set", fp);
                 }
                 fingerprints_seen.insert(fp);
             }
@@ -232,7 +228,7 @@ impl Merger {
     fn determine_posting_action(
         &self,
         src_post: &mut posting::Input,
-    ) -> Result<Option<PostingMergeAction>, Error> {
+    ) -> Result<Option<PostingMergeAction>> {
         use posting::Match::*;
         use posting::MatchedIndices::*;
         use PostingMergeAction::*;
@@ -252,12 +248,11 @@ impl Merger {
                         }),
                         "\n",
                     );
-                    let reason = format!(
-                        "input posting matches multiple same destination postings by fingerprints\ninput:\n{}\nmatched ndestinations:\n{}",
+                    bail!(
+                        "bad input to merge: input posting matches multiple same destination postings by fingerprints\ninput:\n{}\nmatched ndestinations:\n{}",
                         src_post.posting.clone_into_posting(),
                         destinations,
                     );
-                    Err(MergeError::Input { reason }.into())
                 }
             },
 
@@ -299,7 +294,7 @@ impl Merger {
         &self,
         src_trn: &transaction::Holder,
         src_posts_matched: &[(posting::Input, PostingMergeAction)],
-    ) -> Result<Option<transaction::Index>, Error> {
+    ) -> Result<Option<transaction::Index>> {
         // Look for parent transactions of postings that have been matched as
         // destination postings.
         let candidate_trns: HashSet<HashableTransactionIndex> = src_posts_matched
@@ -318,9 +313,7 @@ impl Merger {
         // Check that only one destination transaction matches.
         match candidate_trns.len() {
             n if n <= 1 => Ok(candidate_trns.iter().next().map(|i| i.0)),
-            _ => Err(MergeError::Input {
-                reason: format!(
-                    "input transaction on {} ({:?}) matches multiple existing transactions: {}",
+            _ => Err(anyhow!("bad input to merge: input transaction on {} ({:?}) matches multiple existing transactions: {}",
                     src_trn.trn.raw.date,
                     src_trn.trn.raw.description,
                     itertools::join(
@@ -332,9 +325,7 @@ impl Merger {
                             .description),
                         ", "
                     ),
-                ),
-            }
-            .into()),
+                )),
         }
     }
 

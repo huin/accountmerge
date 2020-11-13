@@ -1,7 +1,7 @@
 use std::fmt;
 
 #[cfg(test)]
-use failure::Error;
+use anyhow::Result;
 use serde::de;
 use serde::Deserialize;
 
@@ -43,7 +43,7 @@ impl Predicate {
     }
 
     #[cfg(test)]
-    pub fn from_str(s: &str) -> Result<Self, Error> {
+    pub fn from_str(s: &str) -> Result<Self> {
         ron::de::from_str(s).map_err(Into::into)
     }
 }

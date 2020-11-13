@@ -1,4 +1,4 @@
-use failure::Error;
+use anyhow::Result;
 
 use structopt::StructOpt;
 
@@ -14,7 +14,7 @@ pub struct Command {
 }
 
 impl Command {
-    pub fn run(&self) -> Result<(), Error> {
+    pub fn run(&self) -> Result<()> {
         for ledger_file in &self.journals {
             let mut ledger = filespec::read_ledger_file(ledger_file)?;
             let mut trns = TransactionPostings::take_from_ledger(&mut ledger);

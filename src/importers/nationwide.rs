@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use failure::Error;
+use anyhow::{Error, Result};
 use structopt::StructOpt;
 
 use crate::fingerprint::FingerprintBuilder;
@@ -53,7 +53,7 @@ const FIXED_PREFIX: &str = "fixed:";
 
 impl FromStr for FpPrefix {
     type Err = Error;
-    fn from_str(s: &str) -> Result<Self, Error> {
+    fn from_str(s: &str) -> Result<Self> {
         use FpPrefix::*;
 
         match s {
