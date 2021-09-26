@@ -181,15 +181,15 @@ mod tests {
             name: &'static str,
             table: &'static str,
             cases: Vec<CompiledCase>,
-        };
+        }
         struct CompiledCase {
             input: Vec<TransactionPostings>,
             want: Vec<TransactionPostings>,
-        };
+        }
         struct Case {
             input: &'static str,
             want: &'static str,
-        };
+        }
         fn compile_cases(cases: Vec<Case>) -> Vec<CompiledCase> {
             cases
                 .into_iter()
