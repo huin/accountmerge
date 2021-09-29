@@ -12,6 +12,7 @@ pub enum Predicate {
     All(Vec<Predicate>),
     Any(Vec<Predicate>),
     Account(StringMatch),
+    PostingFlagTag(StringMatch),
     PostingHasFlagTag(String),
     PostingHasValueTag(String),
     PostingValueTag(String, StringMatch),
@@ -29,6 +30,12 @@ impl Predicate {
             Any(preds) => preds.iter().any(|p| p.is_match(ctx)),
             Account(matcher) => matcher.matches_string(&ctx.post.raw.account),
             Not(pred) => !pred.is_match(ctx),
+            PostingFlagTag(matcher) => ctx
+                .post
+                .comment
+                .tags
+                .iter()
+                .any(|tag_name| matcher.matches_string(tag_name)),
             PostingHasFlagTag(tag_name) => ctx.post.comment.tags.contains(tag_name),
             PostingHasValueTag(tag_name) => ctx.post.comment.value_tags.contains_key(tag_name),
             PostingValueTag(tag_name, matcher) => ctx
@@ -123,6 +130,8 @@ mod tests {
     #[test_case("Account(Matches(\"name\"))", SIMPLE_POSTING => true)]
     #[test_case("Account(Matches(\"^name\"))", SIMPLE_POSTING => false)]
     #[test_case("Not(True)", SIMPLE_POSTING => false)]
+    #[test_case("PostingFlagTag(Matches(\"^flag-\"))", SIMPLE_POSTING => true)]
+    #[test_case("PostingFlagTag(Matches(\"^no-such-flag\"))", SIMPLE_POSTING => false)]
     #[test_case("PostingHasFlagTag(\"flag-tag\")", SIMPLE_POSTING => true)]
     #[test_case("PostingHasFlagTag(\"other-flag-tag\")", SIMPLE_POSTING => false)]
     #[test_case("PostingHasValueTag(\"value-tag\")", SIMPLE_POSTING => true)]
