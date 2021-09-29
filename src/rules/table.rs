@@ -122,6 +122,7 @@ enum RuleResult {
 enum Action {
     AddPostingFlagTag(String),
     All(Vec<Action>),
+    Error(String),
     Noop,
     JumpChain(String),
     SetAccount(String),
@@ -141,6 +142,14 @@ impl Action {
                 for action in actions {
                     action.apply(table, ctx)?;
                 }
+            }
+            Error(err_msg) => {
+                return Err(anyhow!(
+                    "Rule reported error: {}\nWhile processing posting on {}:\n{}",
+                    err_msg,
+                    ctx.trn.raw.date,
+                    ctx.post.raw,
+                ));
             }
             Noop => {}
             JumpChain(name) => {
@@ -559,6 +568,33 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn error_action() {
+        let table = Table::from_str(
+            r#"Table({
+                "start": Chain([
+                    Rule(
+                        action: Error("MY ERROR"),
+                        predicate: Account(Eq("bad:account")),
+                        result: Return,
+                    ),
+                ]),
+            })"#,
+        )
+        .expect("should parse and validate");
+        let input = parse_transaction_postings(
+            r#"
+                2001/01/02 transaction
+                    good:account  $10.00
+                    bad:account   $-10.00
+            "#,
+        );
+        let got = table.update_transactions(input);
+        let err = got.expect_err("wanted an error");
+        assert!(err.to_string().contains("MY ERROR"));
+        assert!(err.to_string().contains("bad:account"));
     }
 
     #[test]
