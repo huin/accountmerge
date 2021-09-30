@@ -258,19 +258,22 @@ mod de {
 
         fn visit_str<E: de::Error>(self, s: &str) -> Result<Self::Value, E> {
             lazy_static! {
-                static ref RE: Regex = Regex::new(r"£(\d+)\.(\d+)").unwrap();
+                static ref RE: Regex = Regex::new(r"£(-?)(\d+)\.(\d+)").unwrap();
             }
             let captures = RE
                 .captures(s)
                 .ok_or_else(|| de::Error::custom("incorrect monetary format"))?;
-            let pounds: i64 = deserialize_captured_number(&captures, 1)?;
-            let pence: i64 = deserialize_captured_number(&captures, 2)?;
+            let is_negative: bool = captures.get(1).unwrap().as_str() == "-";
+            let pounds: i64 = deserialize_captured_number(&captures, 2)?;
+            let pence: i64 = deserialize_captured_number(&captures, 3)?;
+            let mut quantity = Decimal::new(pounds * 100 + pence, 2);
+            quantity.set_sign_negative(is_negative);
             Ok(GbpValue(Amount {
                 commodity: Commodity {
                     name: "GBP".to_string(),
                     position: CommodityPosition::Left,
                 },
-                quantity: Decimal::new(pounds * 100 + pence, 2),
+                quantity,
             }))
         }
     }
