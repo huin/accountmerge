@@ -3,15 +3,15 @@ use std::str::FromStr;
 use anyhow::{Error, Result};
 use structopt::StructOpt;
 
-use crate::fingerprint::FingerprintBuilder;
+use crate::fingerprint::Accumulator;
 
 pub const BANK_NAME: &str = "Nationwide";
 
 /// Common options for Nationwide importers.
 #[derive(Debug, StructOpt)]
 pub struct CommonOpts {
-    /// The prefix of the fingerprints to generate (without "fp-" that will be
-    /// prefixed to this value).
+    /// The user provided component of the fingerprint namespace. This
+    /// typically uniquely identifies one of the user's accounts.
     ///
     /// "account-name" uses the account name from the CSV file.
     ///
@@ -19,29 +19,29 @@ pub struct CommonOpts {
     ///
     /// "generated" generates a hashed value based on the account name in the
     /// CSV file.
-    #[structopt(long = "fingerprint-prefix", default_value = "generated")]
-    pub fp_prefix: FpPrefix,
+    #[structopt(long = "fp-namespace", default_value = "generated")]
+    pub fp_ns: FpNamespace,
 }
 
 #[derive(Debug)]
-pub enum FpPrefix {
+pub enum FpNamespace {
     AccountName,
     Fixed(String),
     Generated,
 }
 
-impl FpPrefix {
-    pub fn to_prefix(&self, account_name: &str) -> String {
-        use FpPrefix::*;
+impl FpNamespace {
+    pub fn make_namespace(&self, account_name: &str) -> String {
+        use FpNamespace::*;
 
         match self {
             AccountName => account_name.to_string(),
             Fixed(s) => s.clone(),
             Generated => {
-                let mut s = FingerprintBuilder::new()
+                let mut s = Accumulator::new()
                     .with(BANK_NAME)
                     .with(account_name)
-                    .build();
+                    .into_base64();
                 s.truncate(8);
                 s
             }
@@ -51,16 +51,16 @@ impl FpPrefix {
 
 const FIXED_PREFIX: &str = "fixed:";
 
-impl FromStr for FpPrefix {
+impl FromStr for FpNamespace {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self> {
-        use FpPrefix::*;
+        use FpNamespace::*;
 
         match s {
             "account-name" => Ok(AccountName),
             "generated" => Ok(Generated),
             s if s.starts_with(FIXED_PREFIX) => Ok(Fixed(s[FIXED_PREFIX.len()..].to_string())),
-            _ => bail!("invalid value for fingerprint prefix: {:?}", s),
+            _ => bail!("invalid value for fingerprint namespace: {:?}", s),
         }
     }
 }

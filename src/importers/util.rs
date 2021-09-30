@@ -1,6 +1,7 @@
 use ledger_parser::Amount;
 
 use crate::accounts::{EXPENSES_UNKNOWN, INCOME_UNKNOWN};
+use crate::fingerprint::{Fingerprint, FingerprintBuilder};
 
 pub fn negate_amount(amt: Amount) -> Amount {
     Amount {
@@ -38,5 +39,17 @@ pub fn self_and_peer_account_amount(
             account: peer_account.to_string(),
             amount: negate_amount(self_amount),
         },
+    }
+}
+
+pub struct FingerprintHalves {
+    pub self_: Fingerprint,
+    pub peer: Fingerprint,
+}
+
+pub fn self_and_peer_fingerprints(fpb: FingerprintBuilder) -> FingerprintHalves {
+    FingerprintHalves {
+        self_: fpb.clone().with("self").build(),
+        peer: fpb.with("peer").build(),
     }
 }

@@ -31,6 +31,9 @@ pub struct NationwidePdf {
     /// Path to Tesseract v4 binary to run.
     #[structopt(default_value = "tesseract")]
     tesseract_binary: PathBuf,
+    /// Generate the legacy fingerprint tag.
+    #[structopt(long = "include-legacy-fingerprint")]
+    include_legacy_fingerprint: bool,
 
     #[structopt(flatten)]
     commonopts: CommonOpts,
@@ -43,9 +46,9 @@ impl TransactionImporter for NationwidePdf {
         let account_name = find_account_name(&doc)
             .ok_or_else(|| anyhow!("bad input structure: account name not found"))?;
 
-        let fp_prefix = make_prefix(&self.commonopts.fp_prefix.to_prefix(&account_name));
+        let fp_ns = make_prefix(&self.commonopts.fp_ns.make_namespace(&account_name));
 
-        let mut acc = TransactionsAccumulator::new(fp_prefix);
+        let mut acc = TransactionsAccumulator::new(fp_ns);
         for page in &doc.pages {
             for table in table::Table::find_in_page(page) {
                 let trn_lines = table.read_lines().with_context(|| {
@@ -171,7 +174,7 @@ impl NationwidePdf {
 }
 
 struct TransactionsAccumulator {
-    fp_prefix: String,
+    fp_ns: String,
     cur_trn_opt: Option<TransactionBuilder>,
     prev_date: Option<NaiveDate>,
     date_counter: i32,
@@ -179,9 +182,9 @@ struct TransactionsAccumulator {
 }
 
 impl TransactionsAccumulator {
-    fn new(fp_prefix: String) -> Self {
+    fn new(fp_ns: String) -> Self {
         Self {
-            fp_prefix,
+            fp_ns,
             cur_trn_opt: None,
             prev_date: None,
             date_counter: 0,
@@ -271,7 +274,7 @@ impl TransactionsAccumulator {
 
     fn flush_transaction(&mut self) {
         if let Some(pending) = self.cur_trn_opt.take() {
-            self.trns.push(pending.build(&self.fp_prefix));
+            self.trns.push(pending.build(&self.fp_ns));
         }
     }
 
@@ -325,8 +328,8 @@ impl TransactionBuilder {
         })
     }
 
-    fn build(self, fp_prefix: &str) -> Transaction {
-        let record_fpb = FingerprintBuilder::new()
+    fn build(self, fp_ns: &str) -> Transaction {
+        let record_fpb = FingerprintBuilder::new("nwpdf", 1, fp_ns)
             .with(self.date)
             .with(self.date_counter)
             .with(self.description.as_str());
@@ -366,7 +369,7 @@ impl TransactionBuilder {
                     comment: comment_base
                         .clone()
                         .with_tag(tags::IMPORT_SELF)
-                        .with_tag(self_fp.build_with_prefix(fp_prefix))
+                        .with_tag(self_fp.build().legacy_tag())
                         .build()
                         .into_opt_comment(),
                 },
@@ -377,7 +380,7 @@ impl TransactionBuilder {
                     status: None,
                     comment: comment_base
                         .with_tag(tags::IMPORT_PEER)
-                        .with_tag(peer_fp.build_with_prefix(fp_prefix))
+                        .with_tag(peer_fp.build().legacy_tag())
                         .build()
                         .into_opt_comment(),
                 },

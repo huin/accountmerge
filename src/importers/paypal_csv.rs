@@ -8,9 +8,9 @@ use structopt::StructOpt;
 use crate::accounts::ASSETS_UNKNOWN;
 use crate::comment::Comment;
 use crate::filespec::FileSpec;
-use crate::fingerprint::{make_prefix, FingerprintBuilder};
+use crate::fingerprint::FingerprintBuilder;
 use crate::importers::importer::TransactionImporter;
-use crate::importers::util::self_and_peer_account_amount;
+use crate::importers::util::{self_and_peer_account_amount, self_and_peer_fingerprints};
 use crate::tags;
 use crate::tzabbr::TzAbbrDB;
 
@@ -27,12 +27,14 @@ pub struct PaypalCsv {
     /// Timezone of the output Ledger transactions.
     #[structopt(long = "output-timezone")]
     output_timezone: Tz,
-    #[structopt(long = "fingerprint-prefix", default_value = "paypal")]
-    /// The prefix of the fingerprints to generate (without "fp-" that will be
-    /// prefixed to this value).
-    fp_prefix: String,
+    #[structopt(long = "fingerprint-namespace", default_value = "paypal")]
+    // User namespace of the fingerprints to generate.
+    fp_ns: String,
     /// Timezone abbreviations CSV file to use.
     timezone_abbr_file: FileSpec,
+    /// Generate the legacy fingerprint tag.
+    #[structopt(long = "include-legacy-fingerprint")]
+    include_legacy_fingerprint: bool,
 }
 
 impl TransactionImporter for PaypalCsv {
@@ -59,18 +61,14 @@ impl PaypalCsv {
         tz_abbrs: &TzAbbrDB,
     ) -> Result<Vec<Transaction>> {
         let records: Vec<Record> = csv_records
-            .map(|row| deserialize_row(row, headers, tz_abbrs))
+            .map(|row| deserialize_row(row, headers, tz_abbrs, &self.fp_ns))
             .collect::<Result<Vec<Record>>>()?;
 
         let record_groups = records.into_iter().group_by(|record| record.datetime);
 
-        let fp_prefix = make_prefix(&self.fp_prefix);
-
         record_groups
             .into_iter()
-            .map(|(dt, group)| {
-                self.form_transaction(dt, group.collect::<Vec<Record>>(), &fp_prefix)
-            })
+            .map(|(dt, group)| self.form_transaction(dt, group.collect::<Vec<Record>>()))
             .collect::<Result<Vec<Transaction>>>()
     }
 
@@ -78,7 +76,6 @@ impl PaypalCsv {
         &self,
         dt: DateTime<FixedOffset>,
         records: Vec<Record>,
-        fp_prefix: &str,
     ) -> Result<Transaction> {
         let date = dt.with_timezone(&self.output_timezone).naive_local().date();
 
@@ -90,7 +87,7 @@ impl PaypalCsv {
         let mut postings = Vec::new();
         for (i, mut record) in records.into_iter().enumerate() {
             record.partial_fp = record.partial_fp.with(i);
-            let (p1, p2) = form_postings(record, fp_prefix);
+            let (p1, p2) = self.form_postings(record);
             postings.push(p1);
             postings.push(p2);
         }
@@ -105,52 +102,56 @@ impl PaypalCsv {
             postings,
         })
     }
-}
 
-fn form_postings(record: Record, fp_prefix: &str) -> (Posting, Posting) {
-    let self_comment = Comment::builder()
-        .with_tag(tags::IMPORT_SELF)
-        .with_tag(tags::UNKNOWN_ACCOUNT)
-        .with_tag(
-            record
-                .partial_fp
-                .clone()
-                .with("self")
-                .build_with_prefix(fp_prefix),
+    fn form_postings(&self, record: Record) -> (Posting, Posting) {
+        let fp = self_and_peer_fingerprints(record.partial_fp);
+        let self_comment = Comment::builder()
+            .with_tag(tags::IMPORT_SELF)
+            .with_tag(tags::UNKNOWN_ACCOUNT)
+            .with_option_tag(if self.include_legacy_fingerprint {
+                Some(fp.self_.legacy_tag())
+            } else {
+                None
+            })
+            .with_tag(fp.self_.tag())
+            .build();
+        let mut peer_comment = Comment::builder()
+            .with_tag(tags::IMPORT_PEER)
+            .with_tag(tags::UNKNOWN_ACCOUNT)
+            .with_option_tag(if self.include_legacy_fingerprint {
+                Some(fp.peer.legacy_tag())
+            } else {
+                None
+            })
+            .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
+            .build();
+        if let Some(name) = record.name {
+            peer_comment
+                .value_tags
+                .insert(TRANSACTION_NAME_TAG.to_string(), name);
+        }
+
+        let halves = self_and_peer_account_amount(record.amount, ASSETS_UNKNOWN.to_string());
+
+        let status = Some(record.status.into());
+
+        (
+            Posting {
+                account: halves.self_.account,
+                amount: Some(halves.self_.amount),
+                balance: Some(Balance::Amount(record.balance)),
+                comment: self_comment.into_opt_comment(),
+                status: status.clone(),
+            },
+            Posting {
+                account: halves.peer.account,
+                amount: Some(halves.peer.amount),
+                balance: None,
+                comment: peer_comment.into_opt_comment(),
+                status,
+            },
         )
-        .build();
-    let mut peer_comment = Comment::builder()
-        .with_tag(tags::IMPORT_PEER)
-        .with_tag(tags::UNKNOWN_ACCOUNT)
-        .with_tag(record.partial_fp.with("peer").build_with_prefix(fp_prefix))
-        .with_value_tag(TRANSACTION_TYPE_TAG, record.type_)
-        .build();
-    if let Some(name) = record.name {
-        peer_comment
-            .value_tags
-            .insert(TRANSACTION_NAME_TAG.to_string(), name);
     }
-
-    let halves = self_and_peer_account_amount(record.amount, ASSETS_UNKNOWN.to_string());
-
-    let status = Some(record.status.into());
-
-    (
-        Posting {
-            account: halves.self_.account,
-            amount: Some(halves.self_.amount),
-            balance: Some(Balance::Amount(record.balance)),
-            comment: self_comment.into_opt_comment(),
-            status: status.clone(),
-        },
-        Posting {
-            account: halves.peer.account,
-            amount: Some(halves.peer.amount),
-            balance: None,
-            comment: peer_comment.into_opt_comment(),
-            status,
-        },
-    )
 }
 
 struct Record {
@@ -164,7 +165,7 @@ struct Record {
 }
 
 impl Record {
-    fn from_csv_record(v: de::Record, tz_abbrs: &TzAbbrDB) -> Result<Self> {
+    fn from_csv_record(v: de::Record, tz_abbrs: &TzAbbrDB, fp_ns: &str) -> Result<Self> {
         let commodity = Commodity {
             name: v.currency,
             position: CommodityPosition::Left,
@@ -177,7 +178,7 @@ impl Record {
             quantity: v.balance,
             commodity,
         };
-        let partial_fp = FingerprintBuilder::new()
+        let partial_fp = FingerprintBuilder::new("ppcsv", 1, fp_ns)
             .with(v.date.0)
             .with(v.time.0)
             .with(v.time_zone.as_str())
@@ -222,9 +223,10 @@ fn deserialize_row(
     sr: csv::Result<csv::StringRecord>,
     headers: &csv::StringRecord,
     tz_abbrs: &TzAbbrDB,
+    fp_ns: &str,
 ) -> Result<Record> {
     let de_record: de::Record = sr?.deserialize(Some(headers))?;
-    Record::from_csv_record(de_record, tz_abbrs)
+    Record::from_csv_record(de_record, tz_abbrs, fp_ns)
 }
 
 mod de {
@@ -345,11 +347,12 @@ mod tests {
             &PaypalCsv {
                 input: FileSpec::from_str("testdata/importers/paypal_csv.csv").unwrap(),
                 output_timezone: Tz::UTC,
-                fp_prefix: "paypal".to_string(),
+                fp_ns: "paypal".to_string(),
                 timezone_abbr_file: FileSpec::from_str(
                     "testdata/importers/paypal_csv_tz_abbrs.csv",
                 )
                 .unwrap(),
+                include_legacy_fingerprint: true,
             },
             "paypal_csv.golden.journal",
         );

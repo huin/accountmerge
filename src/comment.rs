@@ -185,6 +185,13 @@ impl CommentBuilder {
         self
     }
 
+    pub fn with_option_tag<K: Into<String>>(mut self, k: Option<K>) -> Self {
+        if let Some(k) = k {
+            self.comment.tags.insert(k.into());
+        }
+        self
+    }
+
     pub fn with_tag<K: Into<String>>(mut self, k: K) -> Self {
         self.comment.tags.insert(k.into());
         self
