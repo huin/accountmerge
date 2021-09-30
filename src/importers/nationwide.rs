@@ -1,8 +1,10 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use anyhow::{Error, Result};
 use structopt::StructOpt;
 
+use crate::filespec::FileSpec;
 use crate::fingerprint::Accumulator;
 
 pub const BANK_NAME: &str = "Nationwide";
@@ -28,28 +30,34 @@ pub enum FpNamespace {
     AccountName,
     Fixed(String),
     Generated,
+    Lookup(HashMap<String, String>),
 }
 
 impl FpNamespace {
-    pub fn make_namespace(&self, account_name: &str) -> String {
+    pub fn make_namespace(&self, account_name: &str) -> Result<String> {
         use FpNamespace::*;
 
         match self {
-            AccountName => account_name.to_string(),
-            Fixed(s) => s.clone(),
+            AccountName => Ok(account_name.to_string()),
+            Fixed(s) => Ok(s.clone()),
             Generated => {
                 let mut s = Accumulator::new()
                     .with(BANK_NAME)
                     .with(account_name)
                     .into_base64();
                 s.truncate(8);
-                s
+                Ok(s)
             }
+            Lookup(t) => t
+                .get(account_name)
+                .cloned()
+                .ok_or_else(|| anyhow!("no account namespace found for {:?}", account_name)),
         }
     }
 }
 
 const FIXED_PREFIX: &str = "fixed:";
+const LOOKUP_PREFIX: &str = "lookup:";
 
 impl FromStr for FpNamespace {
     type Err = Error;
@@ -60,6 +68,12 @@ impl FromStr for FpNamespace {
             "account-name" => Ok(AccountName),
             "generated" => Ok(Generated),
             s if s.starts_with(FIXED_PREFIX) => Ok(Fixed(s[FIXED_PREFIX.len()..].to_string())),
+            s if s.starts_with(LOOKUP_PREFIX) => {
+                let path = FileSpec::from_str(&s[LOOKUP_PREFIX.len()..])?;
+                let reader = path.reader()?;
+                let namespaces: HashMap<String, String> = ron::de::from_reader(reader)?;
+                Ok(Lookup(namespaces))
+            }
             _ => bail!("invalid value for fingerprint namespace: {:?}", s),
         }
     }

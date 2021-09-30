@@ -46,7 +46,7 @@ impl TransactionImporter for NationwidePdf {
         let account_name = find_account_name(&doc)
             .ok_or_else(|| anyhow!("bad input structure: account name not found"))?;
 
-        let fp_ns = make_prefix(&self.commonopts.fp_ns.make_namespace(&account_name));
+        let fp_ns = make_prefix(&self.commonopts.fp_ns.make_namespace(&account_name)?);
 
         let mut acc = TransactionsAccumulator::new(fp_ns);
         for page in &doc.pages {

@@ -11,7 +11,9 @@ cargo run -q -- generate-fingerprints - \
 for i in 1 2; do
     cargo run -q \
         -- import --output example_output/statement${i}-raw.journal \
-        nationwide-csv examples/statement${i}.csv
+        nationwide-csv \
+        --fp-namespace lookup:examples/accounts.ron \
+        examples/statement${i}.csv
     cargo run -q -- apply-rules -r examples/rules.ron \
         --output example_output/statements${i}-ruled.journal \
         example_output/statement${i}-raw.journal
