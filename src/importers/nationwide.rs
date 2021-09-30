@@ -21,6 +21,10 @@ pub struct CommonOpts {
     ///
     /// "generated" generates a hashed value based on the account name in the
     /// CSV file.
+    ///
+    /// "lookup:<path>" reads the RON file at the given file (containing a
+    /// `HashMap<String,String>`), and uses it to map from the account name
+    /// in the CSV file to the fingerprint namespace.
     #[structopt(long = "fp-namespace", default_value = "generated")]
     pub fp_ns: FpNamespace,
 }
