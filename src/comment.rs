@@ -197,6 +197,17 @@ impl CommentBuilder {
         self
     }
 
+    pub fn with_option_value_tag<K: Into<String>, V: Into<String>>(
+        mut self,
+        k: K,
+        v: Option<V>,
+    ) -> Self {
+        if let Some(v) = v {
+            self.comment.value_tags.insert(k.into(), v.into());
+        }
+        self
+    }
+
     pub fn with_value_tag<K: Into<String>, V: Into<String>>(mut self, k: K, v: V) -> Self {
         self.comment.value_tags.insert(k.into(), v.into());
         self

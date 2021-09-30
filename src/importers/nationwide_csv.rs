@@ -1,6 +1,7 @@
 use anyhow::Result;
 use chrono::NaiveDate;
 use ledger_parser::{Amount, Balance, Posting, Transaction};
+use serde::de::DeserializeOwned;
 use structopt::StructOpt;
 
 use crate::accounts::ASSETS_UNKNOWN;
@@ -14,6 +15,10 @@ use crate::tags;
 
 /// Transaction type field, provided by the bank.
 pub const TRANSACTION_TYPE_TAG: &str = "trn_type";
+
+/// Fields provided by the bank in the 5 column format.
+pub const TRANSACTIONS_TAG: &str = "transactions";
+pub const LOCATION_TAG: &str = "location";
 
 #[derive(Debug, Deserialize)]
 struct AccountName {
@@ -68,12 +73,12 @@ impl TransactionImporter for NationwideCsv {
             .commonopts
             .fp_ns
             .make_namespace(&acct_name.account_name);
-        self.read_transactions(&mut csv_records, &fp_namespace, &acct_name.account_name)
+        self.process_file(&mut csv_records, &fp_namespace, &acct_name.account_name)
     }
 }
 
 impl NationwideCsv {
-    fn read_transactions<R: std::io::Read>(
+    fn process_file<R: std::io::Read>(
         &self,
         csv_records: &mut csv::StringRecordsIter<R>,
         fp_prefix: &str,
@@ -81,16 +86,30 @@ impl NationwideCsv {
     ) -> Result<Vec<Transaction>> {
         let headers: Vec<String> = deserialize_required_record(csv_records)?
             .ok_or_else(|| anyhow!("bad file format: missing transaction headers"))?;
-        if headers.len() != 6 {
-            bail!("bad file format: expected 6 headers for transactions");
-        }
-        check_header("Date", &headers[0])?;
-        check_header("Transaction type", &headers[1])?;
-        check_header("Description", &headers[2])?;
-        check_header("Paid out", &headers[3])?;
-        check_header("Paid in", &headers[4])?;
-        check_header("Balance", &headers[5])?;
 
+        let headers_str: Vec<&str> = headers.iter().map(String::as_str).collect();
+        match &headers_str[..] {
+            ["Date", "Transactions", "Location", "Paid out", "Paid in"] => {
+                self.process_rows::<R, RecordFive>(csv_records, fp_prefix, account_name)
+            }
+            ["Date", "Transaction type", "Description", "Paid out", "Paid in", "Balance"] => {
+                self.process_rows::<R, RecordSix>(csv_records, fp_prefix, account_name)
+            }
+            _ => {
+                bail!(
+                    "bad file format: unexpected transaction headers: {}",
+                    headers.join(", ")
+                );
+            }
+        }
+    }
+
+    fn process_rows<R: std::io::Read, T: DeserializeOwned + PostingFormer>(
+        &self,
+        csv_records: &mut csv::StringRecordsIter<R>,
+        fp_prefix: &str,
+        account_name: &str,
+    ) -> Result<Vec<Transaction>> {
         let mut transactions = Vec::new();
 
         let mut prev_date: Option<NaiveDate> = None;
@@ -98,22 +117,26 @@ impl NationwideCsv {
 
         for result in csv_records {
             let str_record = result?;
-            let record: Record = str_record.deserialize(None)?;
+            let record: T = str_record.deserialize(None)?;
 
             // Maintain the per-date counter. Include a sequence number to each
             // transaction in a given day for use in the fingerprint.
-            if Some(record.date.0) != prev_date {
-                prev_date = Some(record.date.0);
+            let date = record.date();
+            if Some(date) != prev_date {
+                prev_date = Some(date);
                 date_counter = 0;
             } else {
                 date_counter += 1;
             }
 
-            let description = record.description.clone();
-            let date = record.date.0;
+            let description = record.description();
 
-            let (post1, post2) =
-                self.form_postings(record, fp_prefix, account_name, date_counter)?;
+            let (post1, post2) = record.form_postings(
+                fp_prefix,
+                account_name,
+                date_counter,
+                self.include_legacy_fingerprint,
+            )?;
 
             transactions.push(Transaction {
                 date,
@@ -128,15 +151,42 @@ impl NationwideCsv {
 
         Ok(transactions)
     }
+}
 
+pub trait PostingFormer {
+    fn date(&self) -> NaiveDate;
+    fn description(&self) -> String;
     fn form_postings(
-        &self,
-        record: Record,
+        self,
         fp_namespace: &str,
         account_name: &str,
         date_counter: i32,
+        include_legacy_fingerprint: bool,
+    ) -> Result<(Posting, Posting)>;
+}
+
+impl PostingFormer for RecordFive {
+    fn date(&self) -> NaiveDate {
+        self.date.0
+    }
+    fn description(&self) -> String {
+        if self.location.is_empty() {
+            self.transactions.clone()
+        } else {
+            format!("{} @ {}", self.transactions, self.location)
+        }
+    }
+    fn form_postings(
+        self,
+        fp_namespace: &str,
+        account_name: &str,
+        date_counter: i32,
+        include_legacy_fingerprint: bool,
     ) -> Result<(Posting, Posting)> {
-        let self_amount: Amount = match (record.paid_in.clone(), record.paid_out.clone()) {
+        // No legacy fingerprint existed for RecordFive.
+        let _ = include_legacy_fingerprint;
+
+        let self_amount: Amount = match (self.paid_in.clone(), self.paid_out.clone()) {
             // Paid in only.
             (Some(GbpValue(amt)), None) => amt,
             // Paid out only.
@@ -144,35 +194,93 @@ impl NationwideCsv {
             // Paid in and out or neither - both are errors.
             _ => bail!("expected *either* paid in or paid out"),
         };
-
         let halves = self_and_peer_account_amount(self_amount, ASSETS_UNKNOWN.to_string());
-
+        let fp_v1 = self.fingerprint_v1(fp_namespace, date_counter);
         let mut self_comment = Comment::builder()
             .with_tag(tags::UNKNOWN_ACCOUNT)
             .with_value_tag(tags::ACCOUNT, account_name)
             .with_value_tag(tags::BANK, BANK_NAME)
-            .with_value_tag(TRANSACTION_TYPE_TAG, record.type_.clone());
+            .with_value_tag(TRANSACTIONS_TAG, self.transactions)
+            .with_option_value_tag(
+                LOCATION_TAG,
+                if self.location.is_empty() {
+                    None
+                } else {
+                    Some(self.location)
+                },
+            );
         let mut peer_comment = self_comment.clone();
-
-        let fp_v1 = record.fingerprint_v1(fp_namespace, date_counter);
         self_comment = self_comment
             .with_tag(fp_v1.self_.tag())
             .with_tag(tags::IMPORT_SELF.to_string());
         peer_comment = peer_comment
             .with_tag(fp_v1.peer.tag())
             .with_tag(tags::IMPORT_PEER.to_string());
-
-        if self.include_legacy_fingerprint {
-            let fp_legacy = record.fingerprint_legacy(fp_namespace, date_counter, &halves);
-            self_comment = self_comment.with_tag(fp_legacy.self_.legacy_tag());
-            peer_comment = peer_comment.with_tag(fp_legacy.peer.legacy_tag());
-        }
-
         Ok((
             Posting {
                 account: halves.self_.account,
                 amount: Some(halves.self_.amount),
-                balance: Some(Balance::Amount(record.balance.0)),
+                balance: None,
+                comment: self_comment.build().into_opt_comment(),
+                status: None,
+            },
+            Posting {
+                account: halves.peer.account,
+                amount: Some(halves.peer.amount),
+                balance: None,
+                comment: peer_comment.build().into_opt_comment(),
+                status: None,
+            },
+        ))
+    }
+}
+
+impl PostingFormer for RecordSix {
+    fn date(&self) -> NaiveDate {
+        self.date.0
+    }
+    fn description(&self) -> String {
+        self.description.clone()
+    }
+    fn form_postings(
+        self,
+        fp_namespace: &str,
+        account_name: &str,
+        date_counter: i32,
+        include_legacy_fingerprint: bool,
+    ) -> Result<(Posting, Posting)> {
+        let self_amount: Amount = match (self.paid_in.clone(), self.paid_out.clone()) {
+            // Paid in only.
+            (Some(GbpValue(amt)), None) => amt,
+            // Paid out only.
+            (None, Some(GbpValue(amt))) => negate_amount(amt),
+            // Paid in and out or neither - both are errors.
+            _ => bail!("expected *either* paid in or paid out"),
+        };
+        let halves = self_and_peer_account_amount(self_amount, ASSETS_UNKNOWN.to_string());
+        let mut self_comment = Comment::builder()
+            .with_tag(tags::UNKNOWN_ACCOUNT)
+            .with_value_tag(tags::ACCOUNT, account_name)
+            .with_value_tag(tags::BANK, BANK_NAME)
+            .with_value_tag(TRANSACTION_TYPE_TAG, self.type_.clone());
+        let mut peer_comment = self_comment.clone();
+        let fp_v1 = self.fingerprint_v1(fp_namespace, date_counter);
+        self_comment = self_comment
+            .with_tag(fp_v1.self_.tag())
+            .with_tag(tags::IMPORT_SELF.to_string());
+        peer_comment = peer_comment
+            .with_tag(fp_v1.peer.tag())
+            .with_tag(tags::IMPORT_PEER.to_string());
+        if include_legacy_fingerprint {
+            let fp_legacy = self.fingerprint_legacy(fp_namespace, date_counter, &halves);
+            self_comment = self_comment.with_tag(fp_legacy.self_.legacy_tag());
+            peer_comment = peer_comment.with_tag(fp_legacy.peer.legacy_tag());
+        }
+        Ok((
+            Posting {
+                account: halves.self_.account,
+                amount: Some(halves.self_.amount),
+                balance: Some(Balance::Amount(self.balance.0)),
                 comment: self_comment.build().into_opt_comment(),
                 status: None,
             },
@@ -203,10 +311,35 @@ mod de {
         self_and_peer_fingerprints, FingerprintHalves, TransactionHalves,
     };
 
+    /// Contains the directly deserialized values from the five-column
+    /// transaction format.
+    #[derive(Debug, Deserialize)]
+    pub struct RecordFive {
+        pub date: Date,
+        pub transactions: String,
+        pub location: String,
+        pub paid_out: Option<GbpValue>,
+        pub paid_in: Option<GbpValue>,
+    }
+
+    impl RecordFive {
+        pub fn fingerprint_v1(&self, fp_namespace: &str, date_counter: i32) -> FingerprintHalves {
+            self_and_peer_fingerprints(
+                FingerprintBuilder::new("nwcsv5", 1, fp_namespace)
+                    .with(self.date.0)
+                    .with(date_counter)
+                    .with(self.transactions.as_str())
+                    .with(self.location.as_str())
+                    .with(self.paid_out.as_ref())
+                    .with(self.paid_in.as_ref()),
+            )
+        }
+    }
+
     /// Contains the directly deserialized values from the six-column
     /// transaction format.
     #[derive(Debug, Deserialize)]
-    pub struct Record {
+    pub struct RecordSix {
         pub date: Date,
         pub type_: String,
         pub description: String,
@@ -215,7 +348,7 @@ mod de {
         pub balance: GbpValue,
     }
 
-    impl Record {
+    impl RecordSix {
         /// An older and more flawed fingerprint, prior to including algorithm
         /// and version.
         pub fn fingerprint_legacy(
@@ -367,24 +500,27 @@ mod de {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::path::PathBuf;
 
+    use test_case::test_case;
+
+    use super::*;
     use crate::importers::nationwide::{CommonOpts, FpNamespace};
     use crate::importers::testutil::golden_test;
 
-    use super::*;
-
-    #[test]
-    fn golden() {
+    #[test_case("nationwide_csv_5.csv", "nationwide_csv_5.golden.journal"; "five column format")]
+    #[test_case("nationwide_csv_6.csv", "nationwide_csv_6.golden.journal"; "six column format")]
+    fn golden(csv: &str, golden: &str) {
+        let input: PathBuf = ["testdata/importers", csv].iter().collect();
         golden_test(
             &NationwideCsv {
-                input: FileSpec::from_str("testdata/importers/nationwide_csv.csv").unwrap(),
+                input: FileSpec::Path(input),
                 include_legacy_fingerprint: true,
                 commonopts: CommonOpts {
                     fp_ns: FpNamespace::Generated,
                 },
             },
-            "nationwide_csv.golden.journal",
+            golden,
         );
     }
 }
