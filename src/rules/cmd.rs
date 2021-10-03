@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
 use structopt::StructOpt;
 
@@ -9,7 +11,7 @@ use crate::rules::table;
 pub struct Command {
     #[structopt(short = "r", long = "rules")]
     /// The file to read the rules from.
-    rules: FileSpec,
+    rules: PathBuf,
     /// The Ledger journal to read.
     input_journal: FileSpec,
     /// The ledger file to write to (overwrites any existing file). "-" writes
@@ -20,7 +22,7 @@ pub struct Command {
 
 impl Command {
     pub fn run(&self) -> Result<()> {
-        let rules = table::Table::from_filespec(&self.rules)?;
+        let rules = table::Table::from_path(&self.rules)?;
         let mut ledger = filespec::read_ledger_file(&self.input_journal)?;
         let trns = TransactionPostings::take_from_ledger(&mut ledger);
 

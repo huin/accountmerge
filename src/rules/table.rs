@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::fs::File;
+use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
-use crate::filespec::FileSpec;
 use crate::internal::TransactionPostings;
 use crate::rules::ctx::PostingContext;
 use crate::rules::predicate::Predicate;
@@ -10,7 +12,8 @@ use crate::rules::predicate::Predicate;
 const START_CHAIN: &str = "start";
 
 #[derive(Debug, Default, Deserialize)]
-pub struct Table{
+pub struct Table {
+    includes: Option<Vec<PathBuf>>,
     chains: HashMap<String, Chain>,
 }
 
@@ -27,11 +30,55 @@ impl Table {
         ron::de::from_str(s).map_err(Into::into)
     }
 
-    pub fn from_filespec(file_spec: &FileSpec) -> Result<Self> {
-        let reader = file_spec.reader()?;
-        let table: Table = ron::de::from_reader(reader)?;
+    pub fn from_path(path: &Path) -> Result<Self> {
+        let mut seen = HashSet::new();
+        let table = Self::from_path_impl(path, &mut seen)?;
         table.validate()?;
         Ok(table)
+    }
+
+    fn from_path_impl(path: &Path, seen: &mut HashSet<PathBuf>) -> Result<Self> {
+        let path = path.canonicalize()?;
+        if !seen.insert(path.clone()) {
+            // Already loaded.
+            return Ok(Table::default());
+        }
+        let mut table: Table = ron::de::from_reader(
+            File::open(&path).with_context(|| format!("opening {:?} for reading", path))?,
+        )?;
+        if let Some(includes) = std::mem::take(&mut table.includes) {
+            let parent_dir = path.parent().ok_or_else(|| {
+                anyhow!("unexpected missing parent directory for path {:?}", path)
+            })?;
+            for include in includes {
+                let include = parent_dir.join(include);
+                let included_table = Self::from_path_impl(&include, seen)
+                    .with_context(|| format!("included from {:?}", path))?;
+
+                table
+                    .merge_from(included_table)
+                    .with_context(|| format!("when including from {:?}", include))?;
+            }
+        }
+        Ok(table)
+    }
+
+    fn merge_from(&mut self, other: Self) -> Result<()> {
+        for (name, chain) in other.chains {
+            use std::collections::hash_map::Entry::*;
+            match self.chains.entry(name) {
+                Occupied(entry) => {
+                    bail!(
+                        "found existing definition for chain named {:?}",
+                        entry.key()
+                    );
+                }
+                Vacant(entry) => {
+                    entry.insert(chain);
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn update_transactions(
