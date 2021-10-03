@@ -7,10 +7,10 @@ Tools for managing Ledger journals.
 This code hasn't been substantially battle-tested. It may well corrupt
 accounting files. As such, it's best to:
 
--   keep backups of your account journals,
--   preview change made to your journal made by this utility before committing
+- keep backups of your account journals,
+- preview change made to your journal made by this utility before committing
     to them,
--   make use of balance assertions where possible to help catch mistakes (such
+- make use of balance assertions where possible to help catch mistakes (such
     as duplicated transactions/postings).
 
 The first two recommendations naturally suggest using a version control tool
@@ -29,8 +29,8 @@ that is re-imported is recognized in the existing journal.
 
 A fingerprint namespace identifies:
 
-* The type and version of fingerprint generation algorithm.
-* The data source of the imported transaction data (typically a short unique
+- The type and version of fingerprint generation algorithm.
+- The data source of the imported transaction data (typically a short unique
   name for the bank account).
 
 A fingerprint is a posting tag string resembling `fp-namespace-value`, consisting of 3 parts
@@ -63,20 +63,20 @@ find an existing posting in the destination according to "Existing posting
 lookup" as described below. Use this posting to determine a _default
 destination transaction_:
 
--   The first destination posting that matches, use its transaction as the
+- The first destination posting that matches, use its transaction as the
     default destination transaction.
--   If no posting matches, create a new destination transaction as the default
+- If no posting matches, create a new destination transaction as the default
     destination transaction.
 
 Now process each source posting again to find its match in the destination,
 again according to "Existing posting lookup".
 
--   When a match is found, update the matching posting in the destination by
+- When a match is found, update the matching posting in the destination by
     adding the tags (including fingerprint key+value). If the source posting
     does not have the "unknown-account" tag and the destination does, then
     additionally copy the account name from source to destination and remove
     the "unknown-account" tag from the destination.
--   If nothing matched, create a copy of the source posting within the _default
+- If nothing matched, create a copy of the source posting within the _default
     destination transaction_.
 
 This may create unbalanced transactions, which is left to be manually resolved.
