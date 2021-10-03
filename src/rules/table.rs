@@ -10,7 +10,9 @@ use crate::rules::predicate::Predicate;
 const START_CHAIN: &str = "start";
 
 #[derive(Debug, Default, Deserialize)]
-pub struct Table(HashMap<String, Chain>);
+pub struct Table{
+    chains: HashMap<String, Chain>,
+}
 
 impl Table {
     #[cfg(test)]
@@ -54,14 +56,14 @@ impl Table {
     }
 
     fn get_chain(&self, name: &str) -> Result<&Chain> {
-        self.0
+        self.chains
             .get(name)
             .ok_or_else(|| anyhow!("chain {} not found", name))
     }
 
     fn validate(&self) -> Result<()> {
         self.get_chain(START_CHAIN)?;
-        for chain in self.0.values() {
+        for chain in self.chains.values() {
             chain.validate(self)?;
         }
         Ok(())
@@ -212,7 +214,7 @@ mod tests {
         let tests = vec![
             Test {
                 name: "empty chain",
-                table: r#"Table ({"start": Chain([]) })"#,
+                table: r#"Table( chains: {"start": Chain([])} )"#,
                 cases: compile_cases(vec![Case {
                     input: r"2001/01/02 description
                         anything  $100.00",
@@ -222,11 +224,13 @@ mod tests {
             },
             Test {
                 name: "set account",
-                table: r#"Table ({
+                table: r#"Table(
+                    chains: {
                         "start": Chain([
                             Rule(action: SetAccount("foo"), predicate: True, result: Continue),
                         ]),
-                    })"#,
+                    },
+                )"#,
                 cases: compile_cases(vec![Case {
                     input: r"2001/01/02 description
                         anything  $100.00",
@@ -236,14 +240,16 @@ mod tests {
             },
             Test {
                 name: "set account in jumped chain",
-                table: r#"Table ({
+                table: r#"Table(
+                    chains: {
                         "start": Chain([
                             Rule(action: JumpChain("some-chain"), predicate: True, result: Continue),
                         ]),
                         "some-chain": Chain([
                             Rule(action: SetAccount("foo"), predicate: True, result: Continue),
                         ]),
-                    })"#,
+                    },
+                )"#,
                 cases: compile_cases(vec![Case {
                     input: r"2001/01/02 description
                         anything  $100.00",
@@ -253,12 +259,14 @@ mod tests {
             },
             Test {
                 name: "return before set account",
-                table: r#"Table ({
+                table: r#"Table(
+                    chains: {
                         "start": Chain([
                             Rule(action: Noop, predicate: True, result: Return),
                             Rule(action: SetAccount("foo"), predicate: True, result: Continue),
                         ]),
-                    })"#,
+                    },
+                )"#,
                 cases: compile_cases(vec![Case {
                     input: r"2001/01/02 description
                         original:value  $100.00",
@@ -268,12 +276,14 @@ mod tests {
             },
             Test {
                 name: "set account based on input account",
-                table: r#"Table ({
+                table: r#"Table(
+                    chains: {
                         "start": Chain([
                             Rule(action: SetAccount("assets:foo"), predicate: Account(Eq("foo")), result: Continue),
                             Rule(action: SetAccount("assets:bar"), predicate: Account(Eq("bar")), result: Continue),
                         ]),
-                    })"#,
+                    },
+                )"#,
                 cases: compile_cases(vec![
                     Case {
                         input: r"2001/01/02 description
@@ -297,7 +307,8 @@ mod tests {
             },
             Test {
                 name: "set account based on various boolean conditions",
-                table: r#"Table ({
+                table: r#"Table(
+                    chains: {
                         "start": Chain([
                             Rule(
                                 action: SetAccount("assets:acct1-bank1"),
@@ -349,7 +360,8 @@ mod tests {
                                 result: Return,
                             ),
                         ]),
-                    })"#,
+                    }
+                )"#,
                 cases: compile_cases(vec![
                     Case {
                         input: r"2001/01/02 unmatched
@@ -397,7 +409,8 @@ mod tests {
             },
             Test {
                 name: "set bank based on tag value",
-                table: r#"Table({
+                table: r#"Table(
+                    chains: {
                         "start": Chain([
                             Rule(
                                 action: JumpChain("set-bank"),
@@ -427,7 +440,8 @@ mod tests {
                                 result: Return,
                             ),
                         ]),
-                    })"#,
+                    },
+                )"#,
                 cases: compile_cases(vec![
                     Case {
                         input: r"2001/01/02 description
@@ -463,15 +477,17 @@ mod tests {
             },
             Test {
                 name: "remove value tag",
-                table: r#"Table({
-                    "start": Chain([
-                        Rule(
-                            action: RemovePostingValueTag("name1"),
-                            predicate: True,
-                            result: Return,
-                        ),
-                    ]),
-                })"#,
+                table: r#"Table(
+                    chains: {
+                        "start": Chain([
+                            Rule(
+                                action: RemovePostingValueTag("name1"),
+                                predicate: True,
+                                result: Return,
+                            ),
+                        ]),
+                    },
+                )"#,
                 cases: compile_cases(vec![Case {
                     input: r"
                             2001/01/02 description1  ; name1: transaction tag not removed
@@ -492,15 +508,17 @@ mod tests {
             },
             Test {
                 name: "set based on flag tag",
-                table: r#"Table({
-                    "start": Chain([
-                        Rule(
-                            action: SetAccount("matched"),
-                            predicate: PostingHasFlagTag("tag1"),
-                            result: Return,
-                        ),
-                    ]),
-                })"#,
+                table: r#"Table(
+                    chains: {
+                        "start": Chain([
+                            Rule(
+                                action: SetAccount("matched"),
+                                predicate: PostingHasFlagTag("tag1"),
+                                result: Return,
+                            ),
+                        ]),
+                    },
+                )"#,
                 cases: compile_cases(vec![Case {
                     input: r"
                             2001/01/02 description1
@@ -520,15 +538,17 @@ mod tests {
             },
             Test {
                 name: "remove flag tag",
-                table: r#"Table({
-                    "start": Chain([
-                        Rule(
-                            action: RemovePostingFlagTag("tag1"),
-                            predicate: True,
-                            result: Return,
-                        ),
-                    ]),
-                })"#,
+                table: r#"Table(
+                    chains: {
+                        "start": Chain([
+                            Rule(
+                                action: RemovePostingFlagTag("tag1"),
+                                predicate: True,
+                                result: Return,
+                            ),
+                        ]),
+                    },
+                )"#,
                 cases: compile_cases(vec![Case {
                     input: r"
                             2001/01/02 description1  ; :tag1: transaction tag not matched
@@ -573,15 +593,17 @@ mod tests {
     #[test]
     fn error_action() {
         let table = Table::from_str(
-            r#"Table({
-                "start": Chain([
-                    Rule(
-                        action: Error("MY ERROR"),
-                        predicate: Account(Eq("bad:account")),
-                        result: Return,
-                    ),
-                ]),
-            })"#,
+            r#"Table(
+                chains: {
+                    "start": Chain([
+                        Rule(
+                            action: Error("MY ERROR"),
+                            predicate: Account(Eq("bad:account")),
+                            result: Return,
+                        ),
+                    ]),
+                },
+            )"#,
         )
         .expect("should parse and validate");
         let input = parse_transaction_postings(
@@ -603,22 +625,26 @@ mod tests {
         let tests = vec![
             Test(
                 "empty start chain",
-                r#"Table ({
-                    "start": Chain([]),
-                })"#,
+                r#"Table(
+                    chains: {
+                        "start": Chain([]),
+                    },
+                )"#,
             ),
             Test(
                 "jump to other chain",
-                r#"Table ({
-                    "start": Chain([
-                        Rule(
-                            action: JumpChain("foo"),
-                            predicate: True,
-                            result: Continue,
-                        ),
-                    ]),
-                    "foo": Chain([]),
-                })"#,
+                r#"Table(
+                    chains: {
+                        "start": Chain([
+                            Rule(
+                                action: JumpChain("foo"),
+                                predicate: True,
+                                result: Continue,
+                            ),
+                        ]),
+                        "foo": Chain([]),
+                    },
+                )"#,
             ),
         ];
 
@@ -636,28 +662,32 @@ mod tests {
         let tests = vec![
             Test(
                 "no start chain",
-                r#"Table ({
-                    "foo": Chain([]),
-                })"#,
+                r#"Table(
+                    chains: {
+                        "foo": Chain([]),
+                    },
+                )"#,
             ),
             Test(
                 "jump to non existing chain",
-                r#"Table ({
-                    "start": Chain([
-                        Rule(
-                            action: JumpChain("foo"),
-                            predicate: True,
-                            result: Continue,
-                        ),
-                    ]),
-                    "foo": Chain([
-                        Rule(
-                            action: JumpChain("not-exist"),
-                            predicate: True,
-                            result: Continue,
-                        ),
-                    ]),
-                })"#,
+                r#"Table(
+                    chains: {
+                        "start": Chain([
+                            Rule(
+                                action: JumpChain("foo"),
+                                predicate: True,
+                                result: Continue,
+                            ),
+                        ]),
+                        "foo": Chain([
+                            Rule(
+                                action: JumpChain("not-exist"),
+                                predicate: True,
+                                result: Continue,
+                            ),
+                        ]),
+                    },
+                )"#,
             ),
         ];
 
