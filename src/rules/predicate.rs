@@ -43,7 +43,7 @@ impl Predicate {
                 .comment
                 .value_tags
                 .get(tag_name)
-                .map(|value| matcher.matches_string(&value))
+                .map(|value| matcher.matches_string(value))
                 .unwrap_or(false),
             TransactionDescription(matcher) => matcher.matches_string(&ctx.trn.raw.description),
         }

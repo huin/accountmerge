@@ -73,7 +73,7 @@ impl TransactionImporter for NationwideCsv {
             .commonopts
             .fp_ns
             .make_namespace(&acct_name.account_name)?;
-        self.process_file(&mut csv_records, &fp_namespace, &acct_name.account_name)
+        self.process_file(&mut csv_records, fp_namespace, &acct_name.account_name)
     }
 }
 

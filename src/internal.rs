@@ -20,6 +20,7 @@ impl From<Transaction> for TransactionInternal {
     }
 }
 
+#[allow(clippy::from_over_into)] // Can't implement `From for Transaction` from other crate.
 impl Into<Transaction> for TransactionInternal {
     fn into(mut self) -> Transaction {
         self.raw.comment = self.comment.into_opt_comment();
@@ -42,20 +43,21 @@ impl TransactionPostings {
     }
 
     pub fn take_from_ledger(ledger: &mut Ledger) -> Vec<Self> {
-        let raw_trns = std::mem::replace(&mut ledger.transactions, Vec::new());
+        let raw_trns = std::mem::take(&mut ledger.transactions);
         raw_trns.into_iter().map(Into::into).collect()
     }
 }
 
 impl From<Transaction> for TransactionPostings {
     fn from(mut raw_trn: Transaction) -> Self {
-        let raw_posts = std::mem::replace(&mut raw_trn.postings, Vec::new());
+        let raw_posts = std::mem::take(&mut raw_trn.postings);
         let posts: Vec<PostingInternal> = raw_posts.into_iter().map(Into::into).collect();
         let trn: TransactionInternal = raw_trn.into();
         Self { trn, posts }
     }
 }
 
+#[allow(clippy::from_over_into)] // Can't implement `From for Transaction` from other crate.
 impl Into<Transaction> for TransactionPostings {
     fn into(self) -> Transaction {
         let raw_posts: Vec<Posting> = self.posts.into_iter().map(Into::into).collect();
@@ -92,6 +94,7 @@ impl From<Posting> for PostingInternal {
     }
 }
 
+#[allow(clippy::from_over_into)] // Can't implement `From for Posting` from other crate.
 impl Into<Posting> for PostingInternal {
     fn into(mut self) -> Posting {
         self.raw.comment = self.comment.into_opt_comment();

@@ -232,7 +232,7 @@ impl Merger {
         use posting::Match::*;
         use posting::MatchedIndices::*;
         use PostingMergeAction::*;
-        match self.posts.find_matching_postings(&src_post) {
+        match self.posts.find_matching_postings(src_post) {
             Fingerprint(m) => match m {
                 One(dest_idx) => {
                     // Unambiguous match by fingerprint.

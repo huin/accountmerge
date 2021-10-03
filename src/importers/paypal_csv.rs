@@ -292,6 +292,7 @@ mod de {
         Pending,
     }
 
+    #[allow(clippy::from_over_into)] // Can't implement `From for TransactionStatus` from other crate.
     impl Into<TransactionStatus> for Status {
         fn into(self) -> TransactionStatus {
             use Status::*;

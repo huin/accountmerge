@@ -213,7 +213,7 @@ impl TransactionsAccumulator {
                 self.cur_trn_opt = Some(TransactionBuilder::new(
                     trn_line.implied_date,
                     self.date_counter,
-                    parse_amount(&payment)?,
+                    parse_amount(payment)?,
                     TransactionType::Payment,
                     trn_line.detail.clone(),
                 )?);
@@ -229,7 +229,7 @@ impl TransactionsAccumulator {
                 self.cur_trn_opt = Some(TransactionBuilder::new(
                     trn_line.implied_date,
                     self.date_counter,
-                    parse_amount(&receipt)?,
+                    parse_amount(receipt)?,
                     TransactionType::Receipt,
                     trn_line.detail.clone(),
                 )?);
@@ -251,7 +251,7 @@ impl TransactionsAccumulator {
                         NaiveDate::parse_from_str(&trn_line.detail, "Effective Date %d %b %Y")?;
                     cur_trn.effective_date = Some(edate);
                 } else {
-                    cur_trn.description.push_str(" ");
+                    cur_trn.description.push(' ');
                     cur_trn.description.push_str(&trn_line.detail);
                 }
             }
@@ -597,7 +597,7 @@ mod table {
                     date_parts.year = None;
                     parse_date_component(date_parts, YEAR_PART, date_words[0])?;
                     let new_year = date_parts.year.expect("year must be set");
-                    if new_year < EARLIEST_YEAR || new_year > LATEST_YEAR {
+                    if !(EARLIEST_YEAR..=LATEST_YEAR).contains(&new_year) {
                         bail!("found year {} which is out of the expected range", new_year);
                     }
 

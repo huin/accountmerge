@@ -123,7 +123,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
             }
             One(v) => {
                 self.0 = Zero;
-                Some(&v)
+                Some(v)
             }
             Many(mut i) => {
                 let v = i.next();

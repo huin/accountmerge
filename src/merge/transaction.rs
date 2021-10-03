@@ -100,7 +100,7 @@ impl Holder {
         }
     }
 
-    pub fn iter_posting_indices<'a>(&'a self) -> impl Iterator<Item = posting::Index> + 'a {
+    pub fn iter_posting_indices(&'_ self) -> impl Iterator<Item = posting::Index> + '_ {
         self.postings.iter().copied()
     }
 }

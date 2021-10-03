@@ -52,6 +52,7 @@ impl IndexedPostings {
 
     /// Adds a new posting, updating the fingerprint index.
     pub fn add(&mut self, input: Input, parent_trn: transaction::Index) -> Result<Index> {
+        #![allow(clippy::needless_collect)] // Collect because `input` is moved into Holder::from_input.
         let fingerprints: Vec<String> = fingerprints_from_comment(&input.posting.comment)
             .map(str::to_string)
             .collect();
@@ -80,7 +81,7 @@ impl IndexedPostings {
         self.post_arena.get_mut(post_idx).expect(BAD_POSTING_INDEX)
     }
 
-    pub fn date_to_indices<'a>(&'a self, date: NaiveDate) -> impl Iterator<Item = Index> + 'a {
+    pub fn date_to_indices(&'_ self, date: NaiveDate) -> impl Iterator<Item = Index> + '_ {
         let opt_vec = self.posts_by_date.get(&date);
         opt_vec.into_iter().flat_map(|vec| vec.iter()).copied()
     }
