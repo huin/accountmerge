@@ -11,76 +11,121 @@ use crate::rules::predicate::Predicate;
 
 const START_CHAIN: &str = "start";
 
+pub fn load_from_path(path: &Path) -> Result<Table> {
+    let rf = RuleFile::from_path(path)?;
+    let table = rf.load(Some(path))?;
+    table.validate()?;
+    Ok(table)
+}
+
+#[cfg(test)]
+fn load_from_str_unvalidated(s: &str) -> Result<Table> {
+    let rf = RuleFile::from_str(s)?;
+    let table = rf.load(None)?;
+    Ok(table)
+}
+
+#[cfg(test)]
+fn load_from_str(s: &str) -> Result<Table> {
+    let table = load_from_str_unvalidated(s)?;
+    table.validate()?;
+    Ok(table)
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RuleFile(Vec<FileEntry>);
+
+impl RuleFile {
+    pub fn from_path(path: &Path) -> Result<Self> {
+        let entries: Vec<FileEntry> = ron::de::from_reader(
+            File::open(&path).with_context(|| format!("opening {:?} for reading", path))?,
+        )
+        .with_context(|| format!("parsing {:?}", path))?;
+        Ok(Self(entries))
+    }
+
+    #[cfg(test)]
+    pub fn from_str(s: &str) -> Result<Self> {
+        let entries: Vec<FileEntry> = ron::de::from_str(s)?;
+        Ok(Self(entries))
+    }
+
+    fn load(self, self_path: Option<&Path>) -> Result<Table> {
+        let mut table = Table::default();
+        let mut seen_paths = HashSet::new();
+        self.load_into(self_path, &mut table, &mut seen_paths)?;
+        Ok(table)
+    }
+
+    fn load_into(
+        self,
+        self_path: Option<&Path>,
+        table: &mut Table,
+        seen_paths: &mut HashSet<Option<PathBuf>>,
+    ) -> Result<()> {
+        let self_path = self_path
+            .map(Path::canonicalize)
+            .transpose()
+            .with_context(|| format!("canonicalizing path {:?}", self_path))?;
+        if !seen_paths.insert(self_path.clone()) {
+            // Already loaded.
+            return Ok(());
+        }
+
+        for entry in self.0 {
+            match entry {
+                FileEntry::Include(include_path) => {
+                    let include_path = match self_path {
+                        Some(ref self_path) => {
+                            let parent_dir = self_path.parent().ok_or_else(|| {
+                                anyhow!(
+                                    "unexpected missing parent directory for path {:?}",
+                                    self_path
+                                )
+                            })?;
+                            parent_dir.join(include_path)
+                        }
+                        None => include_path,
+                    };
+
+                    let included_file = Self::from_path(&include_path)?;
+                    included_file
+                        .load_into(Some(&include_path), table, seen_paths)
+                        .with_context(|| format!("when including from {:?}", include_path))?;
+                }
+                FileEntry::Chain(name, rules) => {
+                    use std::collections::hash_map::Entry::*;
+                    match table.chains.entry(name) {
+                        Occupied(entry) => {
+                            bail!(
+                                "found duplicate definition for chain named {:?}",
+                                entry.key()
+                            );
+                        }
+                        Vacant(entry) => {
+                            entry.insert(Chain(rules));
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+enum FileEntry {
+    Include(PathBuf),
+    Chain(String, Vec<Rule>),
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct Table {
-    includes: Option<Vec<PathBuf>>,
     chains: HashMap<String, Chain>,
 }
 
 impl Table {
-    #[cfg(test)]
-    fn from_str(s: &str) -> Result<Self> {
-        let table: Table = Self::from_str_unvalidated(s)?;
-        table.validate()?;
-        Ok(table)
-    }
-
-    #[cfg(test)]
-    fn from_str_unvalidated(s: &str) -> Result<Self> {
-        ron::de::from_str(s).map_err(Into::into)
-    }
-
-    pub fn from_path(path: &Path) -> Result<Self> {
-        let mut seen = HashSet::new();
-        let table = Self::from_path_impl(path, &mut seen)?;
-        table.validate()?;
-        Ok(table)
-    }
-
-    fn from_path_impl(path: &Path, seen: &mut HashSet<PathBuf>) -> Result<Self> {
-        let path = path.canonicalize()?;
-        if !seen.insert(path.clone()) {
-            // Already loaded.
-            return Ok(Table::default());
-        }
-        let mut table: Table = ron::de::from_reader(
-            File::open(&path).with_context(|| format!("opening {:?} for reading", path))?,
-        )?;
-        if let Some(includes) = std::mem::take(&mut table.includes) {
-            let parent_dir = path.parent().ok_or_else(|| {
-                anyhow!("unexpected missing parent directory for path {:?}", path)
-            })?;
-            for include in includes {
-                let include = parent_dir.join(include);
-                let included_table = Self::from_path_impl(&include, seen)
-                    .with_context(|| format!("included from {:?}", path))?;
-
-                table
-                    .merge_from(included_table)
-                    .with_context(|| format!("when including from {:?}", include))?;
-            }
-        }
-        Ok(table)
-    }
-
-    fn merge_from(&mut self, other: Self) -> Result<()> {
-        for (name, chain) in other.chains {
-            use std::collections::hash_map::Entry::*;
-            match self.chains.entry(name) {
-                Occupied(entry) => {
-                    bail!(
-                        "found existing definition for chain named {:?}",
-                        entry.key()
-                    );
-                }
-                Vacant(entry) => {
-                    entry.insert(chain);
-                }
-            }
-        }
-        Ok(())
-    }
-
     pub fn update_transactions(
         &self,
         trns: Vec<TransactionPostings>,
@@ -261,7 +306,7 @@ mod tests {
         let tests = vec![
             Test {
                 name: "empty chain",
-                table: r#"Table( chains: {"start": Chain([])} )"#,
+                table: r#"[Chain("start", [])]"#,
                 cases: compile_cases(vec![Case {
                     input: r"2001/01/02 description
                         anything  $100.00",
@@ -271,13 +316,11 @@ mod tests {
             },
             Test {
                 name: "set account",
-                table: r#"Table(
-                    chains: {
-                        "start": Chain([
-                            Rule(action: SetAccount("foo"), predicate: True, result: Continue),
-                        ]),
-                    },
-                )"#,
+                table: r#"[
+                    Chain("start", [
+                        Rule(action: SetAccount("foo"), predicate: True, result: Continue),
+                    ]),
+                ]"#,
                 cases: compile_cases(vec![Case {
                     input: r"2001/01/02 description
                         anything  $100.00",
@@ -287,16 +330,14 @@ mod tests {
             },
             Test {
                 name: "set account in jumped chain",
-                table: r#"Table(
-                    chains: {
-                        "start": Chain([
-                            Rule(action: JumpChain("some-chain"), predicate: True, result: Continue),
-                        ]),
-                        "some-chain": Chain([
-                            Rule(action: SetAccount("foo"), predicate: True, result: Continue),
-                        ]),
-                    },
-                )"#,
+                table: r#"[
+                    Chain("start", [
+                        Rule(action: JumpChain("some-chain"), predicate: True, result: Continue),
+                    ]),
+                    Chain("some-chain", [
+                        Rule(action: SetAccount("foo"), predicate: True, result: Continue),
+                    ]),
+                ]"#,
                 cases: compile_cases(vec![Case {
                     input: r"2001/01/02 description
                         anything  $100.00",
@@ -306,14 +347,12 @@ mod tests {
             },
             Test {
                 name: "return before set account",
-                table: r#"Table(
-                    chains: {
-                        "start": Chain([
-                            Rule(action: Noop, predicate: True, result: Return),
-                            Rule(action: SetAccount("foo"), predicate: True, result: Continue),
-                        ]),
-                    },
-                )"#,
+                table: r#"[
+                    Chain("start", [
+                        Rule(action: Noop, predicate: True, result: Return),
+                        Rule(action: SetAccount("foo"), predicate: True, result: Continue),
+                    ]),
+                ]"#,
                 cases: compile_cases(vec![Case {
                     input: r"2001/01/02 description
                         original:value  $100.00",
@@ -323,14 +362,12 @@ mod tests {
             },
             Test {
                 name: "set account based on input account",
-                table: r#"Table(
-                    chains: {
-                        "start": Chain([
-                            Rule(action: SetAccount("assets:foo"), predicate: Account(Eq("foo")), result: Continue),
-                            Rule(action: SetAccount("assets:bar"), predicate: Account(Eq("bar")), result: Continue),
-                        ]),
-                    },
-                )"#,
+                table: r#"[
+                    Chain("start", [
+                        Rule(action: SetAccount("assets:foo"), predicate: Account(Eq("foo")), result: Continue),
+                        Rule(action: SetAccount("assets:bar"), predicate: Account(Eq("bar")), result: Continue),
+                    ]),
+                ]"#,
                 cases: compile_cases(vec![
                     Case {
                         input: r"2001/01/02 description
@@ -354,61 +391,59 @@ mod tests {
             },
             Test {
                 name: "set account based on various boolean conditions",
-                table: r#"Table(
-                    chains: {
-                        "start": Chain([
-                            Rule(
-                                action: SetAccount("assets:acct1-bank1"),
-                                predicate: All([
-                                    Account(Eq("acct1")),
-                                    TransactionDescription(Eq("bank1")),
-                                ]),
-                                result: Return,
-                            ),
-                            Rule(
-                                action: SetAccount("assets:acct1-bank2"),
-                                predicate: All([
-                                    Account(Eq("acct1")),
-                                    TransactionDescription(Eq("bank2")),
-                                ]),
-                                result: Return,
-                            ),
-                            Rule(
-                                action: SetAccount("assets:acct2-bank1"),
-                                predicate: All([
-                                    Account(Eq("acct2")),
-                                    TransactionDescription(Eq("bank1")),
-                                ]),
-                                result: Return,
-                            ),
-                            Rule(
-                                action: SetAccount("assets:acct2-bank2"),
-                                predicate: All([
-                                    Account(Eq("acct2")),
-                                    TransactionDescription(Eq("bank2")),
-                                ]),
-                                result: Return,
-                            ),
-                            Rule(
-                                action: SetAccount("assets:acct3-or-4"),
-                                predicate: Any([
-                                    Account(Eq("acct3")),
-                                    Account(Eq("acct4")),
-                                ]),
-                                result: Return,
-                            ),
-                            Rule(
-                                action: SetAccount("assets:acct-other-bank1"),
-                                predicate: All([
-                                    Not(Account(Eq("acct1"))),
-                                    Not(Account(Eq("acct2"))),
-                                    TransactionDescription(Eq("bank1")),
-                                ]),
-                                result: Return,
-                            ),
-                        ]),
-                    }
-                )"#,
+                table: r#"[
+                    Chain("start", [
+                        Rule(
+                            action: SetAccount("assets:acct1-bank1"),
+                            predicate: All([
+                                Account(Eq("acct1")),
+                                TransactionDescription(Eq("bank1")),
+                            ]),
+                            result: Return,
+                        ),
+                        Rule(
+                            action: SetAccount("assets:acct1-bank2"),
+                            predicate: All([
+                                Account(Eq("acct1")),
+                                TransactionDescription(Eq("bank2")),
+                            ]),
+                            result: Return,
+                        ),
+                        Rule(
+                            action: SetAccount("assets:acct2-bank1"),
+                            predicate: All([
+                                Account(Eq("acct2")),
+                                TransactionDescription(Eq("bank1")),
+                            ]),
+                            result: Return,
+                        ),
+                        Rule(
+                            action: SetAccount("assets:acct2-bank2"),
+                            predicate: All([
+                                Account(Eq("acct2")),
+                                TransactionDescription(Eq("bank2")),
+                            ]),
+                            result: Return,
+                        ),
+                        Rule(
+                            action: SetAccount("assets:acct3-or-4"),
+                            predicate: Any([
+                                Account(Eq("acct3")),
+                                Account(Eq("acct4")),
+                            ]),
+                            result: Return,
+                        ),
+                        Rule(
+                            action: SetAccount("assets:acct-other-bank1"),
+                            predicate: All([
+                                Not(Account(Eq("acct1"))),
+                                Not(Account(Eq("acct2"))),
+                                TransactionDescription(Eq("bank1")),
+                            ]),
+                            result: Return,
+                        ),
+                    ]),
+                ]"#,
                 cases: compile_cases(vec![
                     Case {
                         input: r"2001/01/02 unmatched
@@ -456,39 +491,37 @@ mod tests {
             },
             Test {
                 name: "set bank based on tag value",
-                table: r#"Table(
-                    chains: {
-                        "start": Chain([
-                            Rule(
-                                action: JumpChain("set-bank"),
-                                predicate: PostingHasValueTag("bank"),
-                                result: Return,
-                            ),
-                            Rule(
-                                action: SetAccount("assets:unknown"),
-                                predicate: True,
-                                result: Return,
-                            ),
-                        ]),
-                        "set-bank": Chain([
-                            Rule(
-                                action: SetAccount("assets:bank:foo"),
-                                predicate: PostingValueTag("bank", Eq("foo")),
-                                result: Return,
-                            ),
-                            Rule(
-                                action: SetAccount("assets:bank:bar"),
-                                predicate: PostingValueTag("bank", Eq("bar")),
-                                result: Return,
-                            ),
-                            Rule(
-                                action: SetAccount("assets:bank:other"),
-                                predicate: True,
-                                result: Return,
-                            ),
-                        ]),
-                    },
-                )"#,
+                table: r#"[
+                    Chain("start", [
+                        Rule(
+                            action: JumpChain("set-bank"),
+                            predicate: PostingHasValueTag("bank"),
+                            result: Return,
+                        ),
+                        Rule(
+                            action: SetAccount("assets:unknown"),
+                            predicate: True,
+                            result: Return,
+                        ),
+                    ]),
+                    Chain("set-bank", [
+                        Rule(
+                            action: SetAccount("assets:bank:foo"),
+                            predicate: PostingValueTag("bank", Eq("foo")),
+                            result: Return,
+                        ),
+                        Rule(
+                            action: SetAccount("assets:bank:bar"),
+                            predicate: PostingValueTag("bank", Eq("bar")),
+                            result: Return,
+                        ),
+                        Rule(
+                            action: SetAccount("assets:bank:other"),
+                            predicate: True,
+                            result: Return,
+                        ),
+                    ]),
+                ]"#,
                 cases: compile_cases(vec![
                     Case {
                         input: r"2001/01/02 description
@@ -524,17 +557,15 @@ mod tests {
             },
             Test {
                 name: "remove value tag",
-                table: r#"Table(
-                    chains: {
-                        "start": Chain([
-                            Rule(
-                                action: RemovePostingValueTag("name1"),
-                                predicate: True,
-                                result: Return,
-                            ),
-                        ]),
-                    },
-                )"#,
+                table: r#"[
+                    Chain("start", [
+                        Rule(
+                            action: RemovePostingValueTag("name1"),
+                            predicate: True,
+                            result: Return,
+                        ),
+                    ]),
+                ]"#,
                 cases: compile_cases(vec![Case {
                     input: r"
                             2001/01/02 description1  ; name1: transaction tag not removed
@@ -555,17 +586,15 @@ mod tests {
             },
             Test {
                 name: "set based on flag tag",
-                table: r#"Table(
-                    chains: {
-                        "start": Chain([
-                            Rule(
-                                action: SetAccount("matched"),
-                                predicate: PostingHasFlagTag("tag1"),
-                                result: Return,
-                            ),
-                        ]),
-                    },
-                )"#,
+                table: r#"[
+                    Chain("start", [
+                        Rule(
+                            action: SetAccount("matched"),
+                            predicate: PostingHasFlagTag("tag1"),
+                            result: Return,
+                        ),
+                    ]),
+                ]"#,
                 cases: compile_cases(vec![Case {
                     input: r"
                             2001/01/02 description1
@@ -585,17 +614,15 @@ mod tests {
             },
             Test {
                 name: "remove flag tag",
-                table: r#"Table(
-                    chains: {
-                        "start": Chain([
-                            Rule(
-                                action: RemovePostingFlagTag("tag1"),
-                                predicate: True,
-                                result: Return,
-                            ),
-                        ]),
-                    },
-                )"#,
+                table: r#"[
+                    Chain("start", [
+                        Rule(
+                            action: RemovePostingFlagTag("tag1"),
+                            predicate: True,
+                            result: Return,
+                        ),
+                    ]),
+                ]"#,
                 cases: compile_cases(vec![Case {
                     input: r"
                             2001/01/02 description1  ; :tag1: transaction tag not matched
@@ -618,7 +645,7 @@ mod tests {
         ];
 
         for test in &tests {
-            let table = Table::from_str(test.table)
+            let table = load_from_str(test.table)
                 .expect(&format!("failed to parse table for test {}", test.name));
             for (case_idx, case) in test.cases.iter().enumerate() {
                 let got = table
@@ -639,18 +666,16 @@ mod tests {
 
     #[test]
     fn error_action() {
-        let table = Table::from_str(
-            r#"Table(
-                chains: {
-                    "start": Chain([
-                        Rule(
-                            action: Error("MY ERROR"),
-                            predicate: Account(Eq("bad:account")),
-                            result: Return,
-                        ),
-                    ]),
-                },
-            )"#,
+        let table = load_from_str(
+            r#"[
+                Chain("start", [
+                    Rule(
+                        action: Error("MY ERROR"),
+                        predicate: Account(Eq("bad:account")),
+                        result: Return,
+                    ),
+                ]),
+            ]"#,
         )
         .expect("should parse and validate");
         let input = parse_transaction_postings(
@@ -670,33 +695,24 @@ mod tests {
     fn validate_valid_tables() {
         struct Test(&'static str, &'static str);
         let tests = vec![
-            Test(
-                "empty start chain",
-                r#"Table(
-                    chains: {
-                        "start": Chain([]),
-                    },
-                )"#,
-            ),
+            Test("empty start chain", r#"[Chain("start", [])]"#),
             Test(
                 "jump to other chain",
-                r#"Table(
-                    chains: {
-                        "start": Chain([
-                            Rule(
-                                action: JumpChain("foo"),
-                                predicate: True,
-                                result: Continue,
-                            ),
-                        ]),
-                        "foo": Chain([]),
-                    },
-                )"#,
+                r#"[
+                    Chain("start", [
+                        Rule(
+                            action: JumpChain("foo"),
+                            predicate: True,
+                            result: Continue,
+                        ),
+                    ]),
+                    Chain("foo", []),
+                ]"#,
             ),
         ];
 
         for t in &tests {
-            let table = Table::from_str_unvalidated(t.1).unwrap();
+            let table = load_from_str_unvalidated(t.1).unwrap();
             table
                 .validate()
                 .expect(&format!("{} => should succeed", t.0));
@@ -709,37 +725,33 @@ mod tests {
         let tests = vec![
             Test(
                 "no start chain",
-                r#"Table(
-                    chains: {
-                        "foo": Chain([]),
-                    },
-                )"#,
+                r#"[
+                        Chain("foo", []),
+                    ]"#,
             ),
             Test(
                 "jump to non existing chain",
-                r#"Table(
-                    chains: {
-                        "start": Chain([
-                            Rule(
-                                action: JumpChain("foo"),
-                                predicate: True,
-                                result: Continue,
-                            ),
-                        ]),
-                        "foo": Chain([
-                            Rule(
-                                action: JumpChain("not-exist"),
-                                predicate: True,
-                                result: Continue,
-                            ),
-                        ]),
-                    },
-                )"#,
+                r#"[
+                    Chain("start", [
+                        Rule(
+                            action: JumpChain("foo"),
+                            predicate: True,
+                            result: Continue,
+                        ),
+                    ]),
+                    Chain("foo", [
+                        Rule(
+                            action: JumpChain("not-exist"),
+                            predicate: True,
+                            result: Continue,
+                        ),
+                    ]),
+                ]"#,
             ),
         ];
 
         for t in &tests {
-            let table = Table::from_str_unvalidated(t.1).unwrap();
+            let table = load_from_str_unvalidated(t.1).unwrap();
             table
                 .validate()
                 .expect_err(&format!("{} => should fail", t.0));

@@ -22,7 +22,7 @@ pub struct Command {
 
 impl Command {
     pub fn run(&self) -> Result<()> {
-        let rules = table::Table::from_path(&self.rules)?;
+        let rules = table::load_from_path(&self.rules)?;
         let mut ledger = filespec::read_ledger_file(&self.input_journal)?;
         let trns = TransactionPostings::take_from_ledger(&mut ledger);
 
