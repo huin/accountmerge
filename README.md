@@ -9,12 +9,24 @@ accounting files. As such, it's best to:
 
 - keep backups of your account journals,
 - preview change made to your journal made by this utility before committing
-    to them,
+  to them,
 - make use of balance assertions where possible to help catch mistakes (such
-    as duplicated transactions/postings).
+  as duplicated transactions/postings).
 
 The first two recommendations naturally suggest using a version control tool
 (such as Git, Mercurial).
+
+## Required Features
+
+- `merge`:
+  - Configurable window to match transactions. It's common for a
+    transfer between accounts to be delayed. This shouldn't result in
+    duped transactions.
+  - Be smarter about merging transactions in. It's commonly incorrect to merge
+    a transaction into an existing transaction if one posting gets deduped
+    against an existing posting, and another posting gets created/added.
+- `apply-rules`:
+  - Rule chains can be included from another file.
 
 ## Fingerprints
 
@@ -64,20 +76,20 @@ lookup" as described below. Use this posting to determine a _default
 destination transaction_:
 
 - The first destination posting that matches, use its transaction as the
-    default destination transaction.
+  default destination transaction.
 - If no posting matches, create a new destination transaction as the default
-    destination transaction.
+  destination transaction.
 
 Now process each source posting again to find its match in the destination,
 again according to "Existing posting lookup".
 
 - When a match is found, update the matching posting in the destination by
-    adding the tags (including fingerprint key+value). If the source posting
-    does not have the "unknown-account" tag and the destination does, then
-    additionally copy the account name from source to destination and remove
-    the "unknown-account" tag from the destination.
+  adding the tags (including fingerprint key+value). If the source posting
+  does not have the "unknown-account" tag and the destination does, then
+  additionally copy the account name from source to destination and remove
+  the "unknown-account" tag from the destination.
 - If nothing matched, create a copy of the source posting within the _default
-    destination transaction_.
+  destination transaction_.
 
 This may create unbalanced transactions, which is left to be manually resolved.
 So the user should run a check with the `ledger` command before continuing.
@@ -89,40 +101,40 @@ in the following order:
 
 1. Match based on fingerprint.
 
-    Look for existing posting(s) that have the same fingerprint tag(s) from the
-    source posting:
+   Look for existing posting(s) that have the same fingerprint tag(s) from the
+   source posting:
 
-    - If no fingerprints match any existing postings, continue to step 2.
-    - If only one posting is found, then use that as the destination posting.
-    - If multiple postings are found, this is an error.
+   - If no fingerprints match any existing postings, continue to step 2.
+   - If only one posting is found, then use that as the destination posting.
+   - If multiple postings are found, this is an error.
 
 2. Soft match based on the following non-fingerprint values:
 
-    - Same date on parent transaction.
-    - Same amount.
-    - If _both_ source and destinations postings have a balance value, they
-      must have the same balance.
-    - If _both_ source and destination postings do _not_ have the
-      "unknown-account" tag, they must also match account names.
+   - Same date on parent transaction.
+   - Same amount.
+   - If _both_ source and destinations postings have a balance value, they
+     must have the same balance.
+   - If _both_ source and destination postings do _not_ have the
+     "unknown-account" tag, they must also match account names.
 
-    This may match zero or more postings:
+   This may match zero or more postings:
 
-    - If no postings match, then that is the end of the search and no existing
-      postings are found to match.
-    - If only one posting is found, then use that as the destination posting.
-    - If multiple postings are found, then mark the source posting with tags in
-      the form `"candidate-$FINGERPRINT"` using a fingerprint from the
-      potential destination postings, and skip any further steps of merging
-      this posting. The source posting's parent transaction will then go into
-      the separate "unmerged" output.
+   - If no postings match, then that is the end of the search and no existing
+     postings are found to match.
+   - If only one posting is found, then use that as the destination posting.
+   - If multiple postings are found, then mark the source posting with tags in
+     the form `"candidate-$FINGERPRINT"` using a fingerprint from the
+     potential destination postings, and skip any further steps of merging
+     this posting. The source posting's parent transaction will then go into
+     the separate "unmerged" output.
 
-        It is left for the user to select which of the existing postings it
-        should be merged into by:
+     It is left for the user to select which of the existing postings it
+     should be merged into by:
 
-        1. Editing the unmerged output file:
-            - Removing the `candidate-` prefix from one of the tags on one of
-              the unmerged postings to identify which destination tag it should
-              merge into.
-            - Removing the other `candidate-$FINGERPRINT` tags completely.
-        2. Re-running the merge tool to include the edited unmerged
-           transactions file.
+     1. Editing the unmerged output file:
+        - Removing the `candidate-` prefix from one of the tags on one of
+          the unmerged postings to identify which destination tag it should
+          merge into.
+        - Removing the other `candidate-$FINGERPRINT` tags completely.
+     2. Re-running the merge tool to include the edited unmerged
+        transactions file.
