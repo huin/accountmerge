@@ -5,7 +5,7 @@ use structopt::StructOpt;
 
 use crate::filespec::{self, FileSpec};
 use crate::internal::TransactionPostings;
-use crate::rules::table;
+use crate::rules::source;
 
 #[derive(Debug, StructOpt)]
 pub struct Command {
@@ -22,7 +22,7 @@ pub struct Command {
 
 impl Command {
     pub fn run(&self) -> Result<()> {
-        let rules = table::load_from_path(&self.rules)?;
+        let rules = source::load_from_path(&self.rules)?;
         let mut ledger = filespec::read_ledger_file(&self.input_journal)?;
         let trns = TransactionPostings::take_from_ledger(&mut ledger);
 
