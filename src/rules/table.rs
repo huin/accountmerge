@@ -12,7 +12,7 @@ use crate::rules::predicate::Predicate;
 const START_CHAIN: &str = "start";
 
 pub fn load_from_path(path: &Path) -> Result<Table> {
-    let rf = RuleFile::from_path(path)?;
+    let rf = SourceFile::from_path(path)?;
     let table = rf.load()?;
     table.validate()?;
     Ok(table)
@@ -20,7 +20,7 @@ pub fn load_from_path(path: &Path) -> Result<Table> {
 
 #[cfg(test)]
 fn load_from_str_unvalidated(s: &str) -> Result<Table> {
-    let rf = RuleFile::from_str(s)?;
+    let rf = SourceFile::from_str(s)?;
     let table = rf.load()?;
     Ok(table)
 }
@@ -33,18 +33,18 @@ fn load_from_str(s: &str) -> Result<Table> {
 }
 
 #[derive(Debug)]
-struct RuleFile {
+struct SourceFile {
     source: Option<PathBuf>,
-    entries: Vec<FileEntry>,
+    entries: Vec<SourceEntry>,
 }
 
-impl RuleFile {
+impl SourceFile {
     pub fn from_path(path: &Path) -> Result<Self> {
-        let entries: Vec<FileEntry> = ron::de::from_reader(
+        let entries: Vec<SourceEntry> = ron::de::from_reader(
             File::open(&path).with_context(|| format!("opening {:?} for reading", path))?,
         )
         .with_context(|| format!("parsing {:?}", path))?;
-        Ok(Self {
+        Ok(SourceFile {
             source: Some(path.to_owned()),
             entries,
         })
@@ -52,7 +52,7 @@ impl RuleFile {
 
     #[cfg(test)]
     pub fn from_str(s: &str) -> Result<Self> {
-        let entries: Vec<FileEntry> = ron::de::from_str(s)?;
+        let entries: Vec<SourceEntry> = ron::de::from_str(s)?;
         Ok(Self {
             source: None,
             entries,
@@ -80,7 +80,7 @@ impl RuleFile {
 
         for entry in self.entries {
             match entry {
-                FileEntry::Include(include_path) => {
+                SourceEntry::Include(include_path) => {
                     let include_path = match self_path {
                         Some(ref self_path) => {
                             let parent_dir = self_path.parent().ok_or_else(|| {
@@ -99,7 +99,7 @@ impl RuleFile {
                         .load_into(table, seen_paths)
                         .with_context(|| format!("when including from {:?}", include_path))?;
                 }
-                FileEntry::Chain(name, rules) => {
+                SourceEntry::Chain(name, rules) => {
                     use std::collections::hash_map::Entry::*;
                     match table.chains.entry(name) {
                         Occupied(entry) => {
@@ -121,7 +121,7 @@ impl RuleFile {
 }
 
 #[derive(Debug, Deserialize)]
-enum FileEntry {
+enum SourceEntry {
     Include(PathBuf),
     Chain(String, Vec<Rule>),
 }
