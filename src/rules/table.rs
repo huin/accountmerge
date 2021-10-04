@@ -13,7 +13,7 @@ const START_CHAIN: &str = "start";
 
 pub fn load_from_path(path: &Path) -> Result<Table> {
     let rf = RuleFile::from_path(path)?;
-    let table = rf.load(Some(path))?;
+    let table = rf.load()?;
     table.validate()?;
     Ok(table)
 }
@@ -21,7 +21,7 @@ pub fn load_from_path(path: &Path) -> Result<Table> {
 #[cfg(test)]
 fn load_from_str_unvalidated(s: &str) -> Result<Table> {
     let rf = RuleFile::from_str(s)?;
-    let table = rf.load(None)?;
+    let table = rf.load()?;
     Ok(table)
 }
 
@@ -32,8 +32,11 @@ fn load_from_str(s: &str) -> Result<Table> {
     Ok(table)
 }
 
-#[derive(Debug, Default, Deserialize)]
-struct RuleFile(Vec<FileEntry>);
+#[derive(Debug)]
+struct RuleFile {
+    source: Option<PathBuf>,
+    entries: Vec<FileEntry>,
+}
 
 impl RuleFile {
     pub fn from_path(path: &Path) -> Result<Self> {
@@ -41,38 +44,41 @@ impl RuleFile {
             File::open(&path).with_context(|| format!("opening {:?} for reading", path))?,
         )
         .with_context(|| format!("parsing {:?}", path))?;
-        Ok(Self(entries))
+        Ok(Self {
+            source: Some(path.to_owned()),
+            entries,
+        })
     }
 
     #[cfg(test)]
     pub fn from_str(s: &str) -> Result<Self> {
         let entries: Vec<FileEntry> = ron::de::from_str(s)?;
-        Ok(Self(entries))
+        Ok(Self {
+            source: None,
+            entries,
+        })
     }
 
-    fn load(self, self_path: Option<&Path>) -> Result<Table> {
+    fn load(self) -> Result<Table> {
         let mut table = Table::default();
         let mut seen_paths = HashSet::new();
-        self.load_into(self_path, &mut table, &mut seen_paths)?;
+        self.load_into(&mut table, &mut seen_paths)?;
         Ok(table)
     }
 
-    fn load_into(
-        self,
-        self_path: Option<&Path>,
-        table: &mut Table,
-        seen_paths: &mut HashSet<Option<PathBuf>>,
-    ) -> Result<()> {
-        let self_path = self_path
-            .map(Path::canonicalize)
+    fn load_into(self, table: &mut Table, seen_paths: &mut HashSet<Option<PathBuf>>) -> Result<()> {
+        let self_path = self
+            .source
+            .as_ref()
+            .map(std::fs::canonicalize)
             .transpose()
-            .with_context(|| format!("canonicalizing path {:?}", self_path))?;
+            .with_context(|| format!("canonicalizing path {:?}", self.source))?;
         if !seen_paths.insert(self_path.clone()) {
             // Already loaded.
             return Ok(());
         }
 
-        for entry in self.0 {
+        for entry in self.entries {
             match entry {
                 FileEntry::Include(include_path) => {
                     let include_path = match self_path {
@@ -90,7 +96,7 @@ impl RuleFile {
 
                     let included_file = Self::from_path(&include_path)?;
                     included_file
-                        .load_into(Some(&include_path), table, seen_paths)
+                        .load_into(table, seen_paths)
                         .with_context(|| format!("when including from {:?}", include_path))?;
                 }
                 FileEntry::Chain(name, rules) => {
