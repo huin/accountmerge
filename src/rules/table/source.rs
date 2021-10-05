@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -8,18 +7,19 @@ use anyhow::{Context, Result};
 use crate::rules::table::{Chain, Rule, Table};
 
 #[derive(Debug)]
-pub struct SourceFile {
+pub struct File {
     source: Option<PathBuf>,
-    entries: Vec<SourceEntry>,
+    entries: Vec<Entry>,
 }
 
-impl SourceFile {
+impl File {
     pub fn from_path(path: &Path) -> Result<Self> {
-        let entries: Vec<SourceEntry> = ron::de::from_reader(
-            File::open(&path).with_context(|| format!("opening {:?} for reading", path))?,
+        let entries: Vec<Entry> = ron::de::from_reader(
+            std::fs::File::open(&path)
+                .with_context(|| format!("opening {:?} for reading", path))?,
         )
         .with_context(|| format!("parsing {:?}", path))?;
-        Ok(SourceFile {
+        Ok(File {
             source: Some(path.to_owned()),
             entries,
         })
@@ -27,7 +27,7 @@ impl SourceFile {
 
     #[cfg(test)]
     pub fn from_str(s: &str) -> Result<Self> {
-        let entries: Vec<SourceEntry> = ron::de::from_str(s)?;
+        let entries: Vec<Entry> = ron::de::from_str(s)?;
         Ok(Self {
             source: None,
             entries,
@@ -59,7 +59,7 @@ impl SourceFile {
 
         for entry in self.entries {
             match entry {
-                SourceEntry::Include(include_path) => {
+                Entry::Include(include_path) => {
                     let include_path = match self_path {
                         Some(ref self_path) => {
                             let parent_dir = self_path.parent().ok_or_else(|| {
@@ -78,7 +78,7 @@ impl SourceFile {
                         .load_into(chains, seen_paths)
                         .with_context(|| format!("when including from {:?}", include_path))?;
                 }
-                SourceEntry::Chain(name, rules) => {
+                Entry::Chain(name, rules) => {
                     use std::collections::hash_map::Entry::*;
                     match chains.entry(name) {
                         Occupied(entry) => {
@@ -100,7 +100,7 @@ impl SourceFile {
 }
 
 #[derive(Debug, Deserialize)]
-enum SourceEntry {
+enum Entry {
     Include(PathBuf),
     Chain(String, Vec<Rule>),
 }

@@ -14,7 +14,7 @@ mod source;
 const START_CHAIN: &str = "start";
 
 pub fn load_from_path(path: &std::path::Path) -> Result<Table> {
-    let rf = source::SourceFile::from_path(path)?;
+    let rf = source::File::from_path(path)?;
     let table = rf.load()?;
     table.validate()?;
     Ok(table)
@@ -22,7 +22,7 @@ pub fn load_from_path(path: &std::path::Path) -> Result<Table> {
 
 #[cfg(test)]
 pub fn load_from_str_unvalidated(s: &str) -> Result<Table> {
-    let rf = source::SourceFile::from_str(s)?;
+    let rf = source::File::from_str(s)?;
     let table = rf.load()?;
     Ok(table)
 }
