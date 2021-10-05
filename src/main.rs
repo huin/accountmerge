@@ -13,6 +13,7 @@ extern crate itertools;
 extern crate lazy_static;
 extern crate ledger_parser;
 extern crate regex;
+extern crate rhai;
 extern crate ron;
 extern crate rust_decimal;
 extern crate serde;

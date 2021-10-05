@@ -14,7 +14,7 @@ for i in 1 2; do
         nationwide-csv \
         --fp-namespace lookup:examples/accounts.ron \
         examples/statement${i}.csv
-    cargo run -q -- apply-rules -r examples/rules.ron \
+    cargo run -q -- apply-rules -e table -r examples/rules.ron \
         --output example_output/statements${i}-ruled.journal \
         example_output/statement${i}-raw.journal
 done

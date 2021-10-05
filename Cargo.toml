@@ -18,7 +18,7 @@ lazy_static = "1"
 ledger-parser = "3"
 regex = "1"
 ron = "0.6"
-rust_decimal = "1"
+rust_decimal = "1.16"
 serde = "1"
 serde_derive = "1"
 sha-1 = "0.9"
@@ -30,6 +30,10 @@ uuid-b64 = "0.1"
 [dependencies.chrono-tz]
 version = "0.5"
 features = ["serde"]
+
+[dependencies.rhai]
+version = "1"
+features = ["decimal", "sync"]
 
 [dev-dependencies]
 goldenfile = "1"
