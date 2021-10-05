@@ -3,11 +3,36 @@ use std::collections::HashMap;
 use anyhow::Result;
 
 use crate::internal::TransactionPostings;
-use crate::rules::ctx::PostingContext;
-use crate::rules::predicate::Predicate;
 use crate::rules::processor::TransactionProcessor;
+use crate::rules::table::ctx::PostingContext;
+use crate::rules::table::predicate::Predicate;
+
+mod ctx;
+mod predicate;
+mod source;
 
 const START_CHAIN: &str = "start";
+
+pub fn load_from_path(path: &std::path::Path) -> Result<Table> {
+    let rf = source::SourceFile::from_path(path)?;
+    let table = rf.load()?;
+    table.validate()?;
+    Ok(table)
+}
+
+#[cfg(test)]
+pub fn load_from_str_unvalidated(s: &str) -> Result<Table> {
+    let rf = source::SourceFile::from_str(s)?;
+    let table = rf.load()?;
+    Ok(table)
+}
+
+#[cfg(test)]
+pub fn load_from_str(s: &str) -> Result<Table> {
+    let table = load_from_str_unvalidated(s)?;
+    table.validate()?;
+    Ok(table)
+}
 
 #[derive(Debug)]
 pub struct Table {
@@ -182,7 +207,6 @@ impl Action {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::source::{load_from_str, load_from_str_unvalidated};
     use crate::testutil::{format_transaction_postings, parse_transaction_postings};
 
     #[test]
