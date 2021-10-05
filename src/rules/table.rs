@@ -5,6 +5,7 @@ use anyhow::Result;
 use crate::internal::TransactionPostings;
 use crate::rules::ctx::PostingContext;
 use crate::rules::predicate::Predicate;
+use crate::rules::processor::TransactionProcessor;
 
 const START_CHAIN: &str = "start";
 
@@ -51,6 +52,15 @@ impl Table {
             chain.validate(self)?;
         }
         Ok(())
+    }
+}
+
+impl TransactionProcessor for Table {
+    fn update_transactions(
+        &self,
+        trns: Vec<TransactionPostings>,
+    ) -> Result<Vec<TransactionPostings>> {
+        Table::update_transactions(self, trns)
     }
 }
 
