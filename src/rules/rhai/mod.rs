@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rhai::{Engine, AST};
 
 use crate::internal::TransactionPostings;
@@ -31,13 +31,15 @@ impl TransactionProcessor for Rhai {
         trns.into_iter()
             .map(|trn| {
                 let trn_obj: types::Map = trn.into();
-                let result: rhai::Map = self.engine.call_fn(
-                    &mut scope,
-                    &self.ast,
-                    "update_transaction",
-                    (trn_obj.0,),
-                )?;
-                let new_trn: TransactionPostings = types::Map(result).try_into()?;
+                let result: rhai::Map = self
+                    .engine
+                    .call_fn(&mut scope, &self.ast, "update_transaction", (trn_obj.0,))
+                    .with_context(|| "calling update_transaction()".to_string())?;
+                let new_trn: TransactionPostings =
+                    types::Map(result).try_into().with_context(|| {
+                        "converting return value from update_transaction into a transaction"
+                            .to_string()
+                    })?;
                 Ok(new_trn)
             })
             .collect()
