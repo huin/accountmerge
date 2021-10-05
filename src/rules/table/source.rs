@@ -7,29 +7,8 @@ use anyhow::{Context, Result};
 
 use crate::rules::table::{Chain, Rule, Table};
 
-pub fn load_from_path(path: &Path) -> Result<Table> {
-    let rf = SourceFile::from_path(path)?;
-    let table = rf.load()?;
-    table.validate()?;
-    Ok(table)
-}
-
-#[cfg(test)]
-pub fn load_from_str_unvalidated(s: &str) -> Result<Table> {
-    let rf = SourceFile::from_str(s)?;
-    let table = rf.load()?;
-    Ok(table)
-}
-
-#[cfg(test)]
-pub fn load_from_str(s: &str) -> Result<Table> {
-    let table = load_from_str_unvalidated(s)?;
-    table.validate()?;
-    Ok(table)
-}
-
 #[derive(Debug)]
-struct SourceFile {
+pub struct SourceFile {
     source: Option<PathBuf>,
     entries: Vec<SourceEntry>,
 }
@@ -55,7 +34,7 @@ impl SourceFile {
         })
     }
 
-    fn load(self) -> Result<Table> {
+    pub fn load(self) -> Result<Table> {
         let mut chains = HashMap::<String, Chain>::new();
         let mut seen_paths = HashSet::new();
         self.load_into(&mut chains, &mut seen_paths)?;

@@ -5,7 +5,7 @@ use anyhow::Result;
 use serde::de;
 use serde::Deserialize;
 
-use crate::rules::ctx::PostingContext;
+use crate::rules::table::ctx::PostingContext;
 
 #[derive(Debug, Deserialize)]
 pub enum Predicate {

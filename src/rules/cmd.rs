@@ -8,7 +8,7 @@ use crate::filespec::{self, FileSpec};
 use crate::internal::TransactionPostings;
 use crate::rules::processor::TransactionProcessor;
 use crate::rules::rhai::Rhai;
-use crate::rules::source;
+use crate::rules::table;
 
 #[derive(Debug, StructOpt)]
 pub struct Command {
@@ -35,7 +35,7 @@ enum EngineSelection {
 impl EngineSelection {
     fn build(self, source: &Path) -> Result<Box<dyn TransactionProcessor>> {
         match self {
-            EngineSelection::Table => Ok(Box::new(source::load_from_path(source)?)),
+            EngineSelection::Table => Ok(Box::new(table::load_from_path(source)?)),
             EngineSelection::Rhai => Ok(Box::new(Rhai::from_file(source)?)),
         }
     }
