@@ -3,6 +3,7 @@ use std::convert::{TryFrom, TryInto};
 
 use anyhow::{Error, Result};
 use chrono::Datelike;
+use rhai::plugin::*;
 use rhai::{Dynamic, Engine};
 
 use crate::comment::Comment;
@@ -36,6 +37,7 @@ impl From<TransactionPostings> for Map {
             "effective_date".into(),
             Dynamic::from(trn_posts.trn.raw.effective_date.map(|d| NaiveDate(d))),
         );
+        map.insert("status".into(), Dynamic::from(trn_posts.trn.raw.status));
         // pub status: Option<TransactionStatus>,
         map.insert("code".into(), Dynamic::from(trn_posts.trn.raw.code));
         map.insert(
@@ -59,7 +61,7 @@ impl TryFrom<Map> for TransactionPostings {
                     comment: None,
                     date: date.unpack(),
                     effective_date: eff_date.map(NaiveDate::unpack),
-                    status: None,
+                    status: map.take_value("status")?,
                     code: map.take_value("code")?,
                     description: map.take_value("description")?,
                     postings: Vec::new(),
@@ -119,6 +121,37 @@ impl TryFrom<Map> for Comment {
     }
 }
 
+#[export_module]
+mod transaction_status_module {
+    use ledger_parser::TransactionStatus;
+    #[allow(non_upper_case_globals)]
+    pub const Cleared: TransactionStatus = TransactionStatus::Cleared;
+    #[allow(non_upper_case_globals)]
+    pub const Pending: TransactionStatus = TransactionStatus::Pending;
+
+    #[rhai_fn(global, get = "enum_type", pure)]
+    pub fn get_type(trn_status: &mut TransactionStatus) -> String {
+        match trn_status {
+            TransactionStatus::Cleared => "Cleared",
+            TransactionStatus::Pending => "Pending",
+        }
+        .to_string()
+    }
+
+    #[rhai_fn(global, name = "to_string", name = "to_debug", pure)]
+    pub fn to_string(trn_status: &mut TransactionStatus) -> String {
+        format!("{:?}", trn_status)
+    }
+    #[rhai_fn(global, name = "==", pure)]
+    pub fn eq(a: &mut TransactionStatus, b: TransactionStatus) -> bool {
+        a == &b
+    }
+    #[rhai_fn(global, name = "!=", pure)]
+    pub fn neq(a: &mut TransactionStatus, b: TransactionStatus) -> bool {
+        a != &b
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct NaiveDate(pub chrono::NaiveDate);
 
@@ -159,4 +192,14 @@ impl NaiveDate {
     fn set_day(&mut self, day: i64) {
         self.0 = chrono::NaiveDate::from_ymd(self.0.year(), self.0.month(), day as u32)
     }
+}
+
+pub fn register_types(engine: &mut Engine) {
+    engine
+        .register_type_with_name::<ledger_parser::TransactionStatus>("TransactionStatus")
+        .register_static_module(
+            "TransactionStatus",
+            exported_module!(transaction_status_module).into(),
+        );
+    NaiveDate::register_type(engine);
 }
