@@ -15,7 +15,9 @@ pub struct Rhai {
 
 impl Rhai {
     pub fn from_file(path: &std::path::Path) -> Result<Self> {
-        let engine = Engine::new();
+        let mut engine = Engine::new();
+        types::NaiveDate::register_type(&mut engine);
+
         let ast = engine.compile_file(path.into())?;
 
         Ok(Rhai { engine, ast })
