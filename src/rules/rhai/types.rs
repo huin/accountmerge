@@ -27,15 +27,21 @@ impl From<TransactionPostings> for Map {
         // TODO: Remaining fields.
         let mut map = rhai::Map::new();
         let comment_map: Map = trn_posts.trn.comment.into();
-        map.insert("comment".into(), comment_map.0.into());
+        map.insert("comment".into(), Dynamic::from(comment_map.0));
         map.insert(
             "date".into(),
             Dynamic::from(NaiveDate(trn_posts.trn.raw.date)),
         );
-        // pub effective_date: Option<NaiveDate>,
+        map.insert(
+            "effective_date".into(),
+            Dynamic::from(trn_posts.trn.raw.effective_date.map(|d| NaiveDate(d))),
+        );
         // pub status: Option<TransactionStatus>,
-        // pub code: Option<String>,
-        map.insert("description".into(), trn_posts.trn.raw.description.into());
+        map.insert("code".into(), Dynamic::from(trn_posts.trn.raw.code));
+        map.insert(
+            "description".into(),
+            Dynamic::from(trn_posts.trn.raw.description),
+        );
         // pub postings: Vec<Posting>,
         Self(map)
     }
@@ -46,14 +52,15 @@ impl TryFrom<Map> for TransactionPostings {
     fn try_from(mut map: Map) -> Result<Self> {
         // TODO: Remaining fields.
         let date: NaiveDate = map.take_value("date")?;
+        let eff_date: Option<NaiveDate> = map.take_value("effective_date")?;
         Ok(TransactionPostings {
             trn: TransactionInternal {
                 raw: ledger_parser::Transaction {
                     comment: None,
-                    date: date.0,
-                    effective_date: None,
+                    date: date.unpack(),
+                    effective_date: eff_date.map(NaiveDate::unpack),
                     status: None,
-                    code: None,
+                    code: map.take_value("code")?,
                     description: map.take_value("description")?,
                     postings: Vec::new(),
                 },
@@ -67,16 +74,16 @@ impl TryFrom<Map> for TransactionPostings {
 impl From<Comment> for Map {
     fn from(comment: Comment) -> Self {
         let mut map = rhai::Map::new();
-        let lines: rhai::Array = comment.lines.into_iter().map(Into::into).collect();
-        let tags: rhai::Array = comment.tags.into_iter().map(Into::into).collect();
+        let lines: rhai::Array = comment.lines.into_iter().map(Dynamic::from).collect();
+        let tags: rhai::Array = comment.tags.into_iter().map(Dynamic::from).collect();
         let value_tags: rhai::Map = comment
             .value_tags
             .into_iter()
-            .map(|(key, value)| (key.into(), value.into()))
+            .map(|(key, value)| (key.into(), Dynamic::from(value)))
             .collect();
-        map.insert("lines".into(), lines.into());
-        map.insert("tags".into(), tags.into());
-        map.insert("value_tags".into(), value_tags.into());
+        map.insert("lines".into(), Dynamic::from(lines));
+        map.insert("tags".into(), Dynamic::from(tags));
+        map.insert("value_tags".into(), Dynamic::from(value_tags));
         Map(map)
     }
 }
@@ -128,6 +135,10 @@ impl NaiveDate {
 
     fn new(year: i32, month: u32, day: u32) -> Self {
         Self(chrono::NaiveDate::from_ymd(year, month, day))
+    }
+
+    fn unpack(self) -> chrono::NaiveDate {
+        self.0
     }
 
     fn get_year(&mut self) -> i64 {
