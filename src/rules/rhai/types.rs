@@ -25,7 +25,7 @@ impl Map {
 
 impl From<TransactionPostings> for Map {
     fn from(trn_posts: TransactionPostings) -> Self {
-        // TODO: Remaining fields.
+        // TODO: Proper support for optional fields.
         let mut map = rhai::Map::new();
         let comment_map: Map = trn_posts.trn.comment.into();
         map.insert("comment".into(), Dynamic::from(comment_map.0));
@@ -44,15 +44,17 @@ impl From<TransactionPostings> for Map {
             "description".into(),
             Dynamic::from(trn_posts.trn.raw.description),
         );
+        // TODO: Postings.
         // pub postings: Vec<Posting>,
         Self(map)
     }
 }
 
+
 impl TryFrom<Map> for TransactionPostings {
     type Error = Error;
     fn try_from(mut map: Map) -> Result<Self> {
-        // TODO: Remaining fields.
+        // TODO: Proper support for optional fields.
         let date: NaiveDate = map.take_value("date")?;
         let eff_date: Option<NaiveDate> = map.take_value("effective_date")?;
         Ok(TransactionPostings {
@@ -64,6 +66,7 @@ impl TryFrom<Map> for TransactionPostings {
                     status: map.take_value("status")?,
                     code: map.take_value("code")?,
                     description: map.take_value("description")?,
+                    // TODO: Postings.
                     postings: Vec::new(),
                 },
                 comment: Map(map.take_value("comment")?).try_into()?,
