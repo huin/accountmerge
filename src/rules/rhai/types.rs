@@ -1,5 +1,6 @@
+use std::any::Any;
 use std::collections::{HashMap, HashSet};
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 
 use anyhow::{Error, Result};
 use chrono::Datelike;
@@ -14,62 +15,92 @@ use crate::internal::{TransactionInternal, TransactionPostings};
 pub struct Map(pub rhai::Map);
 
 impl Map {
-    fn take_value<T: std::any::Any>(&mut self, key: &str) -> Result<T> {
+    fn new() -> Self {
+        Map(rhai::Map::new())
+    }
+
+    fn unpack(self) -> rhai::Map {
+        self.0
+    }
+
+    fn take_value<T: Any>(&mut self, key: &str) -> Result<T> {
         self.0
             .remove(key)
             .ok_or_else(|| anyhow!("missing {} field", key))?
             .try_cast()
             .ok_or_else(|| anyhow!("{} field was not the expected type", key))
     }
+
+    fn take_opt_value<T: Any>(&mut self, key: &str) -> Result<Option<T>> {
+        let value: Dynamic = match self.0.remove(key) {
+            Some(v) => v,
+            None => return Ok(None),
+        };
+        if value.is::<()>() {
+            return Ok(None);
+        }
+        value
+            .try_cast::<T>()
+            .ok_or_else(|| anyhow!("{} field was not the expected type", key))
+            .map(Some)
+    }
+
+    fn put_value<T: Any + Clone + Send + Sync>(&mut self, key: &str, value: T) {
+        self.0.insert(key.into(), Dynamic::from(value));
+    }
+
+    fn put_opt_value<T: Any + Clone + Send + Sync>(&mut self, key: &str, value: Option<T>) {
+        self.0.insert(
+            key.into(),
+            match value {
+                None => Dynamic::from(()),
+                Some(value) => Dynamic::from(value),
+            },
+        );
+    }
 }
 
 impl From<TransactionPostings> for Map {
     fn from(trn_posts: TransactionPostings) -> Self {
-        // TODO: Proper support for optional fields.
-        let mut map = rhai::Map::new();
-        let comment_map: Map = trn_posts.trn.comment.into();
-        map.insert("comment".into(), Dynamic::from(comment_map.0));
-        map.insert(
-            "date".into(),
-            Dynamic::from(NaiveDate(trn_posts.trn.raw.date)),
+        let mut map = Self::new();
+        map.put_value("comment", Map::from(trn_posts.trn.comment).unpack());
+        map.put_value("date", NaiveDate(trn_posts.trn.raw.date));
+        map.put_opt_value(
+            "effective_date",
+            trn_posts.trn.raw.effective_date.map(NaiveDate),
         );
-        map.insert(
-            "effective_date".into(),
-            Dynamic::from(trn_posts.trn.raw.effective_date.map(|d| NaiveDate(d))),
-        );
-        map.insert("status".into(), Dynamic::from(trn_posts.trn.raw.status));
-        // pub status: Option<TransactionStatus>,
-        map.insert("code".into(), Dynamic::from(trn_posts.trn.raw.code));
-        map.insert(
-            "description".into(),
-            Dynamic::from(trn_posts.trn.raw.description),
-        );
+        map.put_opt_value("status", trn_posts.trn.raw.status);
+        map.put_opt_value("code", trn_posts.trn.raw.code);
+        map.put_value("description", trn_posts.trn.raw.description);
         // TODO: Postings.
         // pub postings: Vec<Posting>,
-        Self(map)
+        map
     }
 }
-
 
 impl TryFrom<Map> for TransactionPostings {
     type Error = Error;
     fn try_from(mut map: Map) -> Result<Self> {
-        // TODO: Proper support for optional fields.
-        let date: NaiveDate = map.take_value("date")?;
-        let eff_date: Option<NaiveDate> = map.take_value("effective_date")?;
         Ok(TransactionPostings {
             trn: TransactionInternal {
                 raw: ledger_parser::Transaction {
                     comment: None,
-                    date: date.unpack(),
-                    effective_date: eff_date.map(NaiveDate::unpack),
-                    status: map.take_value("status")?,
-                    code: map.take_value("code")?,
+                    date: map.take_value::<NaiveDate>("date")?.unpack(),
+                    effective_date: map
+                        .take_opt_value::<NaiveDate>("effective_date")?
+                        .map(NaiveDate::unpack),
+                    status: map.take_opt_value("status")?,
+                    code: map.take_opt_value("code")?,
                     description: map.take_value("description")?,
                     // TODO: Postings.
                     postings: Vec::new(),
                 },
-                comment: Map(map.take_value("comment")?).try_into()?,
+                comment: map
+                    .take_opt_value::<rhai::Map>("comment")?
+                    .map(Map)
+                    .map(Comment::try_from)
+                    .transpose()?
+                    .unwrap_or_default(),
             },
             posts: Vec::new(),
         })

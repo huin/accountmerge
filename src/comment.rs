@@ -7,7 +7,7 @@ const MAX_INLINE_TAG_LEN: usize = 12;
 
 /// Parsed contents of a Ledger comment, suitable for manipulation before being
 /// (re)output.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Comment {
     /// Plain text lines in the comment.
     pub lines: Vec<String>,
