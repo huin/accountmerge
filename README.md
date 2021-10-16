@@ -25,8 +25,6 @@ The first two recommendations naturally suggest using a version control tool
   - Be smarter about merging transactions in. It's commonly incorrect to merge
     a transaction into an existing transaction if one posting gets deduped
     against an existing posting, and another posting gets created/added.
-- `apply-rules`:
-  - Rule chains can be included from another file.
 
 ## Fingerprints
 
