@@ -1,23 +1,15 @@
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
-
-use anyhow::{Error, Result};
+use anyhow::Result;
 use structopt::StructOpt;
 
 use crate::filespec::{self, FileSpec};
 use crate::internal::TransactionPostings;
-use crate::rules::processor::TransactionProcessor;
-use crate::rules::rhai::Rhai;
-use crate::rules::table;
+use crate::rules::processor::TransactionProcessorFactory;
 
 #[derive(Debug, StructOpt)]
 pub struct Command {
-    #[structopt(short = "r", long = "rules")]
-    /// The file to read the rules from.
-    rules: PathBuf,
     // The engine to interpret the rules as.
-    #[structopt(short = "e", long = "engine")]
-    engine: EngineSelection,
+    #[structopt(subcommand)]
+    engine: Engine,
     /// The Ledger journal to read.
     input_journal: FileSpec,
     /// The ledger file to write to (overwrites any existing file). "-" writes
@@ -26,38 +18,27 @@ pub struct Command {
     output: FileSpec,
 }
 
-#[derive(Clone, Copy, Debug, StructOpt)]
-enum EngineSelection {
-    Table,
-    Rhai,
+#[derive(Debug, StructOpt)]
+enum Engine {
+    #[structopt(name = "rhai")]
+    Rhai(crate::rules::rhai::Command),
+    #[structopt(name = "table")]
+    Table(crate::rules::table::Command),
 }
 
-impl EngineSelection {
-    fn build(self, source: &Path) -> Result<Box<dyn TransactionProcessor>> {
+impl Engine {
+    fn get_factory(&self) -> &dyn TransactionProcessorFactory {
+        use Engine::*;
         match self {
-            EngineSelection::Table => Ok(Box::new(table::load_from_path(source)?)),
-            EngineSelection::Rhai => Ok(Box::new(Rhai::from_file(source)?)),
-        }
-    }
-}
-
-impl FromStr for EngineSelection {
-    type Err = Error;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use EngineSelection::*;
-        match s {
-            "table" => Ok(Table),
-            "rhai" => Ok(Rhai),
-            _ => {
-                bail!("unknown engine: {}", s);
-            }
+            Rhai(cmd) => cmd,
+            Table(cmd) => cmd,
         }
     }
 }
 
 impl Command {
     pub fn run(&self) -> Result<()> {
-        let processor = self.engine.build(&self.rules)?;
+        let processor = self.engine.get_factory().make_processor()?;
         let mut ledger = filespec::read_ledger_file(&self.input_journal)?;
         let trns = TransactionPostings::take_from_ledger(&mut ledger);
 
