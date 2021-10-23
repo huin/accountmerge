@@ -443,7 +443,10 @@ pub fn register_types(engine: &mut Engine) {
         .register_type_with_name::<ledger_parser::TransactionStatus>("TransactionStatus")
         .register_static_module("Balance", exported_module!(balance_module).into())
         .register_static_module("Commodity", exported_module!(commodity_module).into())
-        .register_static_module("CommodityPosition", exported_module!(commodity_position_module).into())
+        .register_static_module(
+            "CommodityPosition",
+            exported_module!(commodity_position_module).into(),
+        )
         .register_static_module(
             "TransactionStatus",
             exported_module!(transaction_status_module).into(),

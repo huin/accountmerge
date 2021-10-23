@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use anyhow::Result;
+use structopt::StructOpt;
 
 use crate::internal::TransactionPostings;
-use crate::rules::processor::TransactionProcessor;
+use crate::rules::processor::{TransactionProcessor, TransactionProcessorFactory};
 use crate::rules::table::ctx::PostingContext;
 use crate::rules::table::predicate::Predicate;
 
@@ -13,7 +15,7 @@ mod source;
 
 const START_CHAIN: &str = "start";
 
-pub fn load_from_path(path: &std::path::Path) -> Result<Table> {
+fn load_from_path(path: &std::path::Path) -> Result<Table> {
     let rf = source::File::from_path(path)?;
     let table = rf.load()?;
     table.validate()?;
@@ -21,17 +23,29 @@ pub fn load_from_path(path: &std::path::Path) -> Result<Table> {
 }
 
 #[cfg(test)]
-pub fn load_from_str_unvalidated(s: &str) -> Result<Table> {
+fn load_from_str_unvalidated(s: &str) -> Result<Table> {
     let rf = source::File::from_str(s)?;
     let table = rf.load()?;
     Ok(table)
 }
 
 #[cfg(test)]
-pub fn load_from_str(s: &str) -> Result<Table> {
+fn load_from_str(s: &str) -> Result<Table> {
     let table = load_from_str_unvalidated(s)?;
     table.validate()?;
     Ok(table)
+}
+
+#[derive(Debug, StructOpt)]
+pub struct Command {
+    /// The `.ron` file containing rules to apply to the transactions.
+    rules: PathBuf,
+}
+
+impl TransactionProcessorFactory for Command {
+    fn make_processor(&self) -> Result<Box<dyn TransactionProcessor>> {
+        Ok(Box::new(load_from_path(&self.rules)?))
+    }
 }
 
 #[derive(Debug)]

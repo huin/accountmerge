@@ -1,12 +1,26 @@
 use std::convert::TryInto;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use rhai::{Engine, AST};
+use structopt::StructOpt;
 
 use crate::internal::TransactionPostings;
-use crate::rules::processor::TransactionProcessor;
+use crate::rules::processor::{TransactionProcessor, TransactionProcessorFactory};
 
 mod types;
+
+#[derive(Debug, StructOpt)]
+pub struct Command {
+    /// The `.rhai` file containing code to change the transactions.
+    rules: PathBuf,
+}
+
+impl TransactionProcessorFactory for Command {
+    fn make_processor(&self) -> Result<Box<dyn TransactionProcessor>> {
+        Ok(Box::new(Rhai::from_file(&self.rules)?))
+    }
+}
 
 pub struct Rhai {
     engine: Engine,
