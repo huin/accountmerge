@@ -257,8 +257,8 @@ mod balance_module {
     pub fn get_type(balance: &mut Balance) -> String {
         use Balance::*;
         match balance {
-            Zero => "balance_zero",
-            Amount(_) => "balance_amount",
+            Zero => "Zero",
+            Amount(_) => "Amount",
         }
         .to_string()
     }
@@ -376,8 +376,8 @@ mod transaction_status_module {
     #[rhai_fn(global, get = "enum_type", pure)]
     pub fn get_type(trn_status: &mut TransactionStatus) -> String {
         match trn_status {
-            TransactionStatus::Cleared => "StatusCleared",
-            TransactionStatus::Pending => "StatusPending",
+            TransactionStatus::Cleared => "Cleared",
+            TransactionStatus::Pending => "Pending",
         }
         .to_string()
     }
