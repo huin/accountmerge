@@ -248,8 +248,9 @@ impl Amount {
 mod balance_module {
     use ledger_parser::Balance;
     #[allow(non_upper_case_globals)]
-    pub const balance_zero: Balance = Balance::Zero;
-    pub fn balance_amount(amount: Amount) -> Balance {
+    pub const Zero: Balance = Balance::Zero;
+    #[rhai_fn(global, name = "Amount")]
+    pub fn amount(amount: Amount) -> Balance {
         Balance::Amount(amount.unpack())
     }
     #[rhai_fn(global, get = "enum_type", pure)]
@@ -290,12 +291,87 @@ mod balance_module {
 }
 
 #[export_module]
+mod commodity_module {
+    use ledger_parser::{Commodity, CommodityPosition};
+    pub fn new(name: String, position: CommodityPosition) -> Commodity {
+        Commodity { name, position }
+    }
+    #[rhai_fn(global, get = "enum_type", pure)]
+    pub fn get_type(_commodity: &mut Commodity) -> String {
+        "Commodity".to_string()
+    }
+
+    #[rhai_fn(global, name = "to_string", name = "to_debug", pure)]
+    pub fn to_string(commodity: &mut Commodity) -> String {
+        format!("{:?}", commodity)
+    }
+    #[rhai_fn(global, name = "==", pure)]
+    pub fn eq(a: &mut Commodity, b: Commodity) -> bool {
+        a == &b
+    }
+    #[rhai_fn(global, name = "!=", pure)]
+    pub fn neq(a: &mut Commodity, b: Commodity) -> bool {
+        a != &b
+    }
+
+    #[rhai_fn(global, get = "name", pure)]
+    pub fn get_name(commodity: &mut Commodity) -> String {
+        commodity.name.clone()
+    }
+    #[rhai_fn(global, set = "name")]
+    pub fn set_name(commodity: &mut Commodity, name: String) {
+        commodity.name = name
+    }
+
+    #[rhai_fn(global, get = "position", pure)]
+    pub fn get_position(commodity: &mut Commodity) -> CommodityPosition {
+        commodity.position.clone()
+    }
+    #[rhai_fn(global, set = "position")]
+    pub fn set_position(commodity: &mut Commodity, position: CommodityPosition) {
+        commodity.position = position
+    }
+}
+
+#[export_module]
+mod commodity_position_module {
+    use ledger_parser::CommodityPosition;
+    #[allow(non_upper_case_globals)]
+    pub const Left: CommodityPosition = CommodityPosition::Left;
+    #[allow(non_upper_case_globals)]
+    pub const Right: CommodityPosition = CommodityPosition::Right;
+
+    #[rhai_fn(global, get = "enum_type", pure)]
+    pub fn get_type(position: &mut CommodityPosition) -> String {
+        use CommodityPosition::*;
+        match position {
+            Left => "Left",
+            Right => "Right",
+        }
+        .to_string()
+    }
+
+    #[rhai_fn(global, name = "to_string", name = "to_debug", pure)]
+    pub fn to_string(position: &mut CommodityPosition) -> String {
+        get_type(position)
+    }
+    #[rhai_fn(global, name = "==", pure)]
+    pub fn eq(a: &mut CommodityPosition, b: CommodityPosition) -> bool {
+        a == &b
+    }
+    #[rhai_fn(global, name = "!=", pure)]
+    pub fn neq(a: &mut CommodityPosition, b: CommodityPosition) -> bool {
+        a != &b
+    }
+}
+
+#[export_module]
 mod transaction_status_module {
     use ledger_parser::TransactionStatus;
     #[allow(non_upper_case_globals)]
-    pub const StatusCleared: TransactionStatus = TransactionStatus::Cleared;
+    pub const Cleared: TransactionStatus = TransactionStatus::Cleared;
     #[allow(non_upper_case_globals)]
-    pub const StatusPending: TransactionStatus = TransactionStatus::Pending;
+    pub const Pending: TransactionStatus = TransactionStatus::Pending;
 
     #[rhai_fn(global, get = "enum_type", pure)]
     pub fn get_type(trn_status: &mut TransactionStatus) -> String {
@@ -366,6 +442,8 @@ pub fn register_types(engine: &mut Engine) {
     engine
         .register_type_with_name::<ledger_parser::TransactionStatus>("TransactionStatus")
         .register_static_module("Balance", exported_module!(balance_module).into())
+        .register_static_module("Commodity", exported_module!(commodity_module).into())
+        .register_static_module("CommodityPosition", exported_module!(commodity_position_module).into())
         .register_static_module(
             "TransactionStatus",
             exported_module!(transaction_status_module).into(),
