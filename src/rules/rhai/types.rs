@@ -134,7 +134,7 @@ impl From<PostingInternal> for Map {
     fn from(posting: PostingInternal) -> Self {
         let mut map = Map::new();
         map.put_value("account", posting.raw.account);
-        map.put_opt_value("amount", posting.raw.amount.map(Amount));
+        map.put_opt_value("amount", posting.raw.amount);
         map.put_opt_value("balance", posting.raw.balance);
         map.put_opt_value("status", posting.raw.status);
         map.put_value("comment", posting.comment);
@@ -148,7 +148,7 @@ impl TryFrom<Map> for PostingInternal {
         Ok(PostingInternal {
             raw: ledger_parser::Posting {
                 account: map.take_value("account")?,
-                amount: map.take_opt_value::<Amount>("amount")?.map(Amount::unpack),
+                amount: map.take_opt_value::<ledger_parser::Amount>("amount")?,
                 balance: map.take_opt_value("balance")?,
                 status: map.take_opt_value::<ledger_parser::TransactionStatus>("status")?,
                 comment: None,
@@ -160,51 +160,50 @@ impl TryFrom<Map> for PostingInternal {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Amount(ledger_parser::Amount);
+#[export_module]
+mod amount_module {
+    use ledger_parser::{Amount, Commodity};
+    use rust_decimal::Decimal;
 
-impl Amount {
-    pub fn register_type(engine: &mut Engine) {
-        engine
-            .register_type::<Self>()
-            .register_fn("new_amount", Self::new)
-            .register_fn("to_debug", |x: &mut Self| format!("{:?}", x))
-            .register_get_set("quantity", Self::get_quantity, Self::set_quantity)
-            .register_get_set("commodity", Self::get_commodity, Self::set_commodity);
-    }
-
-    fn new(quantity: rust_decimal::Decimal, commodity: ledger_parser::Commodity) -> Self {
-        Self(ledger_parser::Amount {
+    pub fn new(quantity: rust_decimal::Decimal, commodity: ledger_parser::Commodity) -> Amount {
+        Amount {
             quantity,
             commodity,
-        })
-    }
-    fn unpack(self) -> ledger_parser::Amount {
-        self.0
+        }
     }
 
-    fn get_quantity(&mut self) -> rust_decimal::Decimal {
-        self.0.quantity
+    #[rhai_fn(global, name = "to_string", name = "to_debug", pure)]
+    pub fn to_string(amount: &mut Amount) -> String {
+        format!("{:?}", amount)
     }
-    fn set_quantity(&mut self, quantity: rust_decimal::Decimal) {
-        self.0.quantity = quantity;
+
+    #[rhai_fn(get = "quantity", pure)]
+    pub fn get_quantity(amount: &mut Amount) -> Decimal {
+        amount.quantity
     }
-    fn get_commodity(&mut self) -> ledger_parser::Commodity {
-        self.0.commodity.clone()
+    #[rhai_fn(set = "quantity")]
+    pub fn set_quantity(amount: &mut Amount, quantity: Decimal) {
+        amount.quantity = quantity;
     }
-    fn set_commodity(&mut self, commodity: ledger_parser::Commodity) {
-        self.0.commodity = commodity;
+
+    #[rhai_fn(get = "commodity", pure)]
+    pub fn get_commodity(amount: &mut Amount) -> Commodity {
+        amount.commodity.clone()
+    }
+    #[rhai_fn(set = "commodity")]
+    pub fn set_commodity(amount: &mut Amount, commodity: Commodity) {
+        amount.commodity = commodity;
     }
 }
 
 #[export_module]
 mod balance_module {
-    use ledger_parser::Balance;
+    use ledger_parser::{Amount, Balance};
     #[allow(non_upper_case_globals)]
     pub const Zero: Balance = Balance::Zero;
     #[rhai_fn(global, name = "Amount")]
     pub fn amount(amount: Amount) -> Balance {
-        Balance::Amount(amount.unpack())
+        Balance::Amount(amount)
     }
     #[rhai_fn(global, get = "enum_type", pure)]
     pub fn get_type(balance: &mut Balance) -> String {
@@ -239,7 +238,7 @@ mod balance_module {
         use ledger_parser::Balance::*;
         match balance {
             Zero => Dynamic::UNIT,
-            Amount(amt) => Dynamic::from(Amount(amt.clone())),
+            Amount(amt) => Dynamic::from(amt.clone()),
         }
     }
 }
@@ -461,6 +460,7 @@ impl NaiveDate {
 pub fn register_types(engine: &mut Engine) {
     engine
         .register_type_with_name::<ledger_parser::TransactionStatus>("TransactionStatus")
+        .register_static_module("Amount", exported_module!(amount_module).into())
         .register_static_module("Balance", exported_module!(balance_module).into())
         .register_static_module("Comment", exported_module!(comment_module).into())
         .register_static_module("Commodity", exported_module!(commodity_module).into())
@@ -472,6 +472,5 @@ pub fn register_types(engine: &mut Engine) {
             "TransactionStatus",
             exported_module!(transaction_status_module).into(),
         );
-    Amount::register_type(engine);
     NaiveDate::register_type(engine);
 }
