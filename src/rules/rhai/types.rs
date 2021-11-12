@@ -23,7 +23,7 @@ mod amount_module {
     use ledger_parser::{Amount, Commodity};
     use rust_decimal::Decimal;
 
-    pub fn new(quantity: rust_decimal::Decimal, commodity: ledger_parser::Commodity) -> Amount {
+    pub fn create(quantity: rust_decimal::Decimal, commodity: ledger_parser::Commodity) -> Amount {
         Amount {
             quantity,
             commodity,
@@ -105,7 +105,7 @@ mod balance_module {
 mod comment_module {
     use std::collections::{HashMap, HashSet};
 
-    pub fn new() -> Comment {
+    pub fn create() -> Comment {
         Comment::new()
     }
 
@@ -169,7 +169,8 @@ mod comment_module {
 #[export_module]
 mod commodity_module {
     use ledger_parser::{Commodity, CommodityPosition};
-    pub fn new(name: String, position: CommodityPosition) -> Commodity {
+
+    pub fn create(name: String, position: CommodityPosition) -> Commodity {
         Commodity { name, position }
     }
 
@@ -246,7 +247,7 @@ mod commodity_position_module {
 mod date_module {
     use chrono::{Datelike, NaiveDate};
 
-    pub fn new(year: i32, month: u32, day: u32) -> NaiveDate {
+    pub fn create(year: i32, month: u32, day: u32) -> NaiveDate {
         chrono::NaiveDate::from_ymd(year, month, day)
     }
 
