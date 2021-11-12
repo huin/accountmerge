@@ -458,7 +458,6 @@ mod date_module {
 
 pub fn register_types(engine: &mut Engine) {
     engine
-        .register_type_with_name::<ledger_parser::TransactionStatus>("TransactionStatus")
         .register_static_module("Amount", exported_module!(amount_module).into())
         .register_static_module("Balance", exported_module!(balance_module).into())
         .register_static_module("Comment", exported_module!(comment_module).into())
