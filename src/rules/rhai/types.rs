@@ -2,7 +2,7 @@ use std::any::Any;
 use std::convert::TryFrom;
 
 use anyhow::{Context, Error, Result};
-use chrono::Datelike;
+use chrono::NaiveDate;
 use rhai::plugin::*;
 use rhai::{Dynamic, Engine};
 
@@ -65,11 +65,8 @@ impl From<TransactionPostings> for Map {
     fn from(trn_posts: TransactionPostings) -> Self {
         let mut map = Self::new();
         map.put_value("comment", trn_posts.trn.comment);
-        map.put_value("date", NaiveDate(trn_posts.trn.raw.date));
-        map.put_opt_value(
-            "effective_date",
-            trn_posts.trn.raw.effective_date.map(NaiveDate),
-        );
+        map.put_value("date", trn_posts.trn.raw.date);
+        map.put_opt_value("effective_date", trn_posts.trn.raw.effective_date);
         map.put_opt_value("status", trn_posts.trn.raw.status);
         map.put_opt_value("code", trn_posts.trn.raw.code);
         map.put_value("description", trn_posts.trn.raw.description);
@@ -102,10 +99,8 @@ impl TryFrom<Map> for TransactionPostings {
             trn: TransactionInternal {
                 raw: ledger_parser::Transaction {
                     comment: None,
-                    date: map.take_value::<NaiveDate>("date")?.unpack(),
-                    effective_date: map
-                        .take_opt_value::<NaiveDate>("effective_date")?
-                        .map(NaiveDate::unpack),
+                    date: map.take_value::<NaiveDate>("date")?,
+                    effective_date: map.take_opt_value::<NaiveDate>("effective_date")?,
                     status: map.take_opt_value("status")?,
                     code: map.take_opt_value("code")?,
                     description: map.take_value("description")?,
@@ -415,45 +410,44 @@ mod transaction_status_module {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct NaiveDate(pub chrono::NaiveDate);
+#[export_module]
+mod date_module {
+    use chrono::{Datelike, NaiveDate};
 
-impl NaiveDate {
-    pub fn register_type(engine: &mut Engine) {
-        engine
-            .register_type::<Self>()
-            .register_fn("new_date", Self::new)
-            .register_fn("to_debug", |x: &mut Self| format!("{:?}", x))
-            .register_get_set("year", Self::get_year, Self::set_year)
-            .register_get_set("month", Self::get_month, Self::set_month)
-            .register_get_set("day", Self::get_day, Self::set_day);
+    pub fn new(year: i32, month: u32, day: u32) -> NaiveDate {
+        chrono::NaiveDate::from_ymd(year, month, day)
     }
 
-    fn new(year: i32, month: u32, day: u32) -> Self {
-        Self(chrono::NaiveDate::from_ymd(year, month, day))
+    #[rhai_fn(global, name = "to_string", name = "to_debug", pure)]
+    pub fn to_string(date: &mut NaiveDate) -> String {
+        format!("Date({}-{:02}-{:02})", date.year(), date.month(), date.day())
     }
 
-    fn unpack(self) -> chrono::NaiveDate {
-        self.0
+    #[rhai_fn(get = "year", pure)]
+    pub fn get_year(date: &mut NaiveDate) -> i64 {
+        date.year() as i64
+    }
+    #[rhai_fn(set = "year")]
+    pub fn set_year(date: &mut NaiveDate, year: i64) {
+        *date = NaiveDate::from_ymd(year as i32, date.month(), date.day())
     }
 
-    fn get_year(&mut self) -> i64 {
-        self.0.year() as i64
+    #[rhai_fn(get = "month", pure)]
+    pub fn get_month(date: &mut NaiveDate) -> i64 {
+        date.month() as i64
     }
-    fn get_month(&mut self) -> i64 {
-        self.0.month() as i64
+    #[rhai_fn(set = "month")]
+    pub fn set_month(date: &mut NaiveDate, month: i64) {
+        *date = NaiveDate::from_ymd(date.year(), month as u32, date.day())
     }
-    fn get_day(&mut self) -> i64 {
-        self.0.day() as i64
+
+    #[rhai_fn(get = "day", pure)]
+    pub fn get_day(date: &mut NaiveDate) -> i64 {
+        date.day() as i64
     }
-    fn set_year(&mut self, year: i64) {
-        self.0 = chrono::NaiveDate::from_ymd(year as i32, self.0.month(), self.0.day())
-    }
-    fn set_month(&mut self, month: i64) {
-        self.0 = chrono::NaiveDate::from_ymd(self.0.year(), month as u32, self.0.day())
-    }
-    fn set_day(&mut self, day: i64) {
-        self.0 = chrono::NaiveDate::from_ymd(self.0.year(), self.0.month(), day as u32)
+    #[rhai_fn(set = "day")]
+    pub fn set_day(date: &mut NaiveDate, day: i64) {
+        *date = NaiveDate::from_ymd(date.year(), date.month(), day as u32)
     }
 }
 
@@ -468,9 +462,9 @@ pub fn register_types(engine: &mut Engine) {
             "CommodityPosition",
             exported_module!(commodity_position_module).into(),
         )
+        .register_static_module("Date", exported_module!(date_module).into())
         .register_static_module(
             "TransactionStatus",
             exported_module!(transaction_status_module).into(),
         );
-    NaiveDate::register_type(engine);
 }
