@@ -1,88 +1,10 @@
-use std::any::Any;
-use std::convert::TryFrom;
-
-use anyhow::{Context, Error, Result};
 use chrono::NaiveDate;
 use rhai::plugin::*;
 use rhai::{Dynamic, Engine};
 
 use crate::comment::Comment;
-use crate::internal::{PostingInternal, TransactionInternal, TransactionPostings};
 
 type RawResult<T> = std::result::Result<T, Box<EvalAltResult>>;
-
-// Map is a newtype wrapper of `rhai::Map` to allow `From` conversions in
-// both directions.
-pub struct Map(pub rhai::Map);
-
-impl Map {
-    fn new() -> Self {
-        Map(rhai::Map::new())
-    }
-
-    fn unpack(self) -> rhai::Map {
-        self.0
-    }
-
-    fn take_value<T: Any>(&mut self, key: &str) -> Result<T> {
-        self.0
-            .remove(key)
-            .ok_or_else(|| anyhow!("missing {} field", key))?
-            .try_cast()
-            .ok_or_else(|| anyhow!("{} field was not the expected type", key))
-    }
-
-    fn take_opt_value<T: Any>(&mut self, key: &str) -> Result<Option<T>> {
-        let value: Dynamic = match self.0.remove(key) {
-            Some(v) => v,
-            None => return Ok(None),
-        };
-        if value.is::<()>() {
-            return Ok(None);
-        }
-        value
-            .try_cast::<T>()
-            .ok_or_else(|| anyhow!("{} field was not the expected type", key))
-            .map(Some)
-    }
-
-    fn put_value<T: Any + Clone + Send + Sync>(&mut self, key: &str, value: T) {
-        self.0.insert(key.into(), Dynamic::from(value));
-    }
-
-    fn put_opt_value<T: Any + Clone + Send + Sync>(&mut self, key: &str, value: Option<T>) {
-        self.0.insert(
-            key.into(),
-            match value {
-                None => Dynamic::from(()),
-                Some(value) => Dynamic::from(value),
-            },
-        );
-    }
-}
-
-impl From<TransactionPostings> for Map {
-    fn from(trn_posts: TransactionPostings) -> Self {
-        let mut map = Self::new();
-        map.put_value("comment", trn_posts.trn.comment);
-        map.put_value("date", trn_posts.trn.raw.date);
-        map.put_opt_value("effective_date", trn_posts.trn.raw.effective_date);
-        map.put_opt_value("status", trn_posts.trn.raw.status);
-        map.put_opt_value("code", trn_posts.trn.raw.code);
-        map.put_value("description", trn_posts.trn.raw.description);
-        map.put_value(
-            "postings",
-            trn_posts
-                .posts
-                .into_iter()
-                .map(Map::from)
-                .map(Map::unpack)
-                .map(Dynamic::from)
-                .collect::<rhai::Array>(),
-        );
-        map
-    }
-}
 
 fn bad_type(want_type: &str) -> Box<EvalAltResult> {
     Box::new(EvalAltResult::ErrorMismatchDataType(
@@ -92,67 +14,8 @@ fn bad_type(want_type: &str) -> Box<EvalAltResult> {
     ))
 }
 
-impl TryFrom<Map> for TransactionPostings {
-    type Error = Error;
-    fn try_from(mut map: Map) -> Result<Self> {
-        Ok(TransactionPostings {
-            trn: TransactionInternal {
-                raw: ledger_parser::Transaction {
-                    comment: None,
-                    date: map.take_value::<NaiveDate>("date")?,
-                    effective_date: map.take_opt_value::<NaiveDate>("effective_date")?,
-                    status: map.take_opt_value("status")?,
-                    code: map.take_opt_value("code")?,
-                    description: map.take_value("description")?,
-                    postings: Vec::new(),
-                },
-                comment: map
-                    .take_opt_value::<Comment>("comment")?
-                    .unwrap_or_default(),
-            },
-            posts: map
-                .take_value::<rhai::Array>("postings")?
-                .into_iter()
-                .map(|item: Dynamic| {
-                    item.try_cast::<rhai::Map>()
-                        .ok_or_else(|| anyhow!("expected Map in postings"))
-                        .map(Map)
-                        .and_then(PostingInternal::try_from)
-                })
-                .collect::<Result<Vec<PostingInternal>>>()
-                .with_context(|| "in postings")?,
-        })
-    }
-}
-
-impl From<PostingInternal> for Map {
-    fn from(posting: PostingInternal) -> Self {
-        let mut map = Map::new();
-        map.put_value("account", posting.raw.account);
-        map.put_opt_value("amount", posting.raw.amount);
-        map.put_opt_value("balance", posting.raw.balance);
-        map.put_opt_value("status", posting.raw.status);
-        map.put_value("comment", posting.comment);
-        map
-    }
-}
-
-impl TryFrom<Map> for PostingInternal {
-    type Error = Error;
-    fn try_from(mut map: Map) -> Result<PostingInternal> {
-        Ok(PostingInternal {
-            raw: ledger_parser::Posting {
-                account: map.take_value("account")?,
-                amount: map.take_opt_value::<ledger_parser::Amount>("amount")?,
-                balance: map.take_opt_value("balance")?,
-                status: map.take_opt_value::<ledger_parser::TransactionStatus>("status")?,
-                comment: None,
-            },
-            comment: map
-                .take_opt_value::<Comment>("comment")?
-                .unwrap_or_default(),
-        })
-    }
+fn opt_clone_to_dynamic<T: 'static + Clone + Send + Sync>(value: &Option<T>) -> Dynamic {
+    value.clone().map(Dynamic::from).unwrap_or(Dynamic::UNIT)
 }
 
 #[export_module]
@@ -257,7 +120,7 @@ mod comment_module {
     }
 
     #[rhai_fn(set = "lines", return_raw)]
-    pub fn set_lines(comment: &mut Comment, lines: rhai::Array) -> Result<(), Box<EvalAltResult>> {
+    pub fn set_lines(comment: &mut Comment, lines: rhai::Array) -> RawResult<()> {
         comment.lines = lines
             .into_iter()
             .map(rhai::Dynamic::try_cast)
@@ -380,37 +243,6 @@ mod commodity_position_module {
 }
 
 #[export_module]
-mod transaction_status_module {
-    use ledger_parser::TransactionStatus;
-    #[allow(non_upper_case_globals)]
-    pub const Cleared: TransactionStatus = TransactionStatus::Cleared;
-    #[allow(non_upper_case_globals)]
-    pub const Pending: TransactionStatus = TransactionStatus::Pending;
-
-    #[rhai_fn(global, get = "enum_type", pure)]
-    pub fn get_type(trn_status: &mut TransactionStatus) -> String {
-        match trn_status {
-            TransactionStatus::Cleared => "Cleared",
-            TransactionStatus::Pending => "Pending",
-        }
-        .to_string()
-    }
-
-    #[rhai_fn(global, name = "to_string", name = "to_debug", pure)]
-    pub fn to_string(trn_status: &mut TransactionStatus) -> String {
-        get_type(trn_status)
-    }
-    #[rhai_fn(global, name = "==", pure)]
-    pub fn eq(a: &mut TransactionStatus, b: TransactionStatus) -> bool {
-        a == &b
-    }
-    #[rhai_fn(global, name = "!=", pure)]
-    pub fn neq(a: &mut TransactionStatus, b: TransactionStatus) -> bool {
-        a != &b
-    }
-}
-
-#[export_module]
 mod date_module {
     use chrono::{Datelike, NaiveDate};
 
@@ -456,6 +288,232 @@ mod date_module {
     }
 }
 
+#[export_module]
+mod posting_module {
+    use ledger_parser::{Amount, Balance, Posting, TransactionStatus};
+    use rhai::Dynamic;
+
+    use crate::comment::Comment;
+    use crate::internal::PostingInternal;
+
+    pub fn create(account: String) -> PostingInternal {
+        PostingInternal {
+            comment: Comment::new(),
+            raw: Posting {
+                account,
+                amount: None,
+                balance: None,
+                status: None,
+                comment: None,
+            },
+        }
+    }
+
+    #[rhai_fn(global, name = "to_string", name = "to_debug", pure)]
+    pub fn to_string(posting: &mut PostingInternal) -> String {
+        format!("{:?}", posting)
+    }
+
+    #[rhai_fn(get = "account", pure)]
+    pub fn get_account(posting: &mut PostingInternal) -> String {
+        posting.raw.account.clone()
+    }
+    #[rhai_fn(set = "account")]
+    pub fn set_account(posting: &mut PostingInternal, account: String) {
+        posting.raw.account = account;
+    }
+
+    #[rhai_fn(get = "amount", pure)]
+    pub fn get_amount(posting: &mut PostingInternal) -> Dynamic {
+        opt_clone_to_dynamic(&posting.raw.amount)
+    }
+    #[rhai_fn(set = "amount")]
+    pub fn set_amount(posting: &mut PostingInternal, amount: Amount) {
+        posting.raw.amount = Some(amount);
+    }
+    #[rhai_fn(set = "amount")]
+    pub fn set_amount_none(posting: &mut PostingInternal, _: ()) {
+        posting.raw.amount = None;
+    }
+
+    #[rhai_fn(get = "balance", pure)]
+    pub fn get_balance(posting: &mut PostingInternal) -> Dynamic {
+        opt_clone_to_dynamic(&posting.raw.balance)
+    }
+    #[rhai_fn(set = "balance")]
+    pub fn set_balance(posting: &mut PostingInternal, balance: Balance) {
+        posting.raw.balance = Some(balance);
+    }
+    #[rhai_fn(set = "balance")]
+    pub fn set_balance_none(posting: &mut PostingInternal, _: ()) {
+        posting.raw.balance = None;
+    }
+
+    #[rhai_fn(get = "status", pure)]
+    pub fn get_status(posting: &mut PostingInternal) -> Dynamic {
+        opt_clone_to_dynamic(&posting.raw.status)
+    }
+    #[rhai_fn(set = "status")]
+    pub fn set_status(posting: &mut PostingInternal, status: TransactionStatus) {
+        posting.raw.status = Some(status);
+    }
+    #[rhai_fn(set = "status")]
+    pub fn set_status_none(posting: &mut PostingInternal, _: ()) {
+        posting.raw.status = None;
+    }
+
+    #[rhai_fn(global, get = "comment", pure)]
+    pub fn get_comment(posting: &mut PostingInternal) -> Comment {
+        posting.comment.clone()
+    }
+    #[rhai_fn(global, set = "comment")]
+    pub fn set_comment(posting: &mut PostingInternal, comment: Comment) {
+        posting.comment = comment;
+    }
+}
+
+#[export_module]
+mod transaction_module {
+    use ledger_parser::{Transaction, TransactionStatus};
+    use rhai::Array;
+
+    use crate::comment::Comment;
+    use crate::internal::{PostingInternal, TransactionInternal, TransactionPostings};
+
+    pub fn create(date: NaiveDate, description: String) -> TransactionPostings {
+        TransactionPostings {
+            posts: Vec::new(),
+            trn: TransactionInternal {
+                raw: Transaction {
+                    comment: None,
+                    date,
+                    effective_date: None,
+                    status: None,
+                    code: None,
+                    description,
+                    postings: Vec::new(),
+                },
+                comment: Comment::new(),
+            },
+        }
+    }
+
+    #[rhai_fn(get = "comment", pure)]
+    pub fn get_comment(trn: &mut TransactionPostings) -> Comment {
+        trn.trn.comment.clone()
+    }
+    #[rhai_fn(set = "comment")]
+    pub fn set_comment(trn: &mut TransactionPostings, comment: Comment) {
+        trn.trn.comment = comment;
+    }
+
+    #[rhai_fn(get = "date", pure)]
+    pub fn get_date(trn: &mut TransactionPostings) -> NaiveDate {
+        trn.trn.raw.date
+    }
+    #[rhai_fn(set = "date")]
+    pub fn set_date(trn: &mut TransactionPostings, date: NaiveDate) {
+        trn.trn.raw.date = date;
+    }
+
+    #[rhai_fn(get = "effective_date", pure)]
+    pub fn get_effective_date(trn: &mut TransactionPostings) -> Dynamic {
+        opt_clone_to_dynamic(&trn.trn.raw.effective_date)
+    }
+    #[rhai_fn(set = "effective_date")]
+    pub fn set_effective_date(trn: &mut TransactionPostings, effective_date: NaiveDate) {
+        trn.trn.raw.effective_date = Some(effective_date);
+    }
+    #[rhai_fn(set = "effective_date")]
+    pub fn set_effective_date_none(trn: &mut TransactionPostings, _: ()) {
+        trn.trn.raw.effective_date = None;
+    }
+
+    #[rhai_fn(get = "status", pure)]
+    pub fn get_status(trn: &mut TransactionPostings) -> Dynamic {
+        opt_clone_to_dynamic(&trn.trn.raw.status)
+    }
+    #[rhai_fn(set = "status")]
+    pub fn set_status(trn: &mut TransactionPostings, status: TransactionStatus) {
+        trn.trn.raw.status = Some(status);
+    }
+    #[rhai_fn(set = "status")]
+    pub fn set_status_none(trn: &mut TransactionPostings, _: ()) {
+        trn.trn.raw.status = None;
+    }
+
+    #[rhai_fn(get = "code", pure)]
+    pub fn get_code(trn: &mut TransactionPostings) -> Dynamic {
+        opt_clone_to_dynamic(&trn.trn.raw.code)
+    }
+    #[rhai_fn(set = "code")]
+    pub fn set_code(trn: &mut TransactionPostings, code: String) {
+        trn.trn.raw.code = Some(code);
+    }
+    #[rhai_fn(set = "code")]
+    pub fn set_code_none(trn: &mut TransactionPostings, _: ()) {
+        trn.trn.raw.code = None;
+    }
+
+    #[rhai_fn(get = "description", pure)]
+    pub fn get_description(trn: &mut TransactionPostings) -> String {
+        trn.trn.raw.description.clone()
+    }
+    #[rhai_fn(set = "description")]
+    pub fn set_description(trn: &mut TransactionPostings, description: String) {
+        trn.trn.raw.description = description;
+    }
+
+    #[rhai_fn(get = "postings", pure)]
+    pub fn get_postings(trn: &mut TransactionPostings) -> Array {
+        trn.posts
+            .iter()
+            .cloned()
+            .map(Dynamic::from)
+            .collect::<rhai::Array>()
+    }
+    #[rhai_fn(set = "postings", return_raw)]
+    pub fn set_postings(trn: &mut TransactionPostings, postings: Array) -> RawResult<()> {
+        trn.posts = postings
+            .into_iter()
+            .map(rhai::Dynamic::try_cast)
+            .map(|opt: Option<PostingInternal>| opt.ok_or_else(|| bad_type("Posting")))
+            .collect::<std::result::Result<Vec<PostingInternal>, Box<EvalAltResult>>>()?;
+        Ok(())
+    }
+}
+
+#[export_module]
+mod transaction_status_module {
+    use ledger_parser::TransactionStatus;
+    #[allow(non_upper_case_globals)]
+    pub const Cleared: TransactionStatus = TransactionStatus::Cleared;
+    #[allow(non_upper_case_globals)]
+    pub const Pending: TransactionStatus = TransactionStatus::Pending;
+
+    #[rhai_fn(get = "enum_type", pure)]
+    pub fn get_type(trn_status: &mut TransactionStatus) -> String {
+        match trn_status {
+            TransactionStatus::Cleared => "Cleared",
+            TransactionStatus::Pending => "Pending",
+        }
+        .to_string()
+    }
+
+    #[rhai_fn(global, name = "to_string", name = "to_debug", pure)]
+    pub fn to_string(trn_status: &mut TransactionStatus) -> String {
+        get_type(trn_status)
+    }
+    #[rhai_fn(global, name = "==", pure)]
+    pub fn eq(a: &mut TransactionStatus, b: TransactionStatus) -> bool {
+        a == &b
+    }
+    #[rhai_fn(global, name = "!=", pure)]
+    pub fn neq(a: &mut TransactionStatus, b: TransactionStatus) -> bool {
+        a != &b
+    }
+}
+
 pub fn register_types(engine: &mut Engine) {
     engine
         .register_static_module("Amount", exported_module!(amount_module).into())
@@ -467,6 +525,8 @@ pub fn register_types(engine: &mut Engine) {
             exported_module!(commodity_position_module).into(),
         )
         .register_static_module("Date", exported_module!(date_module).into())
+        .register_static_module("Posting", exported_module!(posting_module).into())
+        .register_static_module("Transaction", exported_module!(transaction_module).into())
         .register_static_module(
             "TransactionStatus",
             exported_module!(transaction_status_module).into(),

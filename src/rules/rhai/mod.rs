@@ -1,4 +1,3 @@
-use std::convert::TryInto;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -46,16 +45,10 @@ impl TransactionProcessor for Rhai {
         let mut scope = rhai::Scope::new();
         trns.into_iter()
             .map(|trn| {
-                let trn_obj: types::Map = trn.into();
-                let result: rhai::Map = self
+                let new_trn: TransactionPostings = self
                     .engine
-                    .call_fn(&mut scope, &self.ast, "update_transaction", (trn_obj.0,))
+                    .call_fn(&mut scope, &self.ast, "update_transaction", (trn,))
                     .with_context(|| "calling update_transaction()".to_string())?;
-                let new_trn: TransactionPostings =
-                    types::Map(result).try_into().with_context(|| {
-                        "converting return value from update_transaction into a transaction"
-                            .to_string()
-                    })?;
                 Ok(new_trn)
             })
             .collect()

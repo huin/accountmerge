@@ -7,6 +7,10 @@ fn update_transaction(trn) {
     trn.comment.lines.push("Hello transaction comment.");
     trn.postings[0].comment.lines.push("Hello postings comment.");
     trn.postings[0].amount.quantity += 1;
+    trn.postings[0].amount = ();
+    trn.postings[0].balance = ();
+    let p = Posting::create("new-posting");
+    trn.postings.push(p);
     trn.comment.tags.push("transaction-tag");
     trn.comment.value_tags["key"] = "value";
     trn
