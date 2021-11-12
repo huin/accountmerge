@@ -196,11 +196,11 @@ mod balance_module {
     use ledger_parser::{Amount, Balance};
     #[allow(non_upper_case_globals)]
     pub const Zero: Balance = Balance::Zero;
-    #[rhai_fn(global, name = "Amount")]
+    #[rhai_fn(name = "Amount")]
     pub fn amount(amount: Amount) -> Balance {
         Balance::Amount(amount)
     }
-    #[rhai_fn(global, get = "enum_type", pure)]
+    #[rhai_fn(get = "enum_type", pure)]
     pub fn get_type(balance: &mut Balance) -> String {
         use Balance::*;
         match balance {
@@ -214,8 +214,8 @@ mod balance_module {
     pub fn to_string(balance: &mut Balance) -> String {
         use Balance::*;
         match balance {
-            Zero => "balance_zero".to_string(),
-            Amount(amt) => format!("balance_amount({:?})", amt),
+            Zero => "Balance::Zero".to_string(),
+            Amount(amt) => format!("Balance::Amount({:?})", amt),
         }
     }
 
@@ -359,8 +359,8 @@ mod commodity_position_module {
     pub fn get_type(position: &mut CommodityPosition) -> String {
         use CommodityPosition::*;
         match position {
-            Left => "Left",
-            Right => "Right",
+            Left => "CommodityPosition::Left",
+            Right => "CommodityPosition::Right",
         }
         .to_string()
     }
@@ -420,7 +420,12 @@ mod date_module {
 
     #[rhai_fn(global, name = "to_string", name = "to_debug", pure)]
     pub fn to_string(date: &mut NaiveDate) -> String {
-        format!("Date({}-{:02}-{:02})", date.year(), date.month(), date.day())
+        format!(
+            "Date({}-{:02}-{:02})",
+            date.year(),
+            date.month(),
+            date.day()
+        )
     }
 
     #[rhai_fn(get = "year", pure)]
