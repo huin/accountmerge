@@ -4,8 +4,9 @@ fn update_transaction(trn) {
     trn.date.year = 2001;
     trn.date.month += 1;
     trn.date.day += 2;
-    trn.comment.lines.push("Hello comment.");
-    trn.comment.tags.push("tag");
+    trn.comment.lines.push("Hello transaction comment.");
+    trn.postings[0].comment.lines.push("Hello postings comment.");
+    trn.comment.tags.push("transaction-tag");
     trn.comment.value_tags["key"] = "value";
     trn
 }

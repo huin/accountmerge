@@ -1,5 +1,4 @@
 use std::any::Any;
-use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 
 use anyhow::{Context, Error, Result};
@@ -9,6 +8,8 @@ use rhai::{Dynamic, Engine};
 
 use crate::comment::Comment;
 use crate::internal::{PostingInternal, TransactionInternal, TransactionPostings};
+
+type RawResult<T> = std::result::Result<T, Box<EvalAltResult>>;
 
 // Map is a newtype wrapper of `rhai::Map` to allow `From` conversions in
 // both directions.
@@ -63,7 +64,7 @@ impl Map {
 impl From<TransactionPostings> for Map {
     fn from(trn_posts: TransactionPostings) -> Self {
         let mut map = Self::new();
-        map.put_value("comment", Map::from(trn_posts.trn.comment).unpack());
+        map.put_value("comment", trn_posts.trn.comment);
         map.put_value("date", NaiveDate(trn_posts.trn.raw.date));
         map.put_opt_value(
             "effective_date",
@@ -86,6 +87,14 @@ impl From<TransactionPostings> for Map {
     }
 }
 
+fn bad_type(want_type: &str) -> Box<EvalAltResult> {
+    Box::new(EvalAltResult::ErrorMismatchDataType(
+        want_type.into(),
+        "<unknown>".into(),
+        Position::NONE,
+    ))
+}
+
 impl TryFrom<Map> for TransactionPostings {
     type Error = Error;
     fn try_from(mut map: Map) -> Result<Self> {
@@ -103,11 +112,7 @@ impl TryFrom<Map> for TransactionPostings {
                     postings: Vec::new(),
                 },
                 comment: map
-                    .take_opt_value::<rhai::Map>("comment")?
-                    .map(Map)
-                    .map(Comment::try_from)
-                    .transpose()
-                    .with_context(|| "in comment")?
+                    .take_opt_value::<Comment>("comment")?
                     .unwrap_or_default(),
             },
             posts: map
@@ -132,7 +137,7 @@ impl From<PostingInternal> for Map {
         map.put_opt_value("amount", posting.raw.amount.map(Amount));
         map.put_opt_value("balance", posting.raw.balance);
         map.put_opt_value("status", posting.raw.status);
-        map.put_value("comment", Map::from(posting.comment).unpack());
+        map.put_value("comment", posting.comment);
         map
     }
 }
@@ -149,61 +154,9 @@ impl TryFrom<Map> for PostingInternal {
                 comment: None,
             },
             comment: map
-                .take_opt_value::<rhai::Map>("comment")?
-                .map(Map)
-                .map(Comment::try_from)
-                .transpose()
-                .with_context(|| "in comment")?
+                .take_opt_value::<Comment>("comment")?
                 .unwrap_or_default(),
         })
-    }
-}
-
-impl From<Comment> for Map {
-    fn from(comment: Comment) -> Self {
-        let mut map = rhai::Map::new();
-        let lines: rhai::Array = comment.lines.into_iter().map(Dynamic::from).collect();
-        let tags: rhai::Array = comment.tags.into_iter().map(Dynamic::from).collect();
-        let value_tags: rhai::Map = comment
-            .value_tags
-            .into_iter()
-            .map(|(key, value)| (key.into(), Dynamic::from(value)))
-            .collect();
-        map.insert("lines".into(), Dynamic::from(lines));
-        map.insert("tags".into(), Dynamic::from(tags));
-        map.insert("value_tags".into(), Dynamic::from(value_tags));
-        Map(map)
-    }
-}
-
-impl TryFrom<Map> for Comment {
-    type Error = Error;
-    fn try_from(mut map: Map) -> Result<Self> {
-        let lines: rhai::Array = map.take_value("lines")?;
-        let tags: rhai::Array = map.take_value("tags")?;
-        let value_tags: rhai::Map = map.take_value("value_tags")?;
-        let comment = Comment {
-            lines: lines
-                .into_iter()
-                .map(rhai::Dynamic::try_cast)
-                .map(|opt| opt.ok_or_else(|| anyhow!("got non-string in lines array")))
-                .collect::<Result<Vec<String>>>()?,
-            tags: tags
-                .into_iter()
-                .map(rhai::Dynamic::try_cast)
-                .map(|opt| opt.ok_or_else(|| anyhow!("got non-string in lines array")))
-                .collect::<Result<HashSet<String>>>()?,
-            value_tags: value_tags
-                .into_iter()
-                .map(|(key, value)| {
-                    let v2 = value
-                        .try_cast()
-                        .ok_or_else(|| anyhow!("got non-string value in value_tags[{:?}]", key))?;
-                    Ok((key.into(), v2))
-                })
-                .collect::<Result<HashMap<String, String>>>()?,
-        };
-        Ok(comment)
     }
 }
 
@@ -271,6 +224,7 @@ mod balance_module {
             Amount(amt) => format!("balance_amount({:?})", amt),
         }
     }
+
     #[rhai_fn(global, name = "==", pure)]
     pub fn eq(a: &mut Balance, b: Balance) -> bool {
         a == &b
@@ -291,11 +245,77 @@ mod balance_module {
 }
 
 #[export_module]
+mod comment_module {
+    use std::collections::{HashMap, HashSet};
+
+    pub fn new() -> Comment {
+        Comment::new()
+    }
+
+    #[rhai_fn(global, name = "to_string", name = "to_debug", pure)]
+    pub fn to_string(comment: &mut Comment) -> String {
+        format!("{:?}", comment)
+    }
+
+    #[rhai_fn(get = "lines", pure)]
+    pub fn get_lines(comment: &mut Comment) -> rhai::Array {
+        comment.lines.iter().cloned().map(Dynamic::from).collect()
+    }
+
+    #[rhai_fn(set = "lines", return_raw)]
+    pub fn set_lines(comment: &mut Comment, lines: rhai::Array) -> Result<(), Box<EvalAltResult>> {
+        comment.lines = lines
+            .into_iter()
+            .map(rhai::Dynamic::try_cast)
+            .map(|opt: Option<String>| opt.ok_or_else(|| bad_type("String")))
+            .collect::<std::result::Result<Vec<String>, Box<EvalAltResult>>>()?;
+        Ok(())
+    }
+
+    #[rhai_fn(get = "tags", pure)]
+    pub fn get_tags(comment: &mut Comment) -> rhai::Array {
+        comment.tags.iter().cloned().map(Dynamic::from).collect()
+    }
+
+    #[rhai_fn(set = "tags", return_raw)]
+    pub fn set_tags(comment: &mut Comment, tags: rhai::Array) -> RawResult<()> {
+        comment.tags = tags
+            .into_iter()
+            .map(rhai::Dynamic::try_cast)
+            .map(|opt: Option<String>| opt.ok_or_else(|| bad_type("String")))
+            .collect::<RawResult<HashSet<String>>>()?;
+        Ok(())
+    }
+
+    #[rhai_fn(get = "value_tags", pure)]
+    pub fn get_value_tags(comment: &mut Comment) -> rhai::Map {
+        comment
+            .value_tags
+            .iter()
+            .map(|(key, value)| (key.into(), Dynamic::from(value.clone())))
+            .collect()
+    }
+
+    #[rhai_fn(set = "value_tags", return_raw)]
+    pub fn set_value_tags(comment: &mut Comment, value_tags: rhai::Map) -> RawResult<()> {
+        comment.value_tags = value_tags
+            .into_iter()
+            .map(|(key, value)| {
+                let v2 = value.try_cast().ok_or_else(|| bad_type("String"))?;
+                Ok((key.into(), v2))
+            })
+            .collect::<RawResult<HashMap<String, String>>>()?;
+        Ok(())
+    }
+}
+
+#[export_module]
 mod commodity_module {
     use ledger_parser::{Commodity, CommodityPosition};
     pub fn new(name: String, position: CommodityPosition) -> Commodity {
         Commodity { name, position }
     }
+
     #[rhai_fn(global, get = "enum_type", pure)]
     pub fn get_type(_commodity: &mut Commodity) -> String {
         "Commodity".to_string()
@@ -442,6 +462,7 @@ pub fn register_types(engine: &mut Engine) {
     engine
         .register_type_with_name::<ledger_parser::TransactionStatus>("TransactionStatus")
         .register_static_module("Balance", exported_module!(balance_module).into())
+        .register_static_module("Comment", exported_module!(comment_module).into())
         .register_static_module("Commodity", exported_module!(commodity_module).into())
         .register_static_module(
             "CommodityPosition",
