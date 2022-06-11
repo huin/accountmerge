@@ -16,6 +16,8 @@ pub struct Record {
     top: i32,
     width: i32,
     height: i32,
+    // Confidence value currently unused.
+    #[allow(dead_code)]
     conf: i32,
     text: String,
 }

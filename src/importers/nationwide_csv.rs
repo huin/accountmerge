@@ -29,6 +29,8 @@ struct AccountName {
 #[derive(Debug, Deserialize)]
 struct AccountQuantity {
     header: String,
+    // Current only uUsed for deserialization testing.
+    #[allow(dead_code)]
     amount: GbpValue,
 }
 
