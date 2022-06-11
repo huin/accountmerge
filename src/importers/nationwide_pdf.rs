@@ -31,9 +31,6 @@ pub struct NationwidePdf {
     /// Path to Tesseract v4 binary to run.
     #[structopt(default_value = "tesseract")]
     tesseract_binary: PathBuf,
-    /// Generate the legacy fingerprint tag.
-    #[structopt(long = "include-legacy-fingerprint")]
-    include_legacy_fingerprint: bool,
 
     #[structopt(flatten)]
     commonopts: CommonOpts,
