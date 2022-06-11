@@ -591,7 +591,7 @@ mod tests {
 
         for test in &tests {
             let table = load_from_str(test.table)
-                .expect(&format!("failed to parse table for test {}", test.name));
+                .unwrap_or_else(|_| panic!("failed to parse table for test {}", test.name));
             for (case_idx, case) in test.cases.iter().enumerate() {
                 let got = table
                     .update_transactions(case.input.clone())
@@ -660,7 +660,7 @@ mod tests {
             let table = load_from_str_unvalidated(t.1).unwrap();
             table
                 .validate()
-                .expect(&format!("{} => should succeed", t.0));
+                .unwrap_or_else(|_| panic!("{} => should succeed", t.0));
         }
     }
 

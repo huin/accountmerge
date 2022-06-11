@@ -388,7 +388,7 @@ impl TransactionBuilder {
 
 fn parse_amount(s: &str) -> Result<Amount> {
     let quantity = if s.contains(',') {
-        Decimal::from_str(&s.replace(",", ""))?
+        Decimal::from_str(&s.replace(',', ""))?
     } else {
         Decimal::from_str(s)?
     };
