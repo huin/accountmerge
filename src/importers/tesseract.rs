@@ -285,7 +285,7 @@ impl Bounds {
 }
 
 fn get_checked_mut<'a, T>(
-    v: &'a mut Vec<T>,
+    v: &'a mut [T],
     num: i32,
     num_field: &'static str,
 ) -> Result<&'a mut T> {
