@@ -1,5 +1,3 @@
-use std::convert::TryInto;
-
 use byteorder::{BigEndian, ByteOrder};
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 use ledger_parser::Amount;

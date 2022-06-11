@@ -37,7 +37,7 @@ impl<T: 'static> IntoIterator for MatchSet<T> {
     }
 }
 
-impl<A> std::iter::FromIterator<A> for MatchSet<A>
+impl<A> FromIterator<A> for MatchSet<A>
 where
     A: PartialEq,
 {
