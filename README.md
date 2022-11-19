@@ -25,6 +25,9 @@ The first two recommendations naturally suggest using a version control tool
   - Be smarter about merging transactions in. It's commonly incorrect to merge
     a transaction into an existing transaction if one posting gets deduped
     against an existing posting, and another posting gets created/added.
+  - Retain ordering from existing transaction sources. Might need to import
+    with a tag that specifies the order of a transaction within the given date.
+    Re-order in the destination to respect the source.
 
 ## Fingerprints
 
