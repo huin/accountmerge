@@ -6,7 +6,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use chrono::NaiveDate;
 use clap::Args;
 use lazy_static::lazy_static;
-use ledger_parser::{Amount, Posting, Transaction};
+use ledger_parser::{Amount, Posting, Reality, Transaction};
 use regex::Regex;
 use rust_decimal::Decimal;
 
@@ -17,6 +17,7 @@ use crate::importers::importer::TransactionImporter;
 use crate::importers::nationwide::{CommonOpts, BANK_NAME};
 use crate::importers::tesseract;
 use crate::importers::util;
+use crate::ledgerutil::simple_posting_amount;
 use crate::tags;
 
 #[derive(Debug, Args)]
@@ -361,7 +362,8 @@ impl TransactionBuilder {
             postings: vec![
                 Posting {
                     account: halves.self_.account,
-                    amount: Some(halves.self_.amount),
+                    reality: Reality::Real,
+                    amount: Some(simple_posting_amount(halves.self_.amount)),
                     balance: self.balance.map(ledger_parser::Balance::Amount),
                     status: None,
                     comment: comment_base
@@ -373,7 +375,8 @@ impl TransactionBuilder {
                 },
                 Posting {
                     account: halves.peer.account,
-                    amount: Some(halves.peer.amount),
+                    reality: Reality::Real,
+                    amount: Some(simple_posting_amount(halves.peer.amount)),
                     balance: None,
                     status: None,
                     comment: comment_base

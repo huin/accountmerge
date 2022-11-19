@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Result};
 use chrono::NaiveDate;
 use clap::Args;
-use ledger_parser::{Amount, Balance, Posting, Transaction};
+use ledger_parser::{Amount, Balance, Posting, Reality, Transaction};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
@@ -12,6 +12,7 @@ use crate::importers::importer::TransactionImporter;
 use crate::importers::nationwide::{CommonOpts, BANK_NAME};
 use crate::importers::nationwide_csv::de::*;
 use crate::importers::util::{negate_amount, self_and_peer_account_amount};
+use crate::ledgerutil::simple_posting_amount;
 use crate::tags;
 
 /// Transaction type field, provided by the bank.
@@ -222,14 +223,16 @@ impl PostingFormer for RecordFive {
         Ok((
             Posting {
                 account: halves.self_.account,
-                amount: Some(halves.self_.amount),
+                reality: Reality::Real,
+                amount: Some(simple_posting_amount(halves.self_.amount)),
                 balance: None,
                 comment: self_comment.build().into_opt_comment(),
                 status: None,
             },
             Posting {
                 account: halves.peer.account,
-                amount: Some(halves.peer.amount),
+                reality: Reality::Real,
+                amount: Some(simple_posting_amount(halves.peer.amount)),
                 balance: None,
                 comment: peer_comment.build().into_opt_comment(),
                 status: None,
@@ -282,14 +285,16 @@ impl PostingFormer for RecordSix {
         Ok((
             Posting {
                 account: halves.self_.account,
-                amount: Some(halves.self_.amount),
+                reality: Reality::Real,
+                amount: Some(simple_posting_amount(halves.self_.amount)),
                 balance: Some(Balance::Amount(self.balance.0)),
                 comment: self_comment.build().into_opt_comment(),
                 status: None,
             },
             Posting {
                 account: halves.peer.account,
-                amount: Some(halves.peer.amount),
+                reality: Reality::Real,
+                amount: Some(simple_posting_amount(halves.peer.amount)),
                 balance: None,
                 comment: peer_comment.build().into_opt_comment(),
                 status: None,

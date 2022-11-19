@@ -203,7 +203,7 @@ mod commodity_module {
 
     #[rhai_fn(global, get = "position", pure)]
     pub fn get_position(commodity: &mut Commodity) -> CommodityPosition {
-        commodity.position.clone()
+        commodity.position
     }
     #[rhai_fn(global, set = "position")]
     pub fn set_position(commodity: &mut Commodity, position: CommodityPosition) {
@@ -281,7 +281,7 @@ mod date_module {
 
 #[export_module]
 mod posting_module {
-    use ledger_parser::{Amount, Balance, Posting, TransactionStatus};
+    use ledger_parser::{Balance, Posting, PostingAmount, Reality, TransactionStatus};
     use rhai::Dynamic;
 
     use crate::comment::Comment;
@@ -292,6 +292,7 @@ mod posting_module {
             comment: Comment::new(),
             raw: Posting {
                 account,
+                reality: Reality::Real,
                 amount: None,
                 balance: None,
                 status: None,
@@ -319,7 +320,7 @@ mod posting_module {
         opt_clone_to_dynamic(&posting.raw.amount)
     }
     #[rhai_fn(set = "amount")]
-    pub fn set_amount(posting: &mut PostingInternal, amount: Amount) {
+    pub fn set_amount(posting: &mut PostingInternal, amount: PostingAmount) {
         posting.raw.amount = Some(amount);
     }
     #[rhai_fn(set = "amount")]

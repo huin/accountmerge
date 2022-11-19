@@ -15,7 +15,6 @@
   ; account: Current
   ; bank: Nationwide
   ; trn_type: ATM
-
 2019-01-02 Payroll
   assets:unknown  GBP300.00 = GBP500.00
   ; :import-self:
@@ -33,7 +32,6 @@
   ; account: Current
   ; bank: Nationwide
   ; trn_type: Transfer
-
 2019-01-05 Transfer to Savings
   assets:unknown  GBP-100.00 = GBP400.00
   ; :import-self:

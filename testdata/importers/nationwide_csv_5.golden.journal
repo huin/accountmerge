@@ -15,7 +15,6 @@
   ; bank: Nationwide
   ; location: FOO.CO/THING#
   ; transactions: FOO CO
-
 2021-09-02 DIRECT DEBIT PAYMENT
   assets:unknown  GBP50.00
   ; :import-self:
@@ -31,7 +30,6 @@
   ; account: My Account ****4321
   ; bank: Nationwide
   ; transactions: DIRECT DEBIT PAYMENT
-
 2021-09-03 BAR CO @ THING#
   assets:unknown  GBP-4.32
   ; :import-self:

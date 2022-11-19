@@ -39,12 +39,12 @@ impl Engine {
 impl Command {
     pub fn run(&self) -> Result<()> {
         let processor = self.engine.get_factory().make_processor()?;
-        let mut ledger = filespec::read_ledger_file(&self.input_journal)?;
-        let trns = TransactionPostings::take_from_ledger(&mut ledger);
+        let ledger = filespec::read_ledger_file(&self.input_journal)?;
+        let trns = TransactionPostings::from_ledger(ledger)?;
 
         let new_trns = processor.update_transactions(trns)?;
 
-        TransactionPostings::put_into_ledger(&mut ledger, new_trns);
+        let ledger = TransactionPostings::into_ledger(new_trns);
         filespec::write_ledger_file(&self.output, &ledger)?;
         Ok(())
     }

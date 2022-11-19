@@ -12,8 +12,8 @@ use crate::tags::TRANSACTION_SOURCE_KEY;
 pub fn read_ledger_file(
     ledger_file: &FileSpec,
 ) -> Result<impl Iterator<Item = Vec<TransactionPostings>>> {
-    let mut ledger = filespec::read_ledger_file(ledger_file)?;
-    let trns = TransactionPostings::take_from_ledger(&mut ledger);
+    let ledger = filespec::read_ledger_file(ledger_file)?;
+    let trns = TransactionPostings::from_ledger(ledger)?;
     let default_source = format!("{}", ledger_file);
 
     let mut trns_by_source: HashMap<String, Vec<TransactionPostings>> = HashMap::new();

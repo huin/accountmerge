@@ -2,7 +2,7 @@ use std::io::Write;
 
 use goldenfile::Mint;
 
-use crate::importers::importer::TransactionImporter;
+use crate::{importers::importer::TransactionImporter, ledgerutil::ledger_from_transactions};
 
 pub fn golden_test(importer: &dyn TransactionImporter, golden_path: &str) {
     let mut mint = Mint::new("testdata/importers");
@@ -11,10 +11,7 @@ pub fn golden_test(importer: &dyn TransactionImporter, golden_path: &str) {
         .new_goldenfile_with_differ(golden_path, differ)
         .expect("new goldenfile");
 
-    let ledger = ledger_parser::Ledger {
-        transactions: importer.get_transactions().expect("perform import"),
-        commodity_prices: Vec::new(),
-    };
+    let ledger = ledger_from_transactions(importer.get_transactions().expect("perform import"));
 
     let mut s = format!("{}", ledger);
     // Ensure that the file only ends in a single newline to make git

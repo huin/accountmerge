@@ -3,7 +3,7 @@ use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
 use clap::Args;
 use itertools::Itertools;
-use ledger_parser::{Amount, Balance, Commodity, CommodityPosition, Posting, Transaction};
+use ledger_parser::{Amount, Balance, Commodity, CommodityPosition, Posting, Reality, Transaction};
 
 use crate::accounts::ASSETS_UNKNOWN;
 use crate::comment::Comment;
@@ -11,6 +11,7 @@ use crate::filespec::FileSpec;
 use crate::fingerprint::FingerprintBuilder;
 use crate::importers::importer::TransactionImporter;
 use crate::importers::util::{self_and_peer_account_amount, self_and_peer_fingerprints};
+use crate::ledgerutil::simple_posting_amount;
 use crate::tags;
 use crate::tzabbr::TzAbbrDB;
 
@@ -138,14 +139,16 @@ impl PaypalCsv {
         (
             Posting {
                 account: halves.self_.account,
-                amount: Some(halves.self_.amount),
+                reality: Reality::Real,
+                amount: Some(simple_posting_amount(halves.self_.amount)),
                 balance: Some(Balance::Amount(record.balance)),
                 comment: self_comment.into_opt_comment(),
-                status: status.clone(),
+                status,
             },
             Posting {
                 account: halves.peer.account,
-                amount: Some(halves.peer.amount),
+                reality: Reality::Real,
+                amount: Some(simple_posting_amount(halves.peer.amount)),
                 balance: None,
                 comment: peer_comment.into_opt_comment(),
                 status,

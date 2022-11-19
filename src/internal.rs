@@ -1,6 +1,7 @@
 //! Internal wrapper types for `Posting` and `Transaction`.
 
-use ledger_parser::{Ledger, Posting, Transaction};
+use anyhow::{anyhow, Result};
+use ledger_parser::{Ledger, LedgerItem, Posting, Transaction};
 
 use crate::comment::Comment;
 
@@ -38,13 +39,28 @@ pub struct TransactionPostings {
 }
 
 impl TransactionPostings {
-    pub fn put_into_ledger(ledger: &mut Ledger, trns: Vec<Self>) {
-        ledger.transactions = trns.into_iter().map(Into::into).collect();
+    pub fn from_ledger(ledger: Ledger) -> Result<Vec<Self>> {
+        ledger
+            .items
+            .into_iter()
+            .filter_map(|item| match item {
+                LedgerItem::Transaction(trn) => Some(Ok(TransactionPostings::from(trn))),
+                LedgerItem::EmptyLine => None,
+                other => Some(Err(anyhow!(
+                    "unhandled item type in ledger (these are not yet handled): {:?}",
+                    other
+                ))),
+            })
+            .collect()
     }
 
-    pub fn take_from_ledger(ledger: &mut Ledger) -> Vec<Self> {
-        let raw_trns = std::mem::take(&mut ledger.transactions);
-        raw_trns.into_iter().map(Into::into).collect()
+    pub fn into_ledger(trns: Vec<Self>) -> Ledger {
+        Ledger {
+            items: trns
+                .into_iter()
+                .map(|trn| LedgerItem::Transaction(trn.into()))
+                .collect(),
+        }
     }
 }
 

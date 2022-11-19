@@ -16,10 +16,10 @@ pub struct Cmd {
 impl Cmd {
     pub fn run(&self) -> Result<()> {
         for ledger_file in &self.journals {
-            let mut ledger = filespec::read_ledger_file(ledger_file)?;
-            let mut trns = TransactionPostings::take_from_ledger(&mut ledger);
+            let ledger = filespec::read_ledger_file(ledger_file)?;
+            let mut trns = TransactionPostings::from_ledger(ledger)?;
             update_transactions(&mut trns);
-            TransactionPostings::put_into_ledger(&mut ledger, trns);
+            let ledger = TransactionPostings::into_ledger(trns);
             filespec::write_ledger_file(ledger_file, &ledger)?;
         }
 

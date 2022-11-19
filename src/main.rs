@@ -11,6 +11,7 @@ mod fingerprint;
 mod fpgen;
 mod importers;
 mod internal;
+mod ledgerutil;
 mod merge;
 mod mutcell;
 mod rules;

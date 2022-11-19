@@ -5,6 +5,7 @@ use ledger_parser::Ledger;
 use crate::filespec::{self, FileSpec};
 use crate::importers;
 use crate::importers::importer::TransactionImporter;
+use crate::ledgerutil::ledger_from_transactions;
 
 #[derive(Debug, Subcommand)]
 pub enum Importer {
@@ -24,10 +25,7 @@ pub enum Importer {
 impl Importer {
     pub fn do_import(&self) -> Result<Ledger> {
         let transactions = self.get_importer().get_transactions()?;
-        Ok(Ledger {
-            transactions,
-            commodity_prices: Default::default(),
-        })
+        Ok(ledger_from_transactions(transactions))
     }
 
     fn get_importer(&self) -> &dyn TransactionImporter {

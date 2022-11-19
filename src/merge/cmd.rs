@@ -35,10 +35,6 @@ impl Command {
         if !unmerged.is_empty() {
             match self.unmerged.as_ref() {
                 Some(fs) => {
-                    let mut ledger = ledger_parser::Ledger {
-                        commodity_prices: Default::default(),
-                        transactions: Default::default(),
-                    };
                     // Deliberately leave the source tags on the unmerged files
                     // so that:
                     // * The human has more context of where the transaction
@@ -46,7 +42,7 @@ impl Command {
                     // * When re-attempting to merge from the unmerged file, the
                     //   sources::read_ledger_file can cause each source in the
                     //   file to be merged independently.
-                    TransactionPostings::put_into_ledger(&mut ledger, unmerged);
+                    let ledger = TransactionPostings::into_ledger(unmerged);
                     filespec::write_ledger_file(fs, &ledger)?;
                 }
                 None => {
@@ -58,11 +54,7 @@ impl Command {
 
         let mut trns = merger.build();
         sources::strip_sources(&mut trns);
-        let mut ledger = ledger_parser::Ledger {
-            commodity_prices: Default::default(),
-            transactions: Default::default(),
-        };
-        TransactionPostings::put_into_ledger(&mut ledger, trns);
+        let ledger = TransactionPostings::into_ledger(trns);
 
         filespec::write_ledger_file(&self.output, &ledger)
     }

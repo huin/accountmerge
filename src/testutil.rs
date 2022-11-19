@@ -1,13 +1,12 @@
-use ledger_parser::{Posting, Transaction};
+use ledger_parser::{LedgerItem, Posting, Transaction};
 
 use crate::comment::Comment;
 use crate::internal::{PostingInternal, TransactionPostings};
 
 pub fn parse_transaction_postings(s: &str) -> Vec<TransactionPostings> {
-    let trns = ledger_parser::parse(textwrap::dedent(s).as_ref())
-        .expect("test input did not parse")
-        .transactions;
-    trns.into_iter().map(Into::into).collect()
+    let ledger =
+        ledger_parser::parse(textwrap::dedent(s).as_ref()).expect("test input did not parse");
+    TransactionPostings::from_ledger(ledger).expect("expected success")
 }
 
 pub fn format_transaction_postings(transactions: Vec<TransactionPostings>) -> String {
@@ -64,8 +63,12 @@ macro_rules! assert_transaction_postings_eq {
 
 pub fn parse_posting(p: &str) -> Posting {
     let t = "2000/01/01 Dummy Transaction\n  ".to_string() + p + "\n";
-    let mut trn = ledger_parser::parse(&t).unwrap();
-    let mut post = trn.transactions.remove(0).postings.remove(0);
+    let mut ledger = ledger_parser::parse(&t).unwrap();
+    let mut trn = match ledger.items.remove(0) {
+        LedgerItem::Transaction(trn) => trn,
+        other => panic!("got {:?}, want transaction", other),
+    };
+    let mut post = trn.postings.remove(0);
     normalize_comment(&mut post.comment);
     post
 }
