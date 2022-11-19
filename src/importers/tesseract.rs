@@ -284,11 +284,7 @@ impl Bounds {
     }
 }
 
-fn get_checked_mut<'a, T>(
-    v: &'a mut [T],
-    num: i32,
-    num_field: &'static str,
-) -> Result<&'a mut T> {
+fn get_checked_mut<'a, T>(v: &'a mut [T], num: i32, num_field: &'static str) -> Result<&'a mut T> {
     let idx = num_to_idx(num, num_field)?;
     v.get_mut(idx)
         .ok_or_else(|| anyhow!("TSV field {} has bad TSV value {:?}", num_field, num))
