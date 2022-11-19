@@ -247,8 +247,10 @@ mod commodity_position_module {
 mod date_module {
     use chrono::{Datelike, NaiveDate};
 
-    pub fn create(year: i32, month: u32, day: u32) -> NaiveDate {
-        chrono::NaiveDate::from_ymd(year, month, day)
+    pub fn create(year: i32, month: u32, day: u32) -> Dynamic {
+        chrono::NaiveDate::from_ymd_opt(year, month, day)
+            .map(Dynamic::from)
+            .unwrap_or_else(|| ().into())
     }
 
     #[rhai_fn(global, name = "to_string", name = "to_debug", pure)]
@@ -265,27 +267,15 @@ mod date_module {
     pub fn get_year(date: &mut NaiveDate) -> i64 {
         date.year() as i64
     }
-    #[rhai_fn(set = "year")]
-    pub fn set_year(date: &mut NaiveDate, year: i64) {
-        *date = NaiveDate::from_ymd(year as i32, date.month(), date.day())
-    }
 
     #[rhai_fn(get = "month", pure)]
     pub fn get_month(date: &mut NaiveDate) -> i64 {
         date.month() as i64
     }
-    #[rhai_fn(set = "month")]
-    pub fn set_month(date: &mut NaiveDate, month: i64) {
-        *date = NaiveDate::from_ymd(date.year(), month as u32, date.day())
-    }
 
     #[rhai_fn(get = "day", pure)]
     pub fn get_day(date: &mut NaiveDate) -> i64 {
         date.day() as i64
-    }
-    #[rhai_fn(set = "day")]
-    pub fn set_day(date: &mut NaiveDate, day: i64) {
-        *date = NaiveDate::from_ymd(date.year(), date.month(), day as u32)
     }
 }
 
