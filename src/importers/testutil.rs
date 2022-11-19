@@ -11,7 +11,8 @@ pub fn golden_test(importer: &dyn TransactionImporter, golden_path: &str) {
         .new_goldenfile_with_differ(golden_path, differ)
         .expect("new goldenfile");
 
-    let ledger = ledger_from_transactions(importer.get_transactions().expect("perform import"));
+    let import = importer.get_transactions().expect("perform import");
+    let ledger = ledger_from_transactions(import.transactions);
 
     let mut s = format!("{}", ledger);
     // Ensure that the file only ends in a single newline to make git

@@ -15,6 +15,8 @@ use crate::importers::util::{negate_amount, self_and_peer_account_amount};
 use crate::ledgerutil::simple_posting_amount;
 use crate::tags;
 
+use super::importer::Import;
+
 /// Transaction type field, provided by the bank.
 pub const TRANSACTION_TYPE_TAG: &str = "trn_type";
 
@@ -52,7 +54,7 @@ pub struct NationwideCsv {
 }
 
 impl TransactionImporter for NationwideCsv {
-    fn get_transactions(&self) -> Result<Vec<Transaction>> {
+    fn get_transactions(&self) -> Result<Import> {
         let reader = encoding_rs_io::DecodeReaderBytesBuilder::new()
             .encoding(Some(encoding_rs::WINDOWS_1252))
             .build(self.input.reader()?);
@@ -73,11 +75,20 @@ impl TransactionImporter for NationwideCsv {
             .ok_or_else(|| anyhow!("bad file format: missing available balance"))?;
         check_header("Available Balance:", &available.header)?;
 
-        let fp_namespace = &self
+        let user_fp_namespace = self
             .commonopts
             .fp_ns
             .make_namespace(&acct_name.account_name)?;
-        self.process_file(&mut csv_records, fp_namespace, &acct_name.account_name)
+        let transactions = self.process_file(
+            &mut csv_records,
+            &user_fp_namespace,
+            &acct_name.account_name,
+        )?;
+
+        Ok(Import {
+            user_fp_namespace,
+            transactions,
+        })
     }
 }
 

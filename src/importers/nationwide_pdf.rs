@@ -12,13 +12,15 @@ use rust_decimal::Decimal;
 
 use crate::accounts;
 use crate::comment::Comment;
-use crate::fingerprint::{make_prefix, FingerprintBuilder};
+use crate::fingerprint::FingerprintBuilder;
 use crate::importers::importer::TransactionImporter;
 use crate::importers::nationwide::{CommonOpts, BANK_NAME};
 use crate::importers::tesseract;
 use crate::importers::util;
 use crate::ledgerutil::simple_posting_amount;
 use crate::tags;
+
+use super::importer::Import;
 
 #[derive(Debug, Args)]
 /// Converts from Nationwide (nationwide.co.uk) PDF statements to Ledger
@@ -39,15 +41,15 @@ pub struct NationwidePdf {
 }
 
 impl TransactionImporter for NationwidePdf {
-    fn get_transactions(&self) -> Result<Vec<Transaction>> {
+    fn get_transactions(&self) -> Result<Import> {
         let doc = self.ocr_document().context("OCR scanning PDF")?;
 
         let account_name = find_account_name(&doc)
             .ok_or_else(|| anyhow!("bad input structure: account name not found"))?;
 
-        let fp_ns = make_prefix(&self.commonopts.fp_ns.make_namespace(&account_name)?);
+        let user_fp_namespace = self.commonopts.fp_ns.make_namespace(&account_name)?;
 
-        let mut acc = TransactionsAccumulator::new(fp_ns);
+        let mut acc = TransactionsAccumulator::new(user_fp_namespace.clone());
         for page in &doc.pages {
             for table in table::Table::find_in_page(page) {
                 let trn_lines = table.read_lines().with_context(|| {
@@ -63,7 +65,11 @@ impl TransactionImporter for NationwidePdf {
             }
         }
 
-        Ok(acc.build())
+        let transactions = acc.build();
+        Ok(Import {
+            user_fp_namespace,
+            transactions,
+        })
     }
 }
 

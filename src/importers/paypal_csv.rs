@@ -15,6 +15,8 @@ use crate::ledgerutil::simple_posting_amount;
 use crate::tags;
 use crate::tzabbr::TzAbbrDB;
 
+use super::importer::Import;
+
 /// Transaction name field, provided by PayPal.
 const TRANSACTION_NAME_TAG: &str = "trn_name";
 /// Transaction type field, provided by PayPal.
@@ -39,7 +41,7 @@ pub struct PaypalCsv {
 }
 
 impl TransactionImporter for PaypalCsv {
-    fn get_transactions(&self) -> Result<Vec<Transaction>> {
+    fn get_transactions(&self) -> Result<Import> {
         let mut csv_rdr = csv::ReaderBuilder::new()
             .has_headers(true)
             .flexible(false)
@@ -50,7 +52,12 @@ impl TransactionImporter for PaypalCsv {
 
         let tz_abbrs = TzAbbrDB::from_reader(self.timezone_abbr_file.reader()?)?;
 
-        self.read_transactions(&headers, &mut csv_records, &tz_abbrs)
+        let transactions = self.read_transactions(&headers, &mut csv_records, &tz_abbrs)?;
+
+        Ok(Import {
+            user_fp_namespace: self.fp_ns.clone(),
+            transactions,
+        })
     }
 }
 
