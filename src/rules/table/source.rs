@@ -15,7 +15,7 @@ pub struct File {
 impl File {
     pub fn from_path(path: &Path) -> Result<Self> {
         let entries: Vec<Entry> = ron::de::from_reader(
-            std::fs::File::open(&path)
+            std::fs::File::open(path)
                 .with_context(|| format!("opening {:?} for reading", path))?,
         )
         .with_context(|| format!("parsing {:?}", path))?;

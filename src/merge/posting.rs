@@ -225,7 +225,7 @@ impl Input {
         self.posting.comment.tags.insert(tag);
     }
 
-    pub fn iter_fingerprints<'a>(&'a self) -> impl Iterator<Item = &str> + 'a {
+    pub fn iter_fingerprints(&'_ self) -> impl Iterator<Item = &str> + '_ {
         fingerprints_from_comment(&self.posting.comment)
     }
 }

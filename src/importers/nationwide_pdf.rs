@@ -92,7 +92,7 @@ impl NationwidePdf {
             ];
 
             Command::new(self.graphics_magic_binary.as_os_str())
-                .args(&gm_args)
+                .args(gm_args)
                 .status()
                 .context("converting PDF into PNG files")?;
         }
@@ -131,7 +131,7 @@ impl NationwidePdf {
                 "tsv".as_ref(),
             ];
             Command::new(self.tesseract_binary.as_os_str())
-                .args(&tess_args)
+                .args(tess_args)
                 .status()
                 .context("performing OCR on PNG files")?;
         }
