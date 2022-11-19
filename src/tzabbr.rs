@@ -85,8 +85,8 @@ mod tests {
     use chrono::FixedOffset;
     use test_case::test_case;
 
-    #[test_case("BST" => Some(FixedOffset::east(3600)))]
-    #[test_case("GMT" => Some(FixedOffset::east(0)))]
+    #[test_case("BST" => Some(FixedOffset::east_opt(3600).unwrap()))]
+    #[test_case("GMT" => Some(FixedOffset::east_opt(0).unwrap()))]
     #[test_case("ZZZ" => None)]
     fn good_csv_file_lookup(abbr: &str) -> Option<FixedOffset> {
         let db = parse_string_db(
@@ -147,18 +147,18 @@ mod tests {
         TzAbbrDB::from_reader(textwrap::dedent(s).as_bytes())
     }
 
-    #[test_case("UTC+00" => FixedOffset::east(0) ; "UTC positive zero")]
-    #[test_case("UTC-00" => FixedOffset::east(0) ; "UTC minus zero")]
-    #[test_case("UTC+05" => FixedOffset::east(5 * 3600))]
-    #[test_case("UTC-06" => FixedOffset::east(-6 * 3600))]
-    #[test_case("UTC+23" => FixedOffset::east(23 * 3600) ; "UTC plus 23 hours")]
-    #[test_case("UTC-23" => FixedOffset::east(-23 * 3600) ; "UTC minus 23 hours")]
-    #[test_case("UTC+00:15" => FixedOffset::east(15 * 60) ; "UTC plus 15 minutes")]
-    #[test_case("UTC-00:15" => FixedOffset::east(-15 * 60) ; "UTC minus 15 minutes")]
-    #[test_case("UTC+05:15" => FixedOffset::east(5 * 3600 + 15 * 60) ; "UTC plus 5 hours 15 minutes")]
-    #[test_case("UTC-06:15" => FixedOffset::east(-6 * 3600 - 15 * 60) ; "UTC minus 6 hours 15 minutes")]
-    #[test_case("UTC+23:15" => FixedOffset::east(23 * 3600 + 15 * 60) ; "UTC plus 23 hours 15 minutes")]
-    #[test_case("UTC-23:15" => FixedOffset::east(-23 * 3600 - 15 * 60) ; "UTC minus 23 hours 15 minutes")]
+    #[test_case("UTC+00" => FixedOffset::east_opt(0).unwrap() ; "UTC positive zero")]
+    #[test_case("UTC-00" => FixedOffset::east_opt(0).unwrap() ; "UTC minus zero")]
+    #[test_case("UTC+05" => FixedOffset::east_opt(5 * 3600).unwrap())]
+    #[test_case("UTC-06" => FixedOffset::east_opt(-6 * 3600).unwrap())]
+    #[test_case("UTC+23" => FixedOffset::east_opt(23 * 3600).unwrap() ; "UTC plus 23 hours")]
+    #[test_case("UTC-23" => FixedOffset::east_opt(-23 * 3600).unwrap() ; "UTC minus 23 hours")]
+    #[test_case("UTC+00:15" => FixedOffset::east_opt(15 * 60).unwrap() ; "UTC plus 15 minutes")]
+    #[test_case("UTC-00:15" => FixedOffset::east_opt(-15 * 60).unwrap() ; "UTC minus 15 minutes")]
+    #[test_case("UTC+05:15" => FixedOffset::east_opt(5 * 3600 + 15 * 60).unwrap() ; "UTC plus 5 hours 15 minutes")]
+    #[test_case("UTC-06:15" => FixedOffset::east_opt(-6 * 3600 - 15 * 60).unwrap() ; "UTC minus 6 hours 15 minutes")]
+    #[test_case("UTC+23:15" => FixedOffset::east_opt(23 * 3600 + 15 * 60).unwrap() ; "UTC plus 23 hours 15 minutes")]
+    #[test_case("UTC-23:15" => FixedOffset::east_opt(-23 * 3600 - 15 * 60).unwrap() ; "UTC minus 23 hours 15 minutes")]
     fn good_utc_offset_string(s: &str) -> FixedOffset {
         parse_utc_offset(s).expect("expected to parse")
     }

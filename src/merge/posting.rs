@@ -380,7 +380,7 @@ mod tests {
        "Updates unknown account and removes unknown-account tag."
     )]
     fn input_from_posting(dest: &str, src: &str, want: &str) {
-        let dummy_date = NaiveDate::from_ymd(2000, 1, 1);
+        let dummy_date = NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
         let dummy_idx = StandardIndex::from_idx_first_gen(0);
 
         let dest_posting =
@@ -455,7 +455,7 @@ mod tests {
         "differing_known_accounts_do_not_match"
     )]
     fn holding_matches(dest: &str, src: &str, want: bool) {
-        let dummy_date = NaiveDate::from_ymd(2000, 1, 1);
+        let dummy_date = NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
         let dummy_idx = StandardIndex::from_idx_first_gen(0);
 
         let dest_posting =
