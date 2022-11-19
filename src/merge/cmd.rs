@@ -1,21 +1,21 @@
 use anyhow::{bail, Result};
-use structopt::StructOpt;
+use clap::Args;
 
 use crate::filespec::{self, FileSpec};
 use crate::internal::TransactionPostings;
 use crate::merge::{merger, sources};
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Args)]
 pub struct Command {
     /// The Ledger journals to read from.
     inputs: Vec<FileSpec>,
 
     /// The file to write any unmerged transactions into.
-    #[structopt(short = "u", long = "unmerged")]
+    #[arg(short = 'u', long = "unmerged")]
     unmerged: Option<FileSpec>,
 
     /// The file to write the merged ledger to.
-    #[structopt(short = "o", long = "output", default_value = "-")]
+    #[arg(short = 'o', long = "output", default_value = "-")]
     output: FileSpec,
 }
 

@@ -4,11 +4,11 @@ use std::str::FromStr;
 
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::NaiveDate;
+use clap::Args;
 use lazy_static::lazy_static;
 use ledger_parser::{Amount, Posting, Transaction};
 use regex::Regex;
 use rust_decimal::Decimal;
-use structopt::StructOpt;
 
 use crate::accounts;
 use crate::comment::Comment;
@@ -19,7 +19,7 @@ use crate::importers::tesseract;
 use crate::importers::util;
 use crate::tags;
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Args)]
 /// Converts from Nationwide (nationwide.co.uk) PDF statements to Ledger
 /// transactions. It assumes that Graphics Magick and Tesseract v4 executables
 /// are installed.
@@ -27,13 +27,13 @@ pub struct NationwidePdf {
     /// PDF file to read.
     input: PathBuf,
     /// Path to Graphics Magick binary to run.
-    #[structopt(default_value = "gm")]
+    #[arg(default_value = "gm")]
     graphics_magic_binary: PathBuf,
     /// Path to Tesseract v4 binary to run.
-    #[structopt(default_value = "tesseract")]
+    #[arg(default_value = "tesseract")]
     tesseract_binary: PathBuf,
 
-    #[structopt(flatten)]
+    #[command(flatten)]
     commonopts: CommonOpts,
 }
 

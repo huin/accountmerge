@@ -1,15 +1,15 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use clap::Args;
 use rhai::{Engine, AST};
-use structopt::StructOpt;
 
 use crate::internal::TransactionPostings;
 use crate::rules::processor::{TransactionProcessor, TransactionProcessorFactory};
 
 mod types;
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Args)]
 pub struct Command {
     /// The `.rhai` file containing code to change the transactions.
     rules: PathBuf,

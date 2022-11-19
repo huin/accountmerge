@@ -11,7 +11,7 @@ use anyhow::{Context, Error, Result};
 use ledger_parser::Ledger;
 
 /// Specifies a file to read from to write to (depending on context).
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum FileSpec {
     /// Read from stdin or write to stdout.
     Stdio,

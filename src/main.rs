@@ -1,5 +1,5 @@
 use anyhow::Result;
-use structopt::StructOpt;
+use clap::{Parser, Subcommand};
 
 #[cfg(test)]
 mod testutil;
@@ -17,33 +17,33 @@ mod rules;
 mod tags;
 mod tzabbr;
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Parser)]
 /// Utilities for working with Ledger journals.
 struct Command {
-    #[structopt(subcommand)]
+    #[command(subcommand)]
     subcmd: SubCommand,
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Subcommand)]
 enum SubCommand {
-    #[structopt(name = "apply-rules")]
+    #[command(name = "apply-rules")]
     /// Applies a rules file to an input file and dumps the results to stdout,
     ApplyRules(rules::cmd::Command),
-    #[structopt(name = "generate-fingerprints")]
+    #[command(name = "generate-fingerprints")]
     /// Generates random fingerprints to the postings in the input file and
     /// writes them back out.
-    GenerateFingerprints(fpgen::Command),
-    #[structopt(name = "import")]
+    GenerateFingerprints(fpgen::Cmd),
+    #[command(name = "import")]
     /// Reads financial transaction data from a given source, converts them to
     /// Ledger transactions, and dumps them to stdout.
     Import(importers::cmd::Command),
-    #[structopt(name = "merge")]
+    #[command(name = "merge")]
     /// Merges multiple Ledger journals together.
     Merge(merge::cmd::Command),
 }
 
 fn main() -> Result<()> {
-    let cmd = Command::from_args();
+    let cmd = Command::parse();
     use SubCommand::*;
     match cmd.subcmd {
         ApplyRules(cmd) => cmd.run(),

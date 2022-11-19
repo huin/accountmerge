@@ -1,9 +1,9 @@
 use anyhow::{anyhow, bail, Result};
 use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
+use clap::Args;
 use itertools::Itertools;
 use ledger_parser::{Amount, Balance, Commodity, CommodityPosition, Posting, Transaction};
-use structopt::StructOpt;
 
 use crate::accounts::ASSETS_UNKNOWN;
 use crate::comment::Comment;
@@ -19,21 +19,21 @@ const TRANSACTION_NAME_TAG: &str = "trn_name";
 /// Transaction type field, provided by PayPal.
 const TRANSACTION_TYPE_TAG: &str = "trn_type";
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Args)]
 /// Converts from PayPal CSV format to Ledger transactions.
 pub struct PaypalCsv {
     /// PayPal CSV file to read from. "-" reads from stdin.
     input: FileSpec,
     /// Timezone of the output Ledger transactions.
-    #[structopt(long = "output-timezone")]
+    #[arg(long = "output-timezone")]
     output_timezone: Tz,
-    #[structopt(long = "fingerprint-namespace", default_value = "paypal")]
+    #[arg(long = "fingerprint-namespace", default_value = "paypal")]
     // User namespace of the fingerprints to generate.
     fp_ns: String,
     /// Timezone abbreviations CSV file to use.
     timezone_abbr_file: FileSpec,
     /// Generate the legacy fingerprint tag.
-    #[structopt(long = "include-legacy-fingerprint")]
+    #[arg(long = "include-legacy-fingerprint")]
     include_legacy_fingerprint: bool,
 }
 

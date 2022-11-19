@@ -1,28 +1,28 @@
 use anyhow::Result;
-use structopt::StructOpt;
+use clap::{Args, Subcommand};
 
 use crate::filespec::{self, FileSpec};
 use crate::internal::TransactionPostings;
 use crate::rules::processor::TransactionProcessorFactory;
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Args)]
 pub struct Command {
     // The engine to interpret the rules as.
-    #[structopt(subcommand)]
+    #[command(subcommand)]
     engine: Engine,
     /// The Ledger journal to read.
     input_journal: FileSpec,
     /// The ledger file to write to (overwrites any existing file). "-" writes
     /// to stdout.
-    #[structopt(short = "o", long = "output", default_value = "-")]
+    #[arg(short = 'o', long = "output", default_value = "-")]
     output: FileSpec,
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Subcommand)]
 enum Engine {
-    #[structopt(name = "rhai")]
+    #[command(name = "rhai")]
     Rhai(crate::rules::rhai::Command),
-    #[structopt(name = "table")]
+    #[command(name = "table")]
     Table(crate::rules::table::Command),
 }
 

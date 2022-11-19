@@ -1,19 +1,19 @@
 use anyhow::Result;
 
-use structopt::StructOpt;
+use clap::Args;
 
 use crate::filespec::{self, FileSpec};
 use crate::fingerprint;
 use crate::internal::TransactionPostings;
 use crate::tags;
 
-#[derive(Debug, StructOpt)]
-pub struct Command {
+#[derive(Debug, Args)]
+pub struct Cmd {
     /// The Ledger journals to update.
     journals: Vec<FileSpec>,
 }
 
-impl Command {
+impl Cmd {
     pub fn run(&self) -> Result<()> {
         for ledger_file in &self.journals {
             let mut ledger = filespec::read_ledger_file(ledger_file)?;

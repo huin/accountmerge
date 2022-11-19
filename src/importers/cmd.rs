@@ -1,23 +1,23 @@
 use anyhow::Result;
+use clap::{Args, Subcommand};
 use ledger_parser::Ledger;
-use structopt::StructOpt;
 
 use crate::filespec::{self, FileSpec};
 use crate::importers;
 use crate::importers::importer::TransactionImporter;
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Subcommand)]
 pub enum Importer {
     /// Converts from Nationwide (nationwide.co.uk) CSV format to Ledger
     /// transactions.
-    #[structopt(name = "nationwide-csv")]
+    #[command(name = "nationwide-csv")]
     NationwideCsv(importers::nationwide_csv::NationwideCsv),
     /// Converts from Nationwide (nationwide.co.uk) PDF format to Ledger
     /// transactions.
-    #[structopt(name = "nationwide-pdf")]
+    #[command(name = "nationwide-pdf")]
     NationwidePdf(importers::nationwide_pdf::NationwidePdf),
     /// Converts from PayPal CSV format to Ledger transactions.
-    #[structopt(name = "paypal-csv")]
+    #[command(name = "paypal-csv")]
     PaypalCsv(importers::paypal_csv::PaypalCsv),
 }
 
@@ -40,14 +40,14 @@ impl Importer {
     }
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Args)]
 pub struct Command {
     /// The ledger file to write to (overwrites any existing file). "-" writes
     /// to stdout.
-    #[structopt(short = "o", long = "output", default_value = "-")]
+    #[arg(short = 'o', long = "output", default_value = "-")]
     output: FileSpec,
     /// The importer type to use to read transactions.
-    #[structopt(subcommand)]
+    #[command(subcommand)]
     importer: Importer,
 }
 

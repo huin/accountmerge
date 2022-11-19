@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use anyhow::{anyhow, bail, Error, Result};
-use structopt::StructOpt;
+use clap::Args;
 
 use crate::filespec::FileSpec;
 use crate::fingerprint::Accumulator;
@@ -10,7 +10,7 @@ use crate::fingerprint::Accumulator;
 pub const BANK_NAME: &str = "Nationwide";
 
 /// Common options for Nationwide importers.
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Args)]
 pub struct CommonOpts {
     /// The user provided component of the fingerprint namespace. This
     /// typically uniquely identifies one of the user's accounts.
@@ -25,11 +25,11 @@ pub struct CommonOpts {
     /// "lookup:<path>" reads the RON file at the given file (containing a
     /// `HashMap<String,String>`), and uses it to map from the account name
     /// in the CSV file to the fingerprint namespace.
-    #[structopt(long = "fp-namespace", default_value = "generated")]
+    #[arg(long = "fp-namespace", default_value = "generated")]
     pub fp_ns: FpNamespace,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum FpNamespace {
     AccountName,
     Fixed(String),

@@ -1,9 +1,9 @@
 use anyhow::{anyhow, bail, Result};
 use chrono::NaiveDate;
+use clap::Args;
 use ledger_parser::{Amount, Balance, Posting, Transaction};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use structopt::StructOpt;
 
 use crate::accounts::ASSETS_UNKNOWN;
 use crate::comment::Comment;
@@ -35,7 +35,7 @@ struct AccountQuantity {
     amount: GbpValue,
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Args)]
 /// Converts from Nationwide (nationwide.co.uk) CSV format to Ledger
 /// transactions.
 pub struct NationwideCsv {
@@ -43,10 +43,10 @@ pub struct NationwideCsv {
     input: FileSpec,
 
     /// Generate the legacy fingerprint tag.
-    #[structopt(long = "include-legacy-fingerprint")]
+    #[arg(long = "include-legacy-fingerprint")]
     include_legacy_fingerprint: bool,
 
-    #[structopt(flatten)]
+    #[command(flatten)]
     commonopts: CommonOpts,
 }
 
