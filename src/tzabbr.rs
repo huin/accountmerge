@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::io::Read;
 
-use anyhow::Result;
+use anyhow::{bail, format_err, Result};
 use chrono::FixedOffset;
+use lazy_static::lazy_static;
 use regex::Regex;
+use serde::Deserialize;
 
 /// Carries a single row from the input CSV file of timezone abbreviations.
 #[derive(Debug, Deserialize)]

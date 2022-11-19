@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use structopt::StructOpt;
 
 use crate::filespec::{self, FileSpec};

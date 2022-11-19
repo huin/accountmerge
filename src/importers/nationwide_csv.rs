@@ -1,7 +1,8 @@
-use anyhow::Result;
+use anyhow::{anyhow, bail, Result};
 use chrono::NaiveDate;
 use ledger_parser::{Amount, Balance, Posting, Transaction};
 use serde::de::DeserializeOwned;
+use serde::Deserialize;
 use structopt::StructOpt;
 
 use crate::accounts::ASSETS_UNKNOWN;
@@ -301,12 +302,14 @@ mod de {
     use std::fmt;
     use std::str::FromStr;
 
-    use anyhow::Result;
+    use anyhow::{bail, Result};
     use chrono::NaiveDate;
+    use lazy_static::lazy_static;
     use ledger_parser::{Amount, Commodity, CommodityPosition};
     use regex::Regex;
     use rust_decimal::Decimal;
-    use serde::de::{self, Deserialize, DeserializeOwned, Deserializer};
+    use serde::de::{self, DeserializeOwned, Deserializer};
+    use serde::Deserialize;
 
     use crate::fingerprint::{Accumulator, FingerprintBuilder, Fingerprintable};
     use crate::importers::util::{

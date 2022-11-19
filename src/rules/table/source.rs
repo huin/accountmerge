@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use serde::Deserialize;
 
 use crate::rules::table::{Chain, Rule, Table};
 

@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use serde::Deserialize;
 use structopt::StructOpt;
 
 use crate::internal::TransactionPostings;
@@ -221,6 +222,7 @@ impl Action {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assert_transaction_postings_eq;
     use crate::testutil::{format_transaction_postings, parse_transaction_postings};
 
     #[test]

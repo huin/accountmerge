@@ -1,7 +1,8 @@
 //! Reads Tesseract OCR TSV files into a hierarchical structure for further
 //! processing.
 
-use anyhow::Result;
+use anyhow::{anyhow, bail, Result};
+use serde::Deserialize;
 
 /// A Tesseract TSV file record.
 #[derive(Debug, Deserialize)]

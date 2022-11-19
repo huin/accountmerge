@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::Result;
+use anyhow::{anyhow, bail, Result};
 
 use crate::internal::{PostingInternal, TransactionPostings};
 use crate::merge::{posting, transaction};
@@ -436,6 +436,7 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
+    use crate::assert_transaction_postings_eq;
     use crate::testutil::parse_transaction_postings;
 
     #[test_case(

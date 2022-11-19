@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use chrono::NaiveDate;
 use typed_generational_arena::{StandardArena, StandardIndex};
 
@@ -340,6 +340,7 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
+    use crate::assert_posting_internal_eq;
     use crate::testutil::parse_posting_internal;
 
     #[test_case(

@@ -2,8 +2,9 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use chrono::NaiveDate;
+use lazy_static::lazy_static;
 use ledger_parser::{Amount, Posting, Transaction};
 use regex::Regex;
 use rust_decimal::Decimal;
@@ -404,7 +405,7 @@ fn parse_amount(s: &str) -> Result<Amount> {
 mod table {
     use std::fmt;
 
-    use anyhow::Result;
+    use anyhow::{anyhow, bail, Result};
     use chrono::format as date_fmt;
     use chrono::NaiveDate;
 

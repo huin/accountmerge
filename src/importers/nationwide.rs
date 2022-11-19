@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use anyhow::{Error, Result};
+use anyhow::{anyhow, bail, Error, Result};
 use structopt::StructOpt;
 
 use crate::filespec::FileSpec;

@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use lazy_static::lazy_static;
 use regex::Regex;
 
 /// Maximum length of a tag before it gets put onto a line on its own.
