@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 use ledger_parser::{Ledger, LedgerItem, Posting, Transaction};
 
-use crate::comment::Comment;
+use crate::{comment::Comment, ledgerutil};
 
 /// TransactionInternal is a `Transaction` with the comment string (if any) moved
 /// out as a `Comment`.
@@ -55,12 +55,7 @@ impl TransactionPostings {
     }
 
     pub fn into_ledger(trns: Vec<Self>) -> Ledger {
-        Ledger {
-            items: trns
-                .into_iter()
-                .map(|trn| LedgerItem::Transaction(trn.into()))
-                .collect(),
-        }
+        ledgerutil::ledger_from_transactions(trns.into_iter().map(|trn| trn.into()))
     }
 }
 

@@ -11,7 +11,10 @@ pub fn simple_posting_amount(amount: Amount) -> PostingAmount {
     }
 }
 
-pub fn ledger_from_transactions(transactions: Vec<Transaction>) -> Ledger {
+pub fn ledger_from_transactions<T>(transactions: T) -> Ledger
+where
+    T: IntoIterator<Item = Transaction>,
+{
     Ledger {
         items: itertools::intersperse(
             transactions.into_iter().map(LedgerItem::Transaction),
