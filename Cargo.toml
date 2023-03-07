@@ -18,7 +18,7 @@ lazy_static = "1"
 ledger-parser = "5"
 regex = "1"
 ron = "0.8"
-rust_decimal = "1.26"
+rust_decimal = "1.28"
 serde = "1"
 serde_derive = "1"
 sha-1 = "0.10"
@@ -27,7 +27,7 @@ typed-generational-arena = "0.2.5"
 uuid-b64 = "0.1"
 
 [dependencies.clap]
-version = "4.0.26"
+version = "4.1.8"
 features = ["derive"]
 
 [dependencies.chrono-tz]
