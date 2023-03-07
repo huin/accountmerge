@@ -101,9 +101,9 @@ impl Accumulator {
     }
 
     pub fn into_base64(self) -> String {
-        base64::display::Base64Display::with_config(
+        base64::display::Base64Display::new(
             &self.hasher.finalize(),
-            base64::STANDARD_NO_PAD,
+            &base64::engine::general_purpose::STANDARD_NO_PAD,
         )
         .to_string()
     }
