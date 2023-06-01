@@ -27,7 +27,7 @@ typed-generational-arena = "0.2.5"
 uuid-b64 = "0.1"
 
 [dependencies.clap]
-version = "4.2.5"
+version = "4.3.0"
 features = ["derive"]
 
 [dependencies.chrono-tz]
