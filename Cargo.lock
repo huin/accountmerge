@@ -27,7 +27,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "sha-1",
- "temporary",
+ "tempfile",
  "test-case",
  "text-diff",
  "textwrap",
@@ -1159,12 +1159,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "random"
-version = "0.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97d13a3485349981c90c79112a11222c3e6e75de1d52b87a7525b3bf5361420f"
-
-[[package]]
 name = "rdrand"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1492,15 +1486,6 @@ dependencies = [
  "redox_syscall",
  "rustix",
  "windows-sys 0.45.0",
-]
-
-[[package]]
-name = "temporary"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "acd7ed303e9bfb202712600e621300c9dfacfdc4be55735e61bd2f26932892d2"
-dependencies = [
- "random",
 ]
 
 [[package]]

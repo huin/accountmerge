@@ -79,8 +79,7 @@ impl NationwidePdf {
         use std::fs::File;
         use std::process::Command;
 
-        let tmpdir =
-            temporary::Directory::new("nationwide-pdf").context("creating temporary directory")?;
+        let tmpdir = tempfile::tempdir().context("creating temporary directory")?;
         let png_pattern = tmpdir.path().join("page-*.png");
         let png_pattern_str = png_pattern
             .to_str()
