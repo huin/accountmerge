@@ -1,16 +1,12 @@
+#[derive(Default)]
 pub enum MatchSet<T> {
     /// Zero values.
+    #[default]
     Zero,
     /// One value.
     One(T),
     /// Two or more values.
     Many(Container<T>),
-}
-
-impl<T> Default for MatchSet<T> {
-    fn default() -> Self {
-        MatchSet::Zero
-    }
 }
 
 impl<'a, T> IntoIterator for &'a MatchSet<T> {
