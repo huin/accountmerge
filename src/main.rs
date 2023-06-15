@@ -8,6 +8,7 @@ mod accounts;
 mod comment;
 mod filespec;
 mod fingerprint;
+mod fmt;
 mod fpgen;
 mod importers;
 mod internal;
@@ -30,6 +31,9 @@ enum SubCommand {
     #[command(name = "apply-rules")]
     /// Applies a rules file to an input file and dumps the results to stdout,
     ApplyRules(rules::cmd::Command),
+    #[command(name = "fmt")]
+    /// Formats journal file(s).
+    Format(fmt::Cmd),
     #[command(name = "generate-fingerprints")]
     /// Generates random fingerprints to the postings in the input file and
     /// writes them back out.
@@ -48,6 +52,7 @@ fn main() -> Result<()> {
     use SubCommand::*;
     match cmd.subcmd {
         ApplyRules(cmd) => cmd.run(),
+        Format(cmd) => cmd.run(),
         GenerateFingerprints(cmd) => cmd.run(),
         Import(cmd) => cmd.run(),
         Merge(cmd) => cmd.run(),
