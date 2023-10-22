@@ -20,8 +20,6 @@ pub struct Command {
 
 #[derive(Debug, Subcommand)]
 enum Engine {
-    #[command(name = "rhai")]
-    Rhai(crate::rules::rhai::Command),
     #[command(name = "table")]
     Table(crate::rules::table::Command),
 }
@@ -30,7 +28,6 @@ impl Engine {
     fn get_factory(&self) -> &dyn TransactionProcessorFactory {
         use Engine::*;
         match self {
-            Rhai(cmd) => cmd,
             Table(cmd) => cmd,
         }
     }

@@ -34,10 +34,6 @@ features = ["derive"]
 version = "0.8"
 features = ["serde"]
 
-[dependencies.rhai]
-version = "1"
-features = ["decimal", "sync"]
-
 [dev-dependencies]
 goldenfile = "1"
 test-case = "3"
