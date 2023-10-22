@@ -13,21 +13,21 @@ csv = "1"
 encoding_rs = "0.8"
 encoding_rs_io = "0.1"
 glob = "0.3"
-itertools = "0.10"
+itertools = "0.11"
 lazy_static = "1"
 ledger-parser = "5"
 regex = "1"
 ron = "0.8"
-rust_decimal = "1.29"
+rust_decimal = "1.32"
 serde = "1"
 serde_derive = "1"
 sha-1 = "0.10"
-tempfile = "3.5.0"
+tempfile = "3.8.0"
 typed-generational-arena = "0.2.5"
 uuid-b64 = "0.1"
 
 [dependencies.clap]
-version = "4.3.0"
+version = "4.4.6"
 features = ["derive"]
 
 [dependencies.chrono-tz]
