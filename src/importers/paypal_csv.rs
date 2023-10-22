@@ -247,6 +247,7 @@ mod de {
     use ledger_parser::TransactionStatus;
     use rust_decimal::Decimal;
     use serde::{de, Deserialize, Deserializer};
+    use serde_derive::Deserialize;
 
     #[derive(Deserialize)]
     pub struct Record {

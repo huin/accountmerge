@@ -5,7 +5,7 @@ use anyhow::{bail, format_err, Result};
 use chrono::FixedOffset;
 use lazy_static::lazy_static;
 use regex::Regex;
-use serde::Deserialize;
+use serde_derive::Deserialize;
 
 /// Carries a single row from the input CSV file of timezone abbreviations.
 #[derive(Debug, Deserialize)]

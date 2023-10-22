@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
-use serde::Deserialize;
+use serde_derive::Deserialize;
 
 use crate::rules::table::{Chain, Rule, Table};
 

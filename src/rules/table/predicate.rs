@@ -3,7 +3,7 @@ use std::fmt;
 #[cfg(test)]
 use anyhow::Result;
 use serde::de;
-use serde::Deserialize;
+use serde_derive::Deserialize;
 
 use crate::rules::table::ctx::PostingContext;
 

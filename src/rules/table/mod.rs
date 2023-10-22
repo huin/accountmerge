@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
 use clap::Args;
-use serde::Deserialize;
+use serde_derive::Deserialize;
 
 use crate::internal::TransactionPostings;
 use crate::rules::processor::{TransactionProcessor, TransactionProcessorFactory};

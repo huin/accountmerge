@@ -3,7 +3,7 @@ use chrono::NaiveDate;
 use clap::Args;
 use ledger_parser::{Amount, Balance, Posting, Reality, Transaction};
 use serde::de::DeserializeOwned;
-use serde::Deserialize;
+use serde_derive::Deserialize;
 
 use crate::accounts::ASSETS_UNKNOWN;
 use crate::comment::Comment;
@@ -326,6 +326,7 @@ mod de {
     use rust_decimal::Decimal;
     use serde::de::{self, DeserializeOwned, Deserializer};
     use serde::Deserialize;
+    use serde_derive::Deserialize;
 
     use crate::fingerprint::{Accumulator, FingerprintBuilder, Fingerprintable};
     use crate::importers::util::{

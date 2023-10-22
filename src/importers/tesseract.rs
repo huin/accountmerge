@@ -2,7 +2,7 @@
 //! processing.
 
 use anyhow::{anyhow, bail, Result};
-use serde::Deserialize;
+use serde_derive::Deserialize;
 
 /// A Tesseract TSV file record.
 #[derive(Debug, Deserialize)]
