@@ -62,7 +62,7 @@ impl IndexedPostings {
 
         self.posts_by_date
             .entry(trn_date)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(idx);
         Ok(idx)
     }

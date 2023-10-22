@@ -64,7 +64,7 @@ impl IndexedTransactions {
         let idx = self.trn_arena.insert(trn);
         self.trns_by_date
             .entry(date)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(idx);
         idx
     }

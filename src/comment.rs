@@ -149,8 +149,8 @@ impl Comment {
                 self.lines.push(other_line);
             }
         }
-        self.tags.extend(other.tags.into_iter());
-        self.value_tags.extend(other.value_tags.into_iter());
+        self.tags.extend(other.tags);
+        self.value_tags.extend(other.value_tags);
     }
 }
 
