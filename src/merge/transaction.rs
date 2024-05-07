@@ -62,10 +62,7 @@ impl IndexedTransactions {
     pub fn add(&mut self, trn: Holder) -> Index {
         let date = trn.trn.raw.date;
         let idx = self.trn_arena.insert(trn);
-        self.trns_by_date
-            .entry(date)
-            .or_default()
-            .push(idx);
+        self.trns_by_date.entry(date).or_default().push(idx);
         idx
     }
 

@@ -60,10 +60,7 @@ impl IndexedPostings {
         let idx = self.post_arena.insert(holder);
         self.register_fingerprints(fingerprints.into_iter(), idx)?;
 
-        self.posts_by_date
-            .entry(trn_date)
-            .or_default()
-            .push(idx);
+        self.posts_by_date.entry(trn_date).or_default().push(idx);
         Ok(idx)
     }
 
