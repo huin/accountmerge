@@ -6,6 +6,7 @@
   ; account: My Account ****4321
   ; bank: Nationwide
   ; location: FOO.CO/THING#
+  ; seq: 1zY5uuo1-1
   ; transactions: FOO CO
   expenses:unknown  GBP1.23
   ; :import-peer:
@@ -23,6 +24,7 @@
   ; :unknown-account:
   ; account: My Account ****4321
   ; bank: Nationwide
+  ; seq: 1zY5uuo1-1
   ; transactions: DIRECT DEBIT PAYMENT
   income:unknown  GBP-50.00
   ; :import-peer:
@@ -40,6 +42,7 @@
   ; account: My Account ****4321
   ; bank: Nationwide
   ; location: THING#
+  ; seq: 1zY5uuo1-1
   ; transactions: BAR CO
   expenses:unknown  GBP4.32
   ; :import-peer:

@@ -6,6 +6,7 @@
   ; :unknown-account:
   ; account: Current
   ; bank: Nationwide
+  ; seq: LVcP3L+Y-1
   ; trn_type: ATM
   expenses:unknown  GBP30.00
   ; :import-peer:
@@ -24,6 +25,7 @@
   ; :unknown-account:
   ; account: Current
   ; bank: Nationwide
+  ; seq: LVcP3L+Y-1
   ; trn_type: Transfer
   income:unknown  GBP-300.00
   ; :import-peer:
@@ -42,6 +44,7 @@
   ; :unknown-account:
   ; account: Current
   ; bank: Nationwide
+  ; seq: LVcP3L+Y-1
   ; trn_type: Transfer
   expenses:unknown  GBP100.00
   ; :import-peer:

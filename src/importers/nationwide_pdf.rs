@@ -374,6 +374,7 @@ impl TransactionBuilder {
                     status: None,
                     comment: comment_base
                         .clone()
+                        .with_value_tag(tags::SEQ, format!("{}-{}", fp_ns, self.date_counter + 1))
                         .with_tag(tags::IMPORT_SELF)
                         .with_tag(self_fp.build().legacy_tag())
                         .build()

@@ -227,6 +227,7 @@ impl PostingFormer for RecordFive {
         let mut peer_comment = self_comment.clone();
         self_comment = self_comment
             .with_tag(fp_v1.self_.tag())
+            .with_value_tag(tags::SEQ, format!("{}-{}", fp_namespace, date_counter + 1))
             .with_tag(tags::IMPORT_SELF.to_string());
         peer_comment = peer_comment
             .with_tag(fp_v1.peer.tag())
@@ -284,6 +285,7 @@ impl PostingFormer for RecordSix {
         let fp_v1 = self.fingerprint_v1(fp_namespace, date_counter)?;
         self_comment = self_comment
             .with_tag(fp_v1.self_.tag())
+            .with_value_tag(tags::SEQ, format!("{}-{}", fp_namespace, date_counter + 1))
             .with_tag(tags::IMPORT_SELF.to_string());
         peer_comment = peer_comment
             .with_tag(fp_v1.peer.tag())

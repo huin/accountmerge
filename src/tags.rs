@@ -2,6 +2,8 @@
 pub const ACCOUNT: &str = "account";
 /// Bank identifier/name, provided by the importer.
 pub const BANK: &str = "bank";
+/// Date-specific sequence number, provided by the importer on the import-self posting.
+pub const SEQ: &str = "seq";
 /// Tag indicating that an importer has marked the posting as *not* being of the
 /// account whose data is being imported. That is, it's a posting for an amount
 /// against another account.
