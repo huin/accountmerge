@@ -188,7 +188,7 @@ impl Record {
             quantity: v.balance,
             commodity,
         };
-        let partial_fp = FingerprintBuilder::new("ppcsv", 1, fp_ns)
+        let partial_fp = FingerprintBuilder::new("ppcsv", 1, fp_ns)?
             .with(v.date.0)
             .with(v.time.0)
             .with(v.time_zone.as_str())

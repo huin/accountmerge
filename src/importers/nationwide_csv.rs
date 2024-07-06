@@ -210,7 +210,7 @@ impl PostingFormer for RecordFive {
             _ => bail!("expected *either* paid in or paid out"),
         };
         let halves = self_and_peer_account_amount(self_amount, ASSETS_UNKNOWN.to_string());
-        let fp_v1 = self.fingerprint_v1(fp_namespace, date_counter);
+        let fp_v1 = self.fingerprint_v1(fp_namespace, date_counter)?;
         let mut self_comment = Comment::builder()
             .with_tag(tags::UNKNOWN_ACCOUNT)
             .with_value_tag(tags::ACCOUNT, account_name)
@@ -281,7 +281,7 @@ impl PostingFormer for RecordSix {
             .with_value_tag(tags::BANK, BANK_NAME)
             .with_value_tag(TRANSACTION_TYPE_TAG, self.type_.clone());
         let mut peer_comment = self_comment.clone();
-        let fp_v1 = self.fingerprint_v1(fp_namespace, date_counter);
+        let fp_v1 = self.fingerprint_v1(fp_namespace, date_counter)?;
         self_comment = self_comment
             .with_tag(fp_v1.self_.tag())
             .with_tag(tags::IMPORT_SELF.to_string());
@@ -289,7 +289,7 @@ impl PostingFormer for RecordSix {
             .with_tag(fp_v1.peer.tag())
             .with_tag(tags::IMPORT_PEER.to_string());
         if include_legacy_fingerprint {
-            let fp_legacy = self.fingerprint_legacy(fp_namespace, date_counter, &halves);
+            let fp_legacy = self.fingerprint_legacy(fp_namespace, date_counter, &halves)?;
             self_comment = self_comment.with_tag(fp_legacy.self_.legacy_tag());
             peer_comment = peer_comment.with_tag(fp_legacy.peer.legacy_tag());
         }
@@ -318,7 +318,7 @@ mod de {
     use std::fmt;
     use std::str::FromStr;
 
-    use anyhow::{bail, Result};
+    use anyhow::{bail, Context, Result};
     use chrono::NaiveDate;
     use lazy_static::lazy_static;
     use ledger_parser::{Amount, Commodity, CommodityPosition};
@@ -345,16 +345,21 @@ mod de {
     }
 
     impl RecordFive {
-        pub fn fingerprint_v1(&self, fp_namespace: &str, date_counter: i32) -> FingerprintHalves {
-            self_and_peer_fingerprints(
+        pub fn fingerprint_v1(
+            &self,
+            fp_namespace: &str,
+            date_counter: i32,
+        ) -> Result<FingerprintHalves> {
+            Ok(self_and_peer_fingerprints(
                 FingerprintBuilder::new("nwcsv5", 1, fp_namespace)
+                    .with_context(|| "building v1 fingerprint")?
                     .with(self.date.0)
                     .with(date_counter)
                     .with(self.transactions.as_str())
                     .with(self.location.as_str())
                     .with(self.paid_out.as_ref())
                     .with(self.paid_in.as_ref()),
-            )
+            ))
         }
     }
 
@@ -378,8 +383,9 @@ mod de {
             fp_namespace: &str,
             date_counter: i32,
             halves: &TransactionHalves,
-        ) -> FingerprintHalves {
+        ) -> Result<FingerprintHalves> {
             let fpb_legacy = FingerprintBuilder::new("", 0, fp_namespace)
+                .with_context(|| "building legacy fingerprint")?
                 .with(self.type_.as_str())
                 .with(self.date.0)
                 // Description should have been included in the legacy fingerprint, but a
@@ -396,15 +402,20 @@ mod de {
                 .with(halves.peer.account.as_str())
                 .with(&halves.peer.amount);
 
-            FingerprintHalves {
+            Ok(FingerprintHalves {
                 self_: self_fp.build(),
                 peer: peer_fp.build(),
-            }
+            })
         }
 
-        pub fn fingerprint_v1(&self, fp_namespace: &str, date_counter: i32) -> FingerprintHalves {
-            self_and_peer_fingerprints(
+        pub fn fingerprint_v1(
+            &self,
+            fp_namespace: &str,
+            date_counter: i32,
+        ) -> Result<FingerprintHalves> {
+            Ok(self_and_peer_fingerprints(
                 FingerprintBuilder::new("nwcsv6", 1, fp_namespace)
+                    .with_context(|| "building v1 fingerprint")?
                     .with(self.type_.as_str())
                     .with(self.date.0)
                     .with(date_counter)
@@ -412,7 +423,7 @@ mod de {
                     .with(self.paid_out.as_ref())
                     .with(self.paid_in.as_ref())
                     .with(&self.balance),
-            )
+            ))
         }
     }
 

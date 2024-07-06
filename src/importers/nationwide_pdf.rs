@@ -65,7 +65,7 @@ impl TransactionImporter for NationwidePdf {
             }
         }
 
-        let transactions = acc.build();
+        let transactions = acc.build()?;
         Ok(Import {
             user_fp_namespace,
             transactions,
@@ -208,7 +208,7 @@ impl TransactionsAccumulator {
             }
             (Some(payment), None) => {
                 // Start of new payment transaction.
-                self.flush_transaction();
+                self.flush_transaction()?;
                 if trn_line.implied_date != self.prev_date {
                     self.date_counter = 0;
                 } else {
@@ -224,7 +224,7 @@ impl TransactionsAccumulator {
             }
             (None, Some(receipt)) => {
                 // Start of new receipt transaction.
-                self.flush_transaction();
+                self.flush_transaction()?;
                 if trn_line.implied_date != self.prev_date {
                     self.date_counter = 0;
                 } else {
@@ -276,15 +276,16 @@ impl TransactionsAccumulator {
         Ok(())
     }
 
-    fn flush_transaction(&mut self) {
+    fn flush_transaction(&mut self) -> Result<()> {
         if let Some(pending) = self.cur_trn_opt.take() {
-            self.trns.push(pending.build(&self.fp_ns));
+            self.trns.push(pending.build(&self.fp_ns)?);
         }
+        Ok(())
     }
 
-    fn build(mut self) -> Vec<Transaction> {
-        self.flush_transaction();
-        self.trns
+    fn build(mut self) -> Result<Vec<Transaction>> {
+        self.flush_transaction()?;
+        Ok(self.trns)
     }
 }
 
@@ -332,8 +333,8 @@ impl TransactionBuilder {
         })
     }
 
-    fn build(self, fp_ns: &str) -> Transaction {
-        let record_fpb = FingerprintBuilder::new("nwpdf", 1, fp_ns)
+    fn build(self, fp_ns: &str) -> Result<Transaction> {
+        let record_fpb = FingerprintBuilder::new("nwpdf", 1, fp_ns)?
             .with(self.date)
             .with(self.date_counter)
             .with(self.description.as_str());
@@ -357,7 +358,7 @@ impl TransactionBuilder {
             .with(halves.peer.account.as_str())
             .with(&halves.peer.amount);
 
-        Transaction {
+        Ok(Transaction {
             date: self.date,
             effective_date: self.effective_date,
             status: None,
@@ -391,7 +392,7 @@ impl TransactionBuilder {
                         .into_opt_comment(),
                 },
             ],
-        }
+        })
     }
 }
 
