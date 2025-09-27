@@ -7,9 +7,11 @@ use serde_derive::Deserialize;
 
 use crate::internal::TransactionPostings;
 use crate::rules::processor::{TransactionProcessor, TransactionProcessorFactory};
+use crate::rules::table::commontypes::Regex;
 use crate::rules::table::ctx::PostingContext;
 use crate::rules::table::predicate::Predicate;
 
+mod commontypes;
 mod ctx;
 mod predicate;
 mod source;
@@ -173,6 +175,7 @@ enum Action {
     RemovePostingValueTag(String),
     RemoveTransactionFlagTag(String),
     RemoveTransactionValueTag(String),
+    ReplaceTransactionDescription(RegexReplace),
 }
 
 impl Action {
@@ -230,6 +233,9 @@ impl Action {
             RemoveTransactionValueTag(name) => {
                 ctx.trn.comment.value_tags.remove(name);
             }
+            ReplaceTransactionDescription(replacer) => {
+                ctx.trn.raw.description = replacer.replacement(&ctx.trn.raw.description);
+            }
         }
 
         Ok(())
@@ -242,6 +248,18 @@ impl Action {
             JumpChain(name) => table.get_chain(name).map(|_| ()),
             _ => Ok(()),
         }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RegexReplace {
+    regex: Regex,
+    replacement: String,
+}
+
+impl RegexReplace {
+    fn replacement(&self, original: &str) -> String {
+        self.regex.0.replace(original, &self.replacement).into()
     }
 }
 

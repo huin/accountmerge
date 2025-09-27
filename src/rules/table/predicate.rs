@@ -1,11 +1,8 @@
-use std::fmt;
-
 #[cfg(test)]
 use anyhow::Result;
-use serde::de;
 use serde_derive::Deserialize;
 
-use crate::rules::table::ctx::PostingContext;
+use crate::rules::table::{commontypes::Regex, ctx::PostingContext};
 
 #[derive(Debug, Deserialize)]
 pub enum Predicate {
@@ -52,37 +49,6 @@ impl Predicate {
     #[cfg(test)]
     pub fn from_str(s: &str) -> Result<Self> {
         ron::de::from_str(s).map_err(Into::into)
-    }
-}
-
-#[derive(Debug)]
-pub struct Regex(regex::Regex);
-
-impl<'de> de::Deserialize<'de> for Regex {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: de::Deserializer<'de>,
-    {
-        deserializer.deserialize_str(RegexVisitor)
-    }
-}
-
-struct RegexVisitor;
-
-impl<'de> de::Visitor<'de> for RegexVisitor {
-    type Value = Regex;
-
-    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "a string containing a regular expression")
-    }
-
-    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        regex::Regex::new(v)
-            .map(Regex)
-            .map_err(|e| E::custom(format!("{}", e)))
     }
 }
 
