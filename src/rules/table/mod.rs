@@ -161,6 +161,9 @@ enum RuleResult {
 #[derive(Debug, Deserialize)]
 enum Action {
     AddPostingFlagTag(String),
+    AddPostingValueTag(String, String),
+    AddTransactionFlagTag(String),
+    AddTransactionValueTag(String, String),
     All(Vec<Action>),
     Error(String),
     Noop,
@@ -168,6 +171,8 @@ enum Action {
     SetAccount(String),
     RemovePostingFlagTag(String),
     RemovePostingValueTag(String),
+    RemoveTransactionFlagTag(String),
+    RemoveTransactionValueTag(String),
 }
 
 impl Action {
@@ -177,6 +182,21 @@ impl Action {
         match self {
             AddPostingFlagTag(name) => {
                 ctx.post.comment.tags.insert(name.to_string());
+            }
+            AddPostingValueTag(name, value) => {
+                ctx.post
+                    .comment
+                    .value_tags
+                    .insert(name.to_string(), value.to_string());
+            }
+            AddTransactionFlagTag(name) => {
+                ctx.trn.comment.tags.insert(name.to_string());
+            }
+            AddTransactionValueTag(name, value) => {
+                ctx.trn
+                    .comment
+                    .value_tags
+                    .insert(name.to_string(), value.to_string());
             }
             All(actions) => {
                 for action in actions {
@@ -203,6 +223,12 @@ impl Action {
             }
             RemovePostingValueTag(name) => {
                 ctx.post.comment.value_tags.remove(name);
+            }
+            RemoveTransactionFlagTag(name) => {
+                ctx.trn.comment.tags.remove(name);
+            }
+            RemoveTransactionValueTag(name) => {
+                ctx.trn.comment.value_tags.remove(name);
             }
         }
 
