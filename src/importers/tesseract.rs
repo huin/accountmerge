@@ -247,6 +247,7 @@ impl From<Record> for Line {
 
 #[derive(Debug)]
 pub struct Word {
+    #[allow(unused)]
     pub num: i32,
     pub left: i32,
     pub width: i32,

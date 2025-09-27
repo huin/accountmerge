@@ -68,7 +68,7 @@ impl FingerprintBuilder {
             static ref VALID_FP_PART_RX: Regex = Regex::new(r#"^[a-zA-Z0-9_+/]*$"#).unwrap();
         }
 
-        if !VALID_FP_PART_RX.is_match(&algorithm_name) {
+        if !VALID_FP_PART_RX.is_match(algorithm_name) {
             bail!(
                 "fingerprint algorithm name {:?} must match regex {:?}",
                 algorithm_name,

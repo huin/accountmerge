@@ -72,7 +72,7 @@ impl PaypalCsv {
             .map(|row| deserialize_row(row, headers, tz_abbrs, &self.fp_ns))
             .collect::<Result<Vec<Record>>>()?;
 
-        let record_groups = records.into_iter().group_by(|record| record.datetime);
+        let record_groups = records.into_iter().chunk_by(|record| record.datetime);
 
         record_groups
             .into_iter()
@@ -121,6 +121,7 @@ impl PaypalCsv {
             } else {
                 None
             })
+            .with_option_value_tag("receipt_id", record.receipt_id)
             .with_tag(fp.self_.tag())
             .build();
         let mut peer_comment = Comment::builder()
@@ -171,6 +172,7 @@ struct Record {
     status: de::Status,
     amount: Amount,
     balance: Amount,
+    receipt_id: Option<String>,
     partial_fp: FingerprintBuilder,
 }
 
@@ -196,6 +198,7 @@ impl Record {
             .with(v.type_.as_str())
             // Deliberately not including `v.status`, as this may change on a
             // future import.
+            // Not including receipt_id as it was not previously used in fingerprints.
             .with(&amount)
             .with(&balance);
 
@@ -225,6 +228,7 @@ impl Record {
             amount,
             balance,
             partial_fp,
+            receipt_id: v.receipt_id,
         })
     }
 }
