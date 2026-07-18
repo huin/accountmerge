@@ -57,6 +57,9 @@ impl TransactionImporter for NationwideCsv {
     fn get_transactions(&self) -> Result<Import> {
         let reader = encoding_rs_io::DecodeReaderBytesBuilder::new()
             .encoding(Some(encoding_rs::WINDOWS_1252))
+            .strip_bom(true)
+            .bom_override(true)
+            .bom_sniffing(true)
             .build(self.input.reader()?);
         let mut csv_rdr = csv::ReaderBuilder::new()
             .has_headers(false)
@@ -544,6 +547,7 @@ mod tests {
     use crate::importers::testutil::golden_test;
 
     #[test_case("nationwide_csv_5.csv", "nationwide_csv_5.golden.journal"; "five column format")]
+    #[test_case("nationwide_csv_5_utf8_bom.csv", "nationwide_csv_5_utf8_bom.golden.journal"; " five column format with leading BOM")]
     #[test_case("nationwide_csv_6.csv", "nationwide_csv_6.golden.journal"; "six column format")]
     fn golden(csv: &str, golden: &str) {
         let input: PathBuf = ["testdata/importers", csv].iter().collect();
