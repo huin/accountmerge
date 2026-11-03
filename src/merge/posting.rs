@@ -22,7 +22,7 @@ pub type Index = StandardIndex<Holder>;
 pub struct IndexHashable(pub Index);
 impl PartialEq for IndexHashable {
     fn eq(&self, other: &Self) -> bool {
-        self.0.arr_idx() == other.0.arr_idx() && self.0.gen() == other.0.gen()
+        self.0.arr_idx() == other.0.arr_idx() && self.0.r#gen() == other.0.r#gen()
     }
 }
 impl std::hash::Hash for IndexHashable {
