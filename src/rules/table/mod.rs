@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use clap::Args;
 use serde_derive::Deserialize;
 
@@ -234,7 +234,8 @@ impl Action {
                 ctx.trn.comment.value_tags.remove(name);
             }
             ReplaceTransactionDescription(replacer) => {
-                ctx.trn.raw.description = replacer.replacement(&ctx.trn.raw.description);
+                ctx.trn.raw.description =
+                    Some(replacer.replacement(ctx.trn.raw.description.as_deref().unwrap_or("")));
             }
         }
 

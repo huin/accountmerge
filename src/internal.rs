@@ -1,9 +1,12 @@
 //! Internal wrapper types for `Posting` and `Transaction`.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use ledger_parser::{Ledger, LedgerItem, Posting, Transaction};
 
-use crate::{comment::Comment, ledgerutil};
+use crate::{
+    comment::Comment,
+    ledgerutil::{self, simple_posting_amount},
+};
 
 /// TransactionInternal is a `Transaction` with the comment string (if any) moved
 /// out as a `Comment`.
@@ -13,11 +16,14 @@ pub struct TransactionInternal {
     pub comment: Comment,
 }
 
-impl From<Transaction> for TransactionInternal {
-    fn from(mut raw: Transaction) -> Self {
-        let comment = Comment::from_opt_string(&raw.comment);
+impl TryFrom<Transaction> for TransactionInternal {
+    type Error = anyhow::Error;
+
+    fn try_from(mut raw: Transaction) -> Result<Self> {
+        let tags = take_tags(&mut raw.posting_metadata);
+        let comment = Comment::from_tags_and_comment(tags, raw.comment)?;
         raw.comment = None;
-        Self { raw, comment }
+        Ok(Self { raw, comment })
     }
 }
 
@@ -44,7 +50,7 @@ impl TransactionPostings {
             .items
             .into_iter()
             .filter_map(|item| match item {
-                LedgerItem::Transaction(trn) => Some(Ok(TransactionPostings::from(trn))),
+                LedgerItem::Transaction(trn) => Some(TransactionPostings::try_from(trn)),
                 LedgerItem::EmptyLine => None,
                 other => Some(Err(anyhow!(
                     "unhandled item type in ledger (these are not yet handled): {:?}",
@@ -59,12 +65,17 @@ impl TransactionPostings {
     }
 }
 
-impl From<Transaction> for TransactionPostings {
-    fn from(mut raw_trn: Transaction) -> Self {
+impl TryFrom<Transaction> for TransactionPostings {
+    type Error = anyhow::Error;
+
+    fn try_from(mut raw_trn: Transaction) -> Result<Self> {
         let raw_posts = std::mem::take(&mut raw_trn.postings);
-        let posts: Vec<PostingInternal> = raw_posts.into_iter().map(Into::into).collect();
-        let trn: TransactionInternal = raw_trn.into();
-        Self { trn, posts }
+        let posts = raw_posts
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<PostingInternal>>>()?;
+        let trn: TransactionInternal = raw_trn.try_into()?;
+        Ok(Self { trn, posts })
     }
 }
 
@@ -97,11 +108,14 @@ impl PostingInternal {
     }
 }
 
-impl From<Posting> for PostingInternal {
-    fn from(mut raw: Posting) -> Self {
-        let comment = Comment::from_opt_string(&raw.comment);
+impl TryFrom<Posting> for PostingInternal {
+    type Error = anyhow::Error;
+
+    fn try_from(mut raw: Posting) -> Result<Self> {
+        let tags = take_tags(&mut raw.metadata);
+        let comment = Comment::from_tags_and_comment(tags, raw.comment)?;
         raw.comment = None;
-        Self { raw, comment }
+        Ok(Self { raw, comment })
     }
 }
 
@@ -111,4 +125,65 @@ impl Into<Posting> for PostingInternal {
         self.raw.comment = self.comment.into_opt_comment();
         self.raw
     }
+}
+
+pub struct PostingInternalBuilder {
+    posting: PostingInternal,
+}
+
+impl PostingInternalBuilder {
+    pub fn new(account: String) -> Self {
+        Self {
+            posting: PostingInternal {
+                raw: Posting {
+                    account,
+                    reality: ledger_parser::Reality::Real,
+                    amount: None,
+                    balance: None,
+                    status: None,
+                    comment: None,
+                    metadata: ledgerutil::empty_posting_metadata(),
+                },
+                comment: Comment::default(),
+            },
+        }
+    }
+
+    pub fn with_simple_amount(self, amount: ledger_parser::Amount) -> Self {
+        self.with_amount(simple_posting_amount(amount))
+    }
+
+    pub fn with_amount(mut self, amount: ledger_parser::PostingAmount) -> Self {
+        self.posting.raw.amount = Some(amount);
+        self
+    }
+
+    pub fn with_opt_balance(mut self, opt_balance: Option<ledger_parser::Balance>) -> Self {
+        self.posting.raw.balance = opt_balance;
+        self
+    }
+
+    pub fn with_balance(self, balance: ledger_parser::Balance) -> Self {
+        self.with_opt_balance(Some(balance))
+    }
+
+    pub fn with_status(mut self, status: ledger_parser::TransactionStatus) -> Self {
+        self.posting.raw.status = Some(status);
+        self
+    }
+
+    pub fn with_comment(mut self, comment: Comment) -> Self {
+        self.posting.comment = comment;
+        self
+    }
+
+    pub fn build(self) -> PostingInternal {
+        self.posting
+    }
+}
+
+fn take_tags(metadata: &mut ledger_parser::PostingMetadata) -> Vec<ledger_parser::Tag> {
+    let mut tags = Vec::new();
+    std::mem::swap(&mut metadata.tags, &mut tags);
+    tags
 }

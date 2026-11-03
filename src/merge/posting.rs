@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use chrono::NaiveDate;
 use typed_generational_arena::{StandardArena, StandardIndex};
 
@@ -105,7 +105,10 @@ impl IndexedPostings {
             match self.post_by_fingerprint.entry(fp.to_string()) {
                 Occupied(e) => {
                     if e.get() != &post_idx {
-                        bail!("internal merge error: multiple posts claiming fingerprint {:?} added or merged", fp);
+                        bail!(
+                            "internal merge error: multiple posts claiming fingerprint {:?} added or merged",
+                            fp
+                        );
                     }
                 }
                 Vacant(e) => {
@@ -376,19 +379,21 @@ mod tests {
        "bar  GBP 10.00 ; :fp-1:";
        "Updates unknown account and removes unknown-account tag."
     )]
-    fn input_from_posting(dest: &str, src: &str, want: &str) {
+    fn input_from_posting(dest: &str, src: &str, want: &str) -> Result<()> {
         let dummy_date = NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
         let dummy_idx = StandardIndex::from_idx_first_gen(0);
 
         let dest_posting =
-            Input::from_posting_internal(parse_posting_internal(dest), dummy_date).unwrap();
+            Input::from_posting_internal(parse_posting_internal(dest)?, dummy_date).unwrap();
         let src_posting =
-            Input::from_posting_internal(parse_posting_internal(src), dummy_date).unwrap();
+            Input::from_posting_internal(parse_posting_internal(src)?, dummy_date).unwrap();
         let (mut dest_holder, _) = Holder::from_input(dest_posting, dummy_idx);
         dest_holder.merge_from_input_posting(src_posting);
         let result = dest_holder.into_posting_internal();
 
-        assert_posting_internal_eq!(result, parse_posting_internal(want));
+        assert_posting_internal_eq!(result, parse_posting_internal(want)?);
+
+        Ok(())
     }
 
     #[test_case(
@@ -451,17 +456,19 @@ mod tests {
         false;
         "differing_known_accounts_do_not_match"
     )]
-    fn holding_matches(dest: &str, src: &str, want: bool) {
+    fn holding_matches(dest: &str, src: &str, want: bool) -> Result<()> {
         let dummy_date = NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
         let dummy_idx = StandardIndex::from_idx_first_gen(0);
 
         let dest_posting =
-            Input::from_posting_internal(parse_posting_internal(dest), dummy_date).unwrap();
+            Input::from_posting_internal(parse_posting_internal(dest)?, dummy_date).unwrap();
         let src_posting =
-            Input::from_posting_internal(parse_posting_internal(src), dummy_date).unwrap();
+            Input::from_posting_internal(parse_posting_internal(src)?, dummy_date).unwrap();
         let (dest_holder, _) = Holder::from_input(dest_posting, dummy_idx);
         let got = dest_holder.matches(&src_posting);
 
         assert_eq!(got, want);
+
+        Ok(())
     }
 }

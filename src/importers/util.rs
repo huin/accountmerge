@@ -2,6 +2,7 @@ use ledger_parser::Amount;
 
 use crate::accounts::{EXPENSES_UNKNOWN, INCOME_UNKNOWN};
 use crate::fingerprint::{Fingerprint, FingerprintBuilder};
+use crate::internal::PostingInternalBuilder;
 
 pub fn negate_amount(amt: Amount) -> Amount {
     Amount {
@@ -13,6 +14,12 @@ pub fn negate_amount(amt: Amount) -> Amount {
 pub struct AccountAmount {
     pub account: String,
     pub amount: Amount,
+}
+
+impl AccountAmount {
+    pub fn into_posting_internal_builder(self) -> PostingInternalBuilder {
+        PostingInternalBuilder::new(self.account).with_simple_amount(self.amount)
+    }
 }
 
 pub struct TransactionHalves {

@@ -2,23 +2,22 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use chrono::NaiveDate;
 use clap::Args;
 use lazy_static::lazy_static;
-use ledger_parser::{Amount, Posting, Reality, Transaction};
+use ledger_parser::{Amount, Transaction};
 use regex::Regex;
 use rust_decimal::Decimal;
 
-use crate::accounts;
 use crate::comment::Comment;
 use crate::fingerprint::FingerprintBuilder;
 use crate::importers::importer::TransactionImporter;
-use crate::importers::nationwide::{CommonOpts, BANK_NAME};
+use crate::importers::nationwide::{BANK_NAME, CommonOpts};
 use crate::importers::tesseract;
 use crate::importers::util;
-use crate::ledgerutil::simple_posting_amount;
 use crate::tags;
+use crate::{accounts, ledgerutil};
 
 use super::importer::Import;
 
@@ -160,11 +159,12 @@ impl NationwidePdf {
 
         for trn_line in &trn_lines {
             if let Some(prev_trn_line) = prev_trn_line
-                && trn_line.top > prev_trn_line.top + prev_trn_line.height * 2 {
-                    // There have been blank lines, this is probably the end of
-                    // the transactions.
-                    break;
-                }
+                && trn_line.top > prev_trn_line.top + prev_trn_line.height * 2
+            {
+                // There have been blank lines, this is probably the end of
+                // the transactions.
+                break;
+            }
 
             acc.feed_line(trn_line)
                 .with_context(|| format!("for transaction line {}", trn_line))?;
@@ -362,35 +362,38 @@ impl TransactionBuilder {
             effective_date: self.effective_date,
             status: None,
             code: None,
-            description: self.description,
+            description: Some(self.description),
             comment: None,
+            posting_metadata: ledgerutil::empty_posting_metadata(),
             postings: vec![
-                Posting {
-                    account: halves.self_.account,
-                    reality: Reality::Real,
-                    amount: Some(simple_posting_amount(halves.self_.amount)),
-                    balance: self.balance.map(ledger_parser::Balance::Amount),
-                    status: None,
-                    comment: comment_base
-                        .clone()
-                        .with_value_tag(tags::SEQ, format!("{}-{}", fp_ns, self.date_counter + 1))
-                        .with_tag(tags::IMPORT_SELF)
-                        .with_tag(self_fp.build().legacy_tag())
-                        .build()
-                        .into_opt_comment(),
-                },
-                Posting {
-                    account: halves.peer.account,
-                    reality: Reality::Real,
-                    amount: Some(simple_posting_amount(halves.peer.amount)),
-                    balance: None,
-                    status: None,
-                    comment: comment_base
-                        .with_tag(tags::IMPORT_PEER)
-                        .with_tag(peer_fp.build().legacy_tag())
-                        .build()
-                        .into_opt_comment(),
-                },
+                halves
+                    .self_
+                    .into_posting_internal_builder()
+                    .with_opt_balance(self.balance.map(ledger_parser::Balance::Amount))
+                    .with_comment(
+                        comment_base
+                            .clone()
+                            .with_value_tag(
+                                tags::SEQ,
+                                format!("{}-{}", fp_ns, self.date_counter + 1),
+                            )
+                            .with_tag(tags::IMPORT_SELF)
+                            .with_tag(self_fp.build().legacy_tag())
+                            .build(),
+                    )
+                    .build()
+                    .into(),
+                halves
+                    .peer
+                    .into_posting_internal_builder()
+                    .with_comment(
+                        comment_base
+                            .with_tag(tags::IMPORT_PEER)
+                            .with_tag(peer_fp.build().legacy_tag())
+                            .build(),
+                    )
+                    .build()
+                    .into(),
             ],
         })
     }
@@ -414,9 +417,9 @@ fn parse_amount(s: &str) -> Result<Amount> {
 mod table {
     use std::fmt;
 
-    use anyhow::{anyhow, bail, Result};
-    use chrono::format as date_fmt;
+    use anyhow::{Result, anyhow, bail};
     use chrono::NaiveDate;
+    use chrono::format as date_fmt;
 
     use crate::importers::tesseract::{self, Line, Page, Paragraph, Word};
 
@@ -664,11 +667,7 @@ mod table {
 
         fn join_words_in(&self, line: &tesseract::Line) -> Option<String> {
             let s = itertools::join(self.collect_words_in(line), " ");
-            if s.is_empty() {
-                None
-            } else {
-                Some(s)
-            }
+            if s.is_empty() { None } else { Some(s) }
         }
 
         fn collect_words_in<'a>(

@@ -23,3 +23,11 @@ where
         .collect(),
     }
 }
+
+pub fn empty_posting_metadata() -> ledger_parser::PostingMetadata {
+    ledger_parser::PostingMetadata {
+        date: None,
+        effective_date: None,
+        tags: Vec::new(),
+    }
+}

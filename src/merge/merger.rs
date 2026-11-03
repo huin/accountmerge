@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 
 use crate::internal::{PostingInternal, TransactionPostings};
 use crate::merge::{posting, transaction};
@@ -183,7 +183,10 @@ impl Merger {
 
             for fp in src_post.iter_fingerprints().map(str::to_string) {
                 if fingerprints_seen.contains(&fp) {
-                    bail!("bad input to merge: multiple postings with same fingerprint ({:?}) found within a single input transaction set", fp);
+                    bail!(
+                        "bad input to merge: multiple postings with same fingerprint ({:?}) found within a single input transaction set",
+                        fp
+                    );
                 }
                 fingerprints_seen.insert(fp);
             }
@@ -229,9 +232,9 @@ impl Merger {
         &self,
         src_post: &mut posting::Input,
     ) -> Result<Option<PostingMergeAction>> {
+        use PostingMergeAction::*;
         use posting::Match::*;
         use posting::MatchedIndices::*;
-        use PostingMergeAction::*;
         match self.posts.find_matching_postings(src_post) {
             Fingerprint(m) => match m {
                 One(dest_idx) => {
@@ -313,19 +316,23 @@ impl Merger {
         // Check that only one destination transaction matches.
         match candidate_trns.len() {
             n if n <= 1 => Ok(candidate_trns.iter().next().map(|i| i.0)),
-            _ => Err(anyhow!("bad input to merge: input transaction on {} ({:?}) matches multiple existing transactions: {}",
-                    src_trn.trn.raw.date,
-                    src_trn.trn.raw.description,
-                    itertools::join(
-                        candidate_trns.iter().map(|trn_idx| &self
-                            .trns
-                            .get(trn_idx.0)
-                            .trn
-                            .raw
-                            .description),
-                        ", "
-                    ),
-                )),
+            _ => Err(anyhow!(
+                "bad input to merge: input transaction on {} ({:?}) matches multiple existing transactions: {}",
+                src_trn.trn.raw.date,
+                src_trn.trn.raw.description,
+                itertools::join(
+                    candidate_trns.iter().map(|trn_idx| self
+                        .trns
+                        .get(trn_idx.0)
+                        .trn
+                        .raw
+                        .description
+                        .as_ref()
+                        .map(String::as_ref)
+                        .unwrap_or("<no description>")),
+                    ", "
+                ),
+            )),
         }
     }
 

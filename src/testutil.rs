@@ -1,3 +1,4 @@
+use anyhow::Result;
 use ledger_parser::{LedgerItem, Posting, Transaction};
 
 use crate::comment::Comment;
@@ -23,19 +24,33 @@ pub fn normalize_comment(text: &mut Option<String>) {
     *text = c.into_opt_comment();
 }
 
+pub fn ledger_tag(name: &str) -> ledger_parser::Tag {
+    ledger_parser::Tag {
+        name: name.into(),
+        value: None,
+    }
+}
+
+pub fn ledger_value_tag(name: &str, value: &str) -> ledger_parser::Tag {
+    ledger_parser::Tag {
+        name: name.into(),
+        value: Some(ledger_parser::TagValue::String(value.into())),
+    }
+}
+
 #[macro_export]
 macro_rules! assert_transactions_eq {
     ($want:expr, $got:expr, $($context_arg:expr),*) => {
-        let want_str = crate::testutil::format_transactions(&$want);
-        let got_str = crate::testutil::format_transactions(&$got);
+        let want_str = $crate::testutil::format_transactions(&$want);
+        let got_str = $crate::testutil::format_transactions(&$got);
         if want_str != got_str {
             eprintln!($($context_arg,)*);
             text_diff::assert_diff(&want_str, &got_str, "\n", 0);
         }
     };
     ($want:expr, $got:expr) => {
-        let want_str = crate::testutil::format_transactions(&$want);
-        let got_str = crate::testutil::format_transactions(&$got);
+        let want_str = $crate::testutil::format_transactions(&$want);
+        let got_str = $crate::testutil::format_transactions(&$got);
         if want_str != got_str {
             text_diff::assert_diff(&want_str, &got_str, "\n", 0);
         }
@@ -45,16 +60,16 @@ macro_rules! assert_transactions_eq {
 #[macro_export]
 macro_rules! assert_transaction_postings_eq {
     ($want:expr, $got:expr, $($context_arg:expr),*) => {
-        let want_str = crate::testutil::format_transaction_postings($want);
-        let got_str = crate::testutil::format_transaction_postings($got);
+        let want_str = $crate::testutil::format_transaction_postings($want);
+        let got_str = $crate::testutil::format_transaction_postings($got);
         if want_str != got_str {
             eprintln!($($context_arg,)*);
             text_diff::assert_diff(&want_str, &got_str, "\n", 0);
         }
     };
     ($want:expr, $got:expr) => {
-        let want_str = crate::testutil::format_transaction_postings($want);
-        let got_str = crate::testutil::format_transaction_postings($got);
+        let want_str = $crate::testutil::format_transaction_postings($want);
+        let got_str = $crate::testutil::format_transaction_postings($got);
         if want_str != got_str {
             text_diff::assert_diff(&want_str, &got_str, "\n", 0);
         }
@@ -73,8 +88,8 @@ pub fn parse_posting(p: &str) -> Posting {
     post
 }
 
-pub fn parse_posting_internal(p: &str) -> PostingInternal {
-    parse_posting(p).into()
+pub fn parse_posting_internal(p: &str) -> Result<PostingInternal> {
+    parse_posting(p).try_into()
 }
 
 pub fn format_posting_internal(post: PostingInternal) -> String {
@@ -85,16 +100,16 @@ pub fn format_posting_internal(post: PostingInternal) -> String {
 #[macro_export]
 macro_rules! assert_posting_internal_eq {
     ($want:expr, $got:expr, $($context_arg:expr),*) => {
-        let want_str = crate::testutil::format_posting_internal($want);
-        let got_str = crate::testutil::format_posting_internal($got);
+        let want_str = $crate::testutil::format_posting_internal($want);
+        let got_str = $crate::testutil::format_posting_internal($got);
         if want_str != got_str {
             eprintln!($($context_arg,)*);
             text_diff::assert_diff(&want_str, &got_str, "\n", 0);
         }
     };
     ($want:expr, $got:expr) => {
-        let want_str = crate::testutil::format_posting_internal($want);
-        let got_str = crate::testutil::format_posting_internal($got);
+        let want_str = $crate::testutil::format_posting_internal($want);
+        let got_str = $crate::testutil::format_posting_internal($got);
         if want_str != got_str {
             text_diff::assert_diff(&want_str, &got_str, "\n", 0);
         }

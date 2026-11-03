@@ -1,9 +1,9 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
 use clap::Args;
 use itertools::Itertools;
-use ledger_parser::{Amount, Balance, Commodity, CommodityPosition, Posting, Reality, Transaction};
+use ledger_parser::{Amount, Balance, Commodity, CommodityPosition, Posting, Transaction};
 
 use crate::accounts::ASSETS_UNKNOWN;
 use crate::comment::Comment;
@@ -11,7 +11,7 @@ use crate::filespec::FileSpec;
 use crate::fingerprint::FingerprintBuilder;
 use crate::importers::importer::TransactionImporter;
 use crate::importers::util::{self_and_peer_account_amount, self_and_peer_fingerprints};
-use crate::ledgerutil::simple_posting_amount;
+use crate::ledgerutil;
 use crate::tags;
 use crate::tzabbr::TzAbbrDB;
 
@@ -87,10 +87,14 @@ impl PaypalCsv {
     ) -> Result<Transaction> {
         let date = dt.with_timezone(&self.output_timezone).naive_local().date();
 
-        let description = records
-            .iter()
-            .find_map(|record| record.name.clone())
-            .ok_or_else(|| anyhow!("no record has a name for transactions at date time {}", dt))?;
+        let description = Some(
+            records
+                .iter()
+                .find_map(|record| record.name.clone())
+                .ok_or_else(|| {
+                    anyhow!("no record has a name for transactions at date time {}", dt)
+                })?,
+        );
 
         let mut postings = Vec::new();
         for (i, mut record) in records.into_iter().enumerate() {
@@ -103,11 +107,12 @@ impl PaypalCsv {
         Ok(Transaction {
             description,
             code: None,
-            comment: None,
             date,
             effective_date: None,
             status: None,
             postings,
+            comment: None,
+            posting_metadata: ledgerutil::empty_posting_metadata(),
         })
     }
 
@@ -142,25 +147,24 @@ impl PaypalCsv {
 
         let halves = self_and_peer_account_amount(record.amount, ASSETS_UNKNOWN.to_string());
 
-        let status = Some(record.status.into());
+        let status = record.status.into();
 
         (
-            Posting {
-                account: halves.self_.account,
-                reality: Reality::Real,
-                amount: Some(simple_posting_amount(halves.self_.amount)),
-                balance: Some(Balance::Amount(record.balance)),
-                comment: self_comment.into_opt_comment(),
-                status,
-            },
-            Posting {
-                account: halves.peer.account,
-                reality: Reality::Real,
-                amount: Some(simple_posting_amount(halves.peer.amount)),
-                balance: None,
-                comment: peer_comment.into_opt_comment(),
-                status,
-            },
+            halves
+                .self_
+                .into_posting_internal_builder()
+                .with_balance(Balance::Amount(record.balance))
+                .with_status(status)
+                .with_comment(self_comment)
+                .build()
+                .into(),
+            halves
+                .peer
+                .into_posting_internal_builder()
+                .with_status(status)
+                .with_comment(peer_comment)
+                .build()
+                .into(),
         )
     }
 }
@@ -250,7 +254,7 @@ mod de {
 
     use ledger_parser::TransactionStatus;
     use rust_decimal::Decimal;
-    use serde::{de, Deserialize, Deserializer};
+    use serde::{Deserialize, Deserializer, de};
     use serde_derive::Deserialize;
 
     #[derive(Deserialize)]

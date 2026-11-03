@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use anyhow::{Result, bail};
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
 
@@ -15,6 +17,8 @@ pub struct Comment {
     /// Tags that are present or not, e.g: `":TAG:"`.
     pub tags: HashSet<String>,
     /// Tags that have a string value, e.g: `"TAG: value"`.
+    ///
+    /// TODO: Consider switching to [ledger_parser::TagValue].
     pub value_tags: HashMap<String, String>,
 }
 
@@ -37,7 +41,90 @@ impl Comment {
         Self::from_opt_comment(comment.as_ref().map(String::as_str))
     }
 
+    /// Converts from the [ledger_parser::PostingMetadata::tags] and comment on a
+    /// [ledger_parser::Transaction] or [ledger_parser::Posting].
+    pub fn from_tags_and_comment(
+        tags: Vec<ledger_parser::Tag>,
+        comment: Option<String>,
+    ) -> Result<Self> {
+        let (mut name_tags, mut value_tags) = {
+            let num_name_tags = tags.iter().filter(|tag| tag.value.is_none()).count();
+            let num_value_tags = tags
+                .len()
+                .checked_sub(num_name_tags)
+                .expect("num_name_tags more than len(tags)");
+            (
+                HashSet::with_capacity(num_name_tags),
+                HashMap::with_capacity(num_value_tags),
+            )
+        };
+        for tag in tags {
+            match (tag.name, tag.value) {
+                (name, None) => {
+                    if name_tags.contains(&name) {
+                        bail!("duplicate name tag with name {name:?}");
+                    }
+                    name_tags.insert(name);
+                }
+                (name, Some(value)) => {
+                    use std::collections::hash_map::Entry;
+                    match value_tags.entry(name) {
+                        Entry::Occupied(entry) => {
+                            bail!(
+                                "duplicate value tag with name {:?} and values {:?} and {:?}",
+                                entry.key(),
+                                entry.get(),
+                                value.to_string(),
+                            );
+                        }
+                        Entry::Vacant(entry) => {
+                            entry.insert(value.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(Self {
+            lines: comment
+                .map(|comment_str| comment_str.split("\n").map(str::to_string).collect())
+                .unwrap_or_default(),
+            tags: name_tags,
+            value_tags,
+        })
+    }
+
+    /// Converts to the [ledger_parser::PostingMetadata::tags] and comment for a
+    /// [ledger_parser::Transaction] or [ledger_parser::Posting].
+    // XXX use this instead of into_opt_comment
+    pub fn into_tags_and_comment(self) -> (Vec<ledger_parser::Tag>, Option<String>) {
+        let mut tags = Vec::with_capacity(self.tags.len() + self.value_tags.len());
+        for name in self.tags {
+            tags.push(ledger_parser::Tag { name, value: None });
+        }
+        for (name, value) in self.value_tags.into_iter() {
+            tags.push(ledger_parser::Tag {
+                name,
+                value: Some(ledger_parser::TagValue::String(value)),
+            })
+        }
+
+        // Ensure deterministic tag order on output.
+        tags.sort_unstable_by(|a, b| {
+            (&a.name, a.value.is_some()).cmp(&(&b.name, b.value.is_some()))
+        });
+
+        let opt_comment_string = if self.lines.is_empty() {
+            None
+        } else {
+            Some(self.lines.into_iter().join("\n"))
+        };
+
+        (tags, opt_comment_string)
+    }
+
     /// Parses the given string into a `Comment`.
+    /// XXX remove
     pub fn from_opt_comment(comment: Option<&str>) -> Self {
         lazy_static! {
             static ref VALUE_TAG_RX: Regex = Regex::new(r"^[ ]*([^: ]+):(?:[ ]+(.+))?$").unwrap();
@@ -97,6 +184,7 @@ impl Comment {
     }
 
     /// Formats this `Comment` into a string.
+    /// XXX remove
     pub fn into_opt_comment(self) -> Option<String> {
         let mut out_lines = Vec::<String>::new();
 
@@ -217,6 +305,8 @@ impl CommentBuilder {
 
 #[cfg(test)]
 mod tests {
+    use crate::testutil::{ledger_tag, ledger_value_tag};
+
     use super::*;
 
     use test_case::test_case;
@@ -243,20 +333,18 @@ mod tests {
     #[test_case(
         "start text :TAG1:TAG2: end text\n"
         => CommentBuilder::new()
-            .with_line("start text")
+            .with_line("start text end text")
             .with_tag("TAG1")
             .with_tag("TAG2")
-            .with_line("end text")
             .build();
         "text_2_inline_tags_text"
     )]
     #[test_case(
         "start text :TAG1:TAG2: end : text : with : colons\n"
         => CommentBuilder::new()
-            .with_line("start text")
+            .with_line("start text end : text : with : colons")
             .with_tag("TAG1")
             .with_tag("TAG2")
-            .with_line("end : text : with : colons")
             .build();
         "text_2_inline_tags_text_with_colons"
     )]
@@ -271,20 +359,40 @@ mod tests {
         "bad_key_value_becomes_text"
     )]
     #[test_case(
-        "comment\nkey-without-value:"
+        "comment\nnot-really-a-value-tag:"
         => CommentBuilder::new()
             .with_line("comment")
-            .with_value_tag("key-without-value", "")
+            .with_line("not-really-a-value-tag:")
             .build();
         "key_without_value"
     )]
-    fn test_parse_comment(text: &str) -> Comment {
-        Comment::from_opt_comment(Some(text))
+    fn test_from_tags_and_comment(text: &str) -> Comment {
+        // GIVEN: a Transaction parsed from ledger text containing the text as a comment on a
+        // transaction.
+        let mut trn_parts = vec!["2020-01-01  Description\n"];
+        for line in text.split("\n") {
+            trn_parts.push("  ; ");
+            trn_parts.push(line);
+            trn_parts.push("\n");
+        }
+        trn_parts.push("  expenses:dummy\n");
+        trn_parts.push("  income:dummy\n");
+        let trn_text: String = trn_parts.into_iter().collect();
+        let mut ledger = ledger_parser::parse(&trn_text).expect("unexpected parse failure");
+        assert_eq!(ledger.items.len(), 1);
+        let trn = match ledger.items.pop().expect("Expect an item.") {
+            ledger_parser::LedgerItem::Transaction(trn) => trn,
+            item => panic!("expected LedgerItem::Transaction, got {item:?}"),
+        };
+
+        // WHEN: from_tags_and_comment is called on the tags and comment.
+        Comment::from_tags_and_comment(trn.posting_metadata.tags, trn.comment)
+            .expect("unexpected failure converting from tags and comment")
     }
 
     #[test_case(
         Comment::new()
-        => None;
+        => (None, (vec![], None));
         "empty_comment_to_none"
     )]
     #[test_case(
@@ -292,7 +400,13 @@ mod tests {
             .with_line("first line")
             .with_line("second line")
             .build()
-        => Some("first line\nsecond line".to_string());
+        => (
+            Some("first line\nsecond line".to_string()),
+            (
+                vec![],
+                Some("first line\nsecond line".into())
+            ),
+        );
         "two_lines_of_text"
     )]
     #[test_case(
@@ -301,7 +415,13 @@ mod tests {
             .with_line("second line")
             .with_value_tag("name", "value")
             .build()
-        => Some("first line\nsecond line\nname: value".to_string());
+        => (
+            Some("first line\nsecond line\nname: value".to_string()),
+            (
+                vec![ledger_value_tag("name", "value")],
+                Some("first line\nsecond line".into())
+            ),
+        );
         "two_lines_of_text_and_key_value"
     )]
     #[test_case(
@@ -313,7 +433,18 @@ mod tests {
             .with_tag("tag3")
             .with_tag("tag4")
             .build()
-        => Some(":tag1:tag2:tag3:tag4: text\nmore text".to_string());
+        => (
+            Some(":tag1:tag2:tag3:tag4: text\nmore text".to_string()),
+            (
+                vec![
+                    ledger_tag("tag1"),
+                    ledger_tag("tag2"),
+                    ledger_tag("tag3"),
+                    ledger_tag("tag4"),
+                ],
+                Some("text\nmore text".into())
+            ),
+        );
         "four_inline_tags_followed_by_text"
     )]
     #[test_case(
@@ -326,7 +457,19 @@ mod tests {
             .with_tag("tag3")
             .with_value_tag("name2", "value2")
             .build()
-        => Some(":tag1:tag2:tag3: text\nmore text\nname1: value1\nname2: value2".to_string());
+        => (
+            Some(":tag1:tag2:tag3: text\nmore text\nname1: value1\nname2: value2".to_string()),
+            (
+                vec![
+                    ledger_value_tag("name1", "value1"),
+                    ledger_value_tag("name2", "value2"),
+                    ledger_tag("tag1"),
+                    ledger_tag("tag2"),
+                    ledger_tag("tag3"),
+                ],
+                Some("text\nmore text".into())
+            ),
+        );
         "newlines_injected_when_needed"
     )]
     #[test_case(
@@ -336,11 +479,27 @@ mod tests {
             .with_value_tag("name1", "value1")
             .with_tag("really_long_tag_name")
             .build()
-        => Some(":a_tag:z_tag:\n:really_long_tag_name:\nname1: value1".to_string());
+        => (
+            Some(":a_tag:z_tag:\n:really_long_tag_name:\nname1: value1".to_string()),
+            (
+                vec![
+                    ledger_tag("a_tag"),
+                    ledger_value_tag("name1", "value1"),
+                    ledger_tag("really_long_tag_name"),
+                    ledger_tag("z_tag"),
+                ],
+                None,
+            ),
+        );
         "long_tags_go_on_own_line"
     )]
-    fn test_format_comment(comment: Comment) -> Option<String> {
-        comment.into_opt_comment()
+    fn test_into_opt_comment_and_to_tags_and_comment(
+        comment: Comment,
+    ) -> (Option<String>, (Vec<ledger_parser::Tag>, Option<String>)) {
+        (
+            comment.clone().into_opt_comment(),
+            comment.into_tags_and_comment(),
+        )
     }
 
     #[test]

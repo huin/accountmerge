@@ -1,7 +1,7 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use chrono::NaiveDate;
 use clap::Args;
-use ledger_parser::{Amount, Balance, Posting, Reality, Transaction};
+use ledger_parser::{Amount, Balance, Posting, Transaction};
 use serde::de::DeserializeOwned;
 use serde_derive::Deserialize;
 
@@ -9,10 +9,10 @@ use crate::accounts::ASSETS_UNKNOWN;
 use crate::comment::Comment;
 use crate::filespec::FileSpec;
 use crate::importers::importer::TransactionImporter;
-use crate::importers::nationwide::{CommonOpts, BANK_NAME};
+use crate::importers::nationwide::{BANK_NAME, CommonOpts};
 use crate::importers::nationwide_csv::de::*;
 use crate::importers::util::{negate_amount, self_and_peer_account_amount};
-use crate::ledgerutil::simple_posting_amount;
+use crate::ledgerutil;
 use crate::tags;
 
 use super::importer::Import;
@@ -110,9 +110,14 @@ impl NationwideCsv {
             ["Date", "Transactions", "Location", "Paid out", "Paid in"] => {
                 self.process_rows::<R, RecordFive>(csv_records, fp_prefix, account_name)
             }
-            ["Date", "Transaction type", "Description", "Paid out", "Paid in", "Balance"] => {
-                self.process_rows::<R, RecordSix>(csv_records, fp_prefix, account_name)
-            }
+            [
+                "Date",
+                "Transaction type",
+                "Description",
+                "Paid out",
+                "Paid in",
+                "Balance",
+            ] => self.process_rows::<R, RecordSix>(csv_records, fp_prefix, account_name),
             _ => {
                 bail!(
                     "bad file format: unexpected transaction headers: {}",
@@ -158,11 +163,12 @@ impl NationwideCsv {
 
             transactions.push(Transaction {
                 date,
-                description,
+                description: Some(description),
                 comment: None,
                 status: None,
                 code: None,
                 effective_date: None,
+                posting_metadata: ledgerutil::empty_posting_metadata(),
                 postings: vec![post1, post2],
             });
         }
@@ -236,22 +242,18 @@ impl PostingFormer for RecordFive {
             .with_tag(fp_v1.peer.tag())
             .with_tag(tags::IMPORT_PEER.to_string());
         Ok((
-            Posting {
-                account: halves.self_.account,
-                reality: Reality::Real,
-                amount: Some(simple_posting_amount(halves.self_.amount)),
-                balance: None,
-                comment: self_comment.build().into_opt_comment(),
-                status: None,
-            },
-            Posting {
-                account: halves.peer.account,
-                reality: Reality::Real,
-                amount: Some(simple_posting_amount(halves.peer.amount)),
-                balance: None,
-                comment: peer_comment.build().into_opt_comment(),
-                status: None,
-            },
+            halves
+                .self_
+                .into_posting_internal_builder()
+                .with_comment(self_comment.build())
+                .build()
+                .into(),
+            halves
+                .peer
+                .into_posting_internal_builder()
+                .with_comment(peer_comment.build())
+                .build()
+                .into(),
         ))
     }
 }
@@ -299,22 +301,19 @@ impl PostingFormer for RecordSix {
             peer_comment = peer_comment.with_tag(fp_legacy.peer.legacy_tag());
         }
         Ok((
-            Posting {
-                account: halves.self_.account,
-                reality: Reality::Real,
-                amount: Some(simple_posting_amount(halves.self_.amount)),
-                balance: Some(Balance::Amount(self.balance.0)),
-                comment: self_comment.build().into_opt_comment(),
-                status: None,
-            },
-            Posting {
-                account: halves.peer.account,
-                reality: Reality::Real,
-                amount: Some(simple_posting_amount(halves.peer.amount)),
-                balance: None,
-                comment: peer_comment.build().into_opt_comment(),
-                status: None,
-            },
+            halves
+                .self_
+                .into_posting_internal_builder()
+                .with_balance(Balance::Amount(self.balance.0))
+                .with_comment(self_comment.build())
+                .build()
+                .into(),
+            halves
+                .peer
+                .into_posting_internal_builder()
+                .with_comment(peer_comment.build())
+                .build()
+                .into(),
         ))
     }
 }
@@ -323,19 +322,19 @@ mod de {
     use std::fmt;
     use std::str::FromStr;
 
-    use anyhow::{bail, Context, Result};
+    use anyhow::{Context, Result, bail};
     use chrono::NaiveDate;
     use lazy_static::lazy_static;
     use ledger_parser::{Amount, Commodity, CommodityPosition};
     use regex::Regex;
     use rust_decimal::Decimal;
-    use serde::de::{self, DeserializeOwned, Deserializer};
     use serde::Deserialize;
+    use serde::de::{self, DeserializeOwned, Deserializer};
     use serde_derive::Deserialize;
 
     use crate::fingerprint::{Accumulator, FingerprintBuilder, Fingerprintable};
     use crate::importers::util::{
-        self_and_peer_fingerprints, FingerprintHalves, TransactionHalves,
+        FingerprintHalves, TransactionHalves, self_and_peer_fingerprints,
     };
 
     /// Contains the directly deserialized values from the five-column
