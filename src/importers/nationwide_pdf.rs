@@ -159,13 +159,12 @@ impl NationwidePdf {
         let mut prev_trn_line: Option<&table::TransactionLine> = None;
 
         for trn_line in &trn_lines {
-            if let Some(prev_trn_line) = prev_trn_line {
-                if trn_line.top > prev_trn_line.top + prev_trn_line.height * 2 {
+            if let Some(prev_trn_line) = prev_trn_line
+                && trn_line.top > prev_trn_line.top + prev_trn_line.height * 2 {
                     // There have been blank lines, this is probably the end of
                     // the transactions.
                     break;
                 }
-            }
 
             acc.feed_line(trn_line)
                 .with_context(|| format!("for transaction line {}", trn_line))?;

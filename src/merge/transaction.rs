@@ -40,7 +40,7 @@ impl IndexedTransactions {
             })
             .collect();
         // Sort by dates (first item in tuple).
-        date_trns.sort_by(|a, b| a.0.cmp(&b.0));
+        date_trns.sort_by_key(|a| a.0);
 
         date_trns
             .into_iter()

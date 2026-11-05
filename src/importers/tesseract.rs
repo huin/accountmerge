@@ -159,7 +159,7 @@ impl Document {
                             itertools::join(
                                 line.words.iter().map(|word| format!(
                                     "{}({}-{})",
-                                    &word.text,
+                                    word.text,
                                     word.left,
                                     word.left + word.width
                                 )),
