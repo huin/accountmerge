@@ -147,9 +147,9 @@ mod tests {
 
         fn inc(&mut self) {
             use TestEnum::*;
-            match self {
-                One(ref mut v) => *v += 1,
-                Two(ref mut v) => *v += 1,
+            *self = match *self {
+                One(v) => One(v + 1),
+                Two(v) => Two(v + 1),
             }
         }
     }
